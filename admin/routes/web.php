@@ -1,22 +1,43 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Services\FirebaseService;
+use Kreait\Firebase\Factory;
 
-Route::get('/test-firebase', function () {
-    $firebase = new FirebaseService();
+Route::get('/firebase-ping', function () {
+    try {
+        // Initialize Firebase
+        $factory = (new Factory)->withServiceAccount(storage_path('firebase_credentials.json'));
 
-    $firestore = $firebase->getFirestore();
-    $auth = $firebase->getAuth();
-    $storage = $firebase->getStorage();
+        $auth = $factory->createAuth();
+        $firestore = $factory->createFirestore();
+        $storage = $factory->createStorage();
 
-    // Example: list Firestore collections
-    $collections = $firestore->collections();
+        // --- Firestore Ping ---
+        $firestoreDb = $firestore->database();
+        $collections = $firestoreDb->collections(); // just list collections
+        $firestorePing = count($collections) >= 0 ? 'Firestore reachable' : 'Firestore unreachable';
 
-    return response()->json([
-        'collections' => array_map(fn($c) => $c->id(), $collections)
-    ]);
+        // --- Auth Ping ---
+        $users = $auth->listUsers(['maxResults' => 1]); // just try fetching one user
+        $authPing = $users ? 'Auth reachable' : 'Auth unreachable';
+
+        // --- Storage Ping ---
+        $bucket = $storage->getBucket();
+        $storagePing = $bucket ? 'Storage reachable' : 'Storage unreachable';
+
+        return response()->json([
+            'firestore' => $firestorePing,
+            'auth' => $authPing,
+            'storage' => $storagePing
+        ]);
+
+    } catch (\Throwable $e) {
+        return response()->json([
+            'error' => $e->getMessage()
+        ]);
+    }
 });
+
 
 
 Route::get('/', function () {

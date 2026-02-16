@@ -3,13 +3,19 @@
 use Illuminate\Support\Facades\Route;
 use App\Services\FirebaseService;
 
-Route::get('/test-firestore', function (FirebaseService $firebase) {
-    $collection = $firebase->getFirestore()->collection('test');
-    $collection->add([
-        'message' => 'Hello Firebase!',
-        'time' => now()->toDateTimeString(),
+Route::get('/test-firebase', function () {
+    $firebase = new FirebaseService();
+
+    $firestore = $firebase->getFirestore();
+    $auth = $firebase->getAuth();
+    $storage = $firebase->getStorage();
+
+    // Example: list Firestore collections
+    $collections = $firestore->collections();
+
+    return response()->json([
+        'collections' => array_map(fn($c) => $c->id(), $collections)
     ]);
-    return 'Successfully connected to Firebase!';
 });
 
 

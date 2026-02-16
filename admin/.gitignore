@@ -22,5 +22,5 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
-/config/firebase_credentials.json
+/firebase_credentials.json
 .env

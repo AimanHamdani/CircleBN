@@ -18,6 +18,9 @@ class EventRegistration extends Model
         'age',
         'checked_in_at',
         'dropped_off',
+        'qr_code',
+        'emergency_contact',
+        'tshirt_size',
     ];
 
     protected function casts(): array

@@ -15,11 +15,16 @@ class Event extends Model
         'user_id',
         'title',
         'description',
+        'location',
+        'category',
+        'image',
         'status',
         'registration_deadline',
         'starts_at',
         'ends_at',
         'capacity',
+        'fee',
+        'registration_open',
     ];
 
     protected function casts(): array
@@ -28,7 +33,40 @@ class Event extends Model
             'registration_deadline' => 'date',
             'starts_at' => 'datetime',
             'ends_at' => 'datetime',
+            'fee' => 'decimal:2',
+            'registration_open' => 'boolean',
         ];
+    }
+
+    public function isRegistrationOpen(): bool
+    {
+        if (! $this->registration_open) {
+            return false;
+        }
+
+        if ($this->registration_deadline && $this->registration_deadline->isPast()) {
+            return false;
+        }
+
+        return true;
+    }
+
+    public function isFull(): bool
+    {
+        if (! $this->capacity) {
+            return false;
+        }
+
+        return $this->registrations()->count() >= $this->capacity;
+    }
+
+    public function spotsRemaining(): ?int
+    {
+        if (! $this->capacity) {
+            return null;
+        }
+
+        return max(0, $this->capacity - $this->registrations()->count());
     }
 
     public function organizer(): BelongsTo
@@ -44,5 +82,10 @@ class Event extends Model
     public function reviews(): HasMany
     {
         return $this->hasMany(EventReview::class);
+    }
+
+    public function announcements(): HasMany
+    {
+        return $this->hasMany(EventAnnouncement::class);
     }
 }

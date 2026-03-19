@@ -11,6 +11,8 @@ class SampleEvents {
     return DateTime(d.year, d.month, d.day, hour, minute);
   }
 
+  static const String _creatorId = 'current_user_placeholder';
+
   // 5 upcoming sample events (today + future only).
   static final List<Event> all = <Event>[
     Event(
@@ -26,7 +28,8 @@ class SampleEvents {
       entryFeeLabel: 'Free',
       description: 'Easy pace group run. Meet at the park entrance for warm-up and route briefing.',
       joinedByMe: true,
-      imageUrl: null,
+      creatorId: _creatorId,
+      thumbnailFileId: null,
     ),
     Event(
       id: 'badminton_social',
@@ -41,7 +44,7 @@ class SampleEvents {
       entryFeeLabel: '\$3',
       description: 'Friendly doubles rotation. Shuttlecocks provided. Bring your own racket.',
       joinedByMe: false,
-      imageUrl: null,
+      thumbnailFileId: null,
     ),
     Event(
       id: 'lets_go_volley',
@@ -56,7 +59,8 @@ class SampleEvents {
       entryFeeLabel: 'Free',
       description: 'Casual games. We’ll split into teams, rotate, and keep it beginner-friendly.',
       joinedByMe: true,
-      imageUrl: null,
+      creatorId: _creatorId,
+      thumbnailFileId: null,
     ),
     Event(
       id: 'cycle_together',
@@ -71,7 +75,7 @@ class SampleEvents {
       entryFeeLabel: 'Free',
       description: 'Chill ride with regroup points. Helmet required. Bring water.',
       joinedByMe: false,
-      imageUrl: null,
+      thumbnailFileId: null,
     ),
     Event(
       id: 'swim_session',
@@ -86,7 +90,7 @@ class SampleEvents {
       entryFeeLabel: '\$2',
       description: 'Laps + technique drills. Any pace welcome; we’ll split lanes by speed.',
       joinedByMe: false,
-      imageUrl: null,
+      thumbnailFileId: null,
     ),
   ]..sort((a, b) => a.startAt.compareTo(b.startAt));
 }

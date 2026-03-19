@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:appwrite/appwrite.dart';
 
+import '../../../appwrite/appwrite_service.dart';
+import '../../../auth/current_user.dart';
+import '../../../data/profile_repository.dart';
 import '../../../data/sample_clubs.dart';
 import '../../../models/club.dart';
 import '../../../models/signup_draft.dart';
+import '../../../models/user_profile.dart';
 import '../home/home_screen.dart';
 
 class RecommendedClubsArgs {
@@ -22,6 +27,7 @@ class RecommendedClubsScreen extends StatefulWidget {
 class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
   late RecommendedClubsArgs _args;
   late Set<String> _selectedClubIds;
+  bool _isSubmitting = false;
 
   @override
   void didChangeDependencies() {
@@ -41,19 +47,110 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
   }
 
   Future<void> _finish() async {
+    if (_isSubmitting) return;
     final finalDraft = _args.draft.copyWith(clubIds: _selectedClubIds);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Sign up complete (mock).\nSports: ${finalDraft.sports.isEmpty ? 'none' : finalDraft.sports.join(', ')}\nClubs: ${finalDraft.clubIds.isEmpty ? 'none' : finalDraft.clubIds.length}',
-        ),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 500));
-    if (!mounted) return;
-    Navigator.of(context).pushNamedAndRemoveUntil(HomeScreen.routeName, (_) => false);
+    final email = finalDraft.email?.trim() ?? '';
+    final password = finalDraft.password ?? '';
+    final userName = finalDraft.fullName?.trim().isNotEmpty == true
+        ? finalDraft.fullName!.trim()
+        : (finalDraft.username?.trim().isNotEmpty == true ? finalDraft.username!.trim() : 'User');
+
+    if (email.isEmpty || password.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Missing email/password from signup flow.')),
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    try {
+      try {
+        await AppwriteService.account.create(
+          userId: ID.unique(),
+          email: email,
+          password: password,
+          name: userName,
+        );
+      } on AppwriteException catch (e) {
+        // If account already exists, continue with login flow.
+        if (e.code != 409) {
+          rethrow;
+        }
+      }
+
+      try {
+        await AppwriteService.account.createEmailPasswordSession(
+          email: email,
+          password: password,
+        );
+      } on AppwriteException catch (e) {
+        // If already logged in, session creation can fail; continue.
+        if (e.code != 401 && e.code != 409) {
+          rethrow;
+        }
+      }
+
+      await CurrentUser.init();
+
+      if (currentUserId == 'current_user_placeholder') {
+        throw AppwriteException(
+          'No active Appwrite session after signup. Check Auth permissions/settings.',
+          401,
+        );
+      }
+
+      final profile = UserProfile(
+        userId: currentUserId,
+        username: finalDraft.username?.trim().isNotEmpty == true ? finalDraft.username!.trim() : userName,
+        realName: finalDraft.fullName?.trim().isNotEmpty == true ? finalDraft.fullName!.trim() : userName,
+        email: email,
+        age: _calcAge(finalDraft.dateOfBirth),
+        gender: finalDraft.gender ?? 'Male',
+        heightCm: finalDraft.heightCm,
+        preferredSports: finalDraft.sports,
+        emergencyContact: finalDraft.emergencyContact ?? '',
+        bio: '',
+        notificationsEnabled: true,
+      );
+      try {
+        await profileRepository().saveMyProfile(profile);
+      } on AppwriteException catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Account created, but profile save failed: ${e.message ?? 'check profiles schema/permissions'}',
+            ),
+          ),
+        );
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Account created, but profile save failed. Check profiles schema/permissions.'),
+          ),
+        );
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sign up completed.')),
+      );
+      Navigator.of(context).pushNamedAndRemoveUntil(HomeScreen.routeName, (_) => false);
+    } on AppwriteException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to sign up: ${e.message ?? 'unknown error'}')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to sign up. Please try again.')),
+      );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -169,8 +266,14 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
               ),
               const SizedBox(height: 12),
               FilledButton(
-                onPressed: _finish,
-                child: const Text('Next'),
+                onPressed: _isSubmitting ? null : _finish,
+                child: _isSubmitting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text('Next'),
               ),
             ],
           ),
@@ -178,5 +281,16 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
       ),
     );
   }
+}
+
+int? _calcAge(DateTime? dob) {
+  if (dob == null) return null;
+  final now = DateTime.now();
+  var age = now.year - dob.year;
+  final hadBirthday = now.month > dob.month || (now.month == dob.month && now.day >= dob.day);
+  if (!hadBirthday) {
+    age -= 1;
+  }
+  return age;
 }
 

@@ -4,7 +4,12 @@ import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/home/all_events_screen.dart';
+import 'screens/home/create_event_screen.dart';
 import 'screens/home/event_detail_screen.dart';
+import 'screens/home/map_picker_screen.dart';
+import 'screens/profile/edit_profile_screen.dart';
+import 'screens/profile/profile_screen.dart';
+import 'screens/reset_password_screen.dart';
 import 'screens/signup/signup_screen.dart';
 import 'screens/signup/about_you_screen.dart';
 import 'screens/signup/choose_sports_screen.dart';
@@ -28,7 +33,12 @@ class AppRoot extends StatelessWidget {
         RecommendedClubsScreen.routeName: (_) => const RecommendedClubsScreen(),
         HomeScreen.routeName: (_) => const HomeScreen(),
         AllEventsScreen.routeName: (_) => const AllEventsScreen(),
+        CreateEventScreen.routeName: (_) => const CreateEventScreen(),
         EventDetailScreen.routeName: (_) => const EventDetailScreen(),
+        MapPickerScreen.routeName: (_) => const MapPickerScreen(),
+        ProfileScreen.routeName: (_) => const ProfileScreen(),
+        EditProfileScreen.routeName: (_) => const EditProfileScreen(),
+        ResetPasswordScreen.routeName: (_) => const ResetPasswordScreen(),
       },
     );
   }

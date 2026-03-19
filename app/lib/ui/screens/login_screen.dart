@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:appwrite/appwrite.dart';
 
+import '../../appwrite/appwrite_config.dart';
+import '../../appwrite/appwrite_service.dart';
+import '../../auth/current_user.dart';
 import '../widgets/sample_app_icon.dart';
 import 'home/home_screen.dart';
+import 'reset_password_screen.dart';
 import 'signup/signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -17,6 +22,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool _obscure = true;
+  bool _isLoading = false;
+  bool _isRecovering = false;
 
   @override
   void dispose() {
@@ -27,13 +34,68 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _onLogin() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Logged in (mock). No database yet.')),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed(HomeScreen.routeName);
+    if (_isLoading) return;
+
+    setState(() => _isLoading = true);
+    try {
+      await AppwriteService.account.createEmailPasswordSession(
+        email: _emailCtrl.text.trim(),
+        password: _passwordCtrl.text,
+      );
+      await CurrentUser.init();
+      if (!mounted) return;
+      Navigator.of(context).pushReplacementNamed(HomeScreen.routeName);
+    } on AppwriteException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Login failed.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Login failed. Please try again.')),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _onForgotPassword() async {
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter your email first to reset password.')),
+      );
+      return;
+    }
+
+    if (_isRecovering) {
+      return;
+    }
+
+    setState(() => _isRecovering = true);
+    try {
+      await AppwriteService.account.createRecovery(
+        email: email,
+        url: AppwriteConfig.passwordRecoveryUrl,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password reset email sent. Check your inbox.')),
+      );
+    } on AppwriteException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Failed to send recovery email.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to send recovery email.')),
+      );
+    } finally {
+      if (mounted) setState(() => _isRecovering = false);
+    }
   }
 
   @override
@@ -112,18 +174,27 @@ class _LoginScreenState extends State<LoginScreen> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Forgot password (mock).')),
-                    );
-                  },
-                  child: const Text('Forgot Password?'),
+                  onPressed: _isRecovering ? null : _onForgotPassword,
+                  child: Text(_isRecovering ? 'Sending...' : 'Forgot Password?'),
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pushNamed(ResetPasswordScreen.routeName),
+                  child: const Text('I have reset code'),
                 ),
               ),
               const SizedBox(height: 6),
               FilledButton(
-                onPressed: _onLogin,
-                child: const Text('Login'),
+                onPressed: _isLoading ? null : _onLogin,
+                child: _isLoading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text('Login'),
               ),
               const SizedBox(height: 14),
               Row(

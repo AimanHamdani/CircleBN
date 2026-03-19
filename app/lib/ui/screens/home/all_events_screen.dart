@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../../data/sample_events.dart';
+import '../../../appwrite/appwrite_config.dart';
+import '../../../appwrite/appwrite_service.dart';
+import '../../../data/event_repository.dart';
+import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
+import '../../../models/user_profile.dart';
 import 'event_detail_screen.dart';
 
 class AllEventsScreen extends StatefulWidget {
@@ -16,6 +20,17 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
   DateTime? _selectedDate;
   int _weekOffset = 0;
 
+  late final Future<List<Object?>> _screenDataFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _screenDataFuture = Future.wait<Object?>([
+      eventRepository().listEvents(),
+      profileRepository().getMyProfile(),
+    ]);
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -24,10 +39,8 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final all = SampleEvents.all;
     final selected = _selectedDate;
     final weekDays = _weekDaysFromTodayOffset(_weekOffset);
-    final events = selected == null ? all : all.where((e) => _isSameDay(e.startAt, selected)).toList();
     final canPrevWeek = _weekOffset > 0;
 
     return Scaffold(
@@ -38,145 +51,157 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
         ),
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 6, 18, 0),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Home', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-                        SizedBox(height: 2),
-                        Text('All Events', style: TextStyle(color: Colors.black54)),
-                      ],
-                    ),
+        child: FutureBuilder<List<Object?>>(
+          future: _screenDataFuture,
+          builder: (context, snap) {
+            final allRaw = (snap.data != null ? snap.data![0] as List<Event> : const <Event>[]);
+            final profile = (snap.data != null ? snap.data![1] as UserProfile : null);
+            final all = _prioritizeByPreferredSports(allRaw, profile?.preferredSports ?? const <String>{});
+            final events = selected == null ? all : all.where((e) => _isSameDay(e.startAt, selected)).toList();
+
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 6, 18, 0),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Home', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+                            SizedBox(height: 2),
+                            Text('All Events', style: TextStyle(color: Colors.black54)),
+                          ],
+                        ),
+                      ),
+                      InkWell(
+                        onTap: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Filters (mock).')),
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFE3E7EE)),
+                          ),
+                          child: const Icon(Icons.tune),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
                   ),
-                  InkWell(
-                    onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Filters (mock).')),
+                ),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: Row(
+                    children: [
+                      InkWell(
+                        onTap: canPrevWeek
+                            ? () => setState(() {
+                                _weekOffset -= 1;
+                                _selectedDate = _weekDaysFromTodayOffset(_weekOffset).first;
+                              })
+                            : null,
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFE3E7EE)),
+                          ),
+                          child: Icon(
+                            Icons.chevron_left,
+                            color: canPrevWeek ? null : Colors.black26,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _weekTitle(weekDays.first, weekDays.last),
+                              style: const TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                            const SizedBox(height: 2),
+                            const Text('Pick a day', style: TextStyle(color: Colors.black54, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                      InkWell(
+                        onTap: () => setState(() {
+                          _weekOffset += 1;
+                          _selectedDate = _weekDaysFromTodayOffset(_weekOffset).first;
+                        }),
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFE3E7EE)),
+                          ),
+                          child: const Icon(Icons.chevron_right),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 56,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: weekDays.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 10),
+                    itemBuilder: (context, i) {
+                      final d = weekDays[i];
+                      return _DateChip(
+                        label: '${d.day}',
+                        sub: _weekdayLetter(d),
+                        selected: selected != null && _isSameDay(d, selected),
+                        onTap: () => setState(() => _selectedDate = d),
                       );
                     },
-                    borderRadius: BorderRadius.circular(14),
-                    child: Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFE3E7EE)),
-                      ),
-                      child: const Icon(Icons.tune),
-                    ),
                   ),
-                  const SizedBox(width: 10),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: Row(
-                children: [
-                  InkWell(
-                    onTap: canPrevWeek
-                        ? () => setState(() {
-                            _weekOffset -= 1;
-                            _selectedDate = _weekDaysFromTodayOffset(_weekOffset).first;
-                          })
-                        : null,
-                    borderRadius: BorderRadius.circular(14),
-                    child: Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFE3E7EE)),
-                      ),
-                      child: Icon(
-                        Icons.chevron_left,
-                        color: canPrevWeek ? null : Colors.black26,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _weekTitle(weekDays.first, weekDays.last),
-                          style: const TextStyle(fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 2),
-                        const Text('Pick a day', style: TextStyle(color: Colors.black54, fontSize: 12)),
-                      ],
-                    ),
-                  ),
-                  InkWell(
-                    onTap: () => setState(() {
-                      _weekOffset += 1;
-                      _selectedDate = _weekDaysFromTodayOffset(_weekOffset).first;
-                    }),
-                    borderRadius: BorderRadius.circular(14),
-                    child: Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFE3E7EE)),
-                      ),
-                      child: const Icon(Icons.chevron_right),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 56,
-              child: ListView.separated(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                scrollDirection: Axis.horizontal,
-                itemCount: weekDays.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 10),
-                itemBuilder: (context, i) {
-                  final d = weekDays[i];
-                  return _DateChip(
-                    label: '${d.day}',
-                    sub: _weekdayLetter(d),
-                    selected: selected != null && _isSameDay(d, selected),
-                    onTap: () => setState(() => _selectedDate = d),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: events.isEmpty
-                  ? _EmptyDayState(selectedDate: selected)
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(18, 6, 18, 18),
-                      itemCount: events.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 12),
-                      itemBuilder: (context, idx) {
-                        final e = events[idx];
-                        return _AllEventCard(
-                          event: e,
-                          onOpen: () => Navigator.of(context).pushNamed(
-                            EventDetailScreen.routeName,
-                            arguments: EventDetailArgs(event: e, showRegisterButton: true),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: snap.connectionState != ConnectionState.done && all.isEmpty
+                      ? const Center(child: CircularProgressIndicator())
+                      : events.isEmpty
+                          ? _EmptyDayState(selectedDate: selected)
+                          : ListView.separated(
+                              padding: const EdgeInsets.fromLTRB(18, 6, 18, 18),
+                              itemCount: events.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 12),
+                              itemBuilder: (context, idx) {
+                                final e = events[idx];
+                                return _AllEventCard(
+                                  event: e,
+                                  onOpen: () => Navigator.of(context).pushNamed(
+                                    EventDetailScreen.routeName,
+                                    arguments: EventDetailArgs(event: e, showRegisterButton: true),
+                                  ),
+                                );
+                              },
+                            ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -216,7 +241,26 @@ class _AllEventCard extends StatelessWidget {
                 ),
               ),
               alignment: Alignment.center,
-              child: Icon(Icons.image_outlined, color: Colors.black.withValues(alpha: 0.35), size: 44),
+              clipBehavior: Clip.antiAlias,
+              child: event.thumbnailFileId != null && event.thumbnailFileId!.isNotEmpty
+                  ? FutureBuilder(
+                      future: AppwriteService.getFileViewBytes(
+                        bucketId: AppwriteConfig.eventImagesBucketId,
+                        fileId: event.thumbnailFileId!,
+                      ),
+                      builder: (context, snap) {
+                        if (snap.hasData) {
+                          return Image.memory(
+                            snap.data!,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            height: double.infinity,
+                          );
+                        }
+                        return Icon(Icons.image_outlined, color: Colors.black.withValues(alpha: 0.35), size: 44);
+                      },
+                    )
+                  : Icon(Icons.image_outlined, color: Colors.black.withValues(alpha: 0.35), size: 44),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
@@ -415,5 +459,30 @@ class _EmptyDayState extends StatelessWidget {
       ),
     );
   }
+}
+
+List<Event> _prioritizeByPreferredSports(List<Event> events, Set<String> preferredSports) {
+  if (preferredSports.isEmpty) {
+    return events;
+  }
+  final preferred = preferredSports.map((e) => e.toLowerCase()).toSet();
+  final sorted = [...events];
+  sorted.sort((a, b) {
+    final aFav = _sportMatchesPreferred(a.sport, preferred) ? 0 : 1;
+    final bFav = _sportMatchesPreferred(b.sport, preferred) ? 0 : 1;
+    if (aFav != bFav) return aFav.compareTo(bFav);
+    return a.startAt.compareTo(b.startAt);
+  });
+  return sorted;
+}
+
+bool _sportMatchesPreferred(String sport, Set<String> preferred) {
+  final s = sport.toLowerCase();
+  for (final p in preferred) {
+    if (s.contains(p) || p.contains(s)) {
+      return true;
+    }
+  }
+  return false;
 }
 

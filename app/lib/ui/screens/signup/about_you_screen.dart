@@ -15,6 +15,7 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
   final _formKey = GlobalKey<FormState>();
   final _fullNameCtrl = TextEditingController();
   final _usernameCtrl = TextEditingController();
+  final _emergencyCtrl = TextEditingController();
   final _heightCtrl = TextEditingController();
 
   DateTime? _dob;
@@ -24,6 +25,7 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
   void dispose() {
     _fullNameCtrl.dispose();
     _usernameCtrl.dispose();
+    _emergencyCtrl.dispose();
     _heightCtrl.dispose();
     super.dispose();
   }
@@ -55,6 +57,7 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
       dateOfBirth: _dob,
       gender: _gender,
       heightCm: height,
+      emergencyContact: _emergencyCtrl.text.trim().isEmpty ? null : _emergencyCtrl.text.trim(),
     );
     Navigator.of(context).pushNamed(
       ChooseSportsScreen.routeName,
@@ -116,6 +119,16 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Username/Nickname (optional)',
                         hintText: '@username',
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: _emergencyCtrl,
+                      textInputAction: TextInputAction.next,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Emergency Contact (optional)',
+                        hintText: '+673 XXXXXX',
                       ),
                     ),
                     const SizedBox(height: 14),

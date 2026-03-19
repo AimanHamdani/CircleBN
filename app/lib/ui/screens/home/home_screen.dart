@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 
-import '../../../data/sample_events.dart';
+import '../../../appwrite/appwrite_config.dart';
+import '../../../appwrite/appwrite_service.dart';
+import '../../../data/event_repository.dart';
+import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
+import '../../../models/user_profile.dart';
 import '../login_screen.dart';
 import 'all_events_screen.dart';
+import 'create_event_screen.dart';
 import 'event_detail_screen.dart';
+import '../profile/profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   static const routeName = '/home';
@@ -30,7 +36,17 @@ class _HomeScreenState extends State<HomeScreen> {
             borderRadius: BorderRadius.circular(20),
             child: NavigationBar(
               selectedIndex: _tabIndex,
-              onDestinationSelected: (i) => setState(() => _tabIndex = i),
+              onDestinationSelected: (i) {
+                if (i == 2) {
+                  _showCreateChoice(context);
+                  return;
+                }
+                if (i == 4) {
+                  Navigator.of(context).pushNamed(ProfileScreen.routeName);
+                  return;
+                }
+                setState(() => _tabIndex = i);
+              },
               destinations: const [
                 NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
                 NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Circle'),
@@ -39,6 +55,95 @@ class _HomeScreenState extends State<HomeScreen> {
                 NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Profile'),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showCreateChoice(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Create',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 20),
+              ListTile(
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(Icons.event, color: Theme.of(context).colorScheme.primary),
+                ),
+                title: const Text('Event', style: TextStyle(fontWeight: FontWeight.w700)),
+                subtitle: const Text('Create a new event'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Navigator.of(context).pushNamed(CreateEventScreen.routeName).then((result) {
+                    if (!mounted) {
+                      return;
+                    }
+                    if (result == 'created' || result == 'updated' || result == true) {
+                      setState(() => _tabIndex = 0);
+                      final text = result == 'updated' ? 'Event updated.' : 'Event created.';
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted) {
+                          return;
+                        }
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(text)),
+                        );
+                      });
+                    }
+                  });
+                },
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(Icons.people_outline, color: Colors.grey.shade600),
+                ),
+                title: const Text('Club', style: TextStyle(fontWeight: FontWeight.w700)),
+                subtitle: const Text('Create a new club'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Club creation coming soon.')),
+                  );
+                },
+              ),
+            ],
           ),
         ),
       ),
@@ -80,19 +185,16 @@ class _HomeBody extends StatefulWidget {
 }
 
 class _HomeBodyState extends State<_HomeBody> {
+  late Future<UserProfile> _profileFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _profileFuture = profileRepository().getMyProfile();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final events = SampleEvents.all;
-    final joinedEvents = events.where((e) => e.joinedByMe).toList();
-    final today = _today();
-    final todaysEvents = events.where((e) => _isSameDay(e.startAt, today)).toList();
-    final upcomingEvents = events
-        .where((e) => e.startAt.isAfter(today))
-        .toList()
-      ..sort((a, b) => a.startAt.compareTo(b.startAt));
-    final shownEvents = todaysEvents.isNotEmpty ? todaysEvents : upcomingEvents.take(3).toList();
-    final eventsLabel = todaysEvents.isNotEmpty ? "Today's Events" : 'Upcoming Events';
-
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(18, 10, 18, 120),
@@ -102,13 +204,21 @@ class _HomeBodyState extends State<_HomeBody> {
             Row(
               children: [
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text('Good morning,', style: TextStyle(color: Colors.black54)),
-                      SizedBox(height: 2),
-                      Text('User', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
-                    ],
+                  child: FutureBuilder<UserProfile>(
+                    future: _profileFuture,
+                    builder: (context, snap) {
+                      final username = (snap.data?.username.trim().isNotEmpty ?? false)
+                          ? snap.data!.username.trim()
+                          : 'User';
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Good morning,', style: TextStyle(color: Colors.black54)),
+                          const SizedBox(height: 2),
+                          Text(username, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
+                        ],
+                      );
+                    },
                   ),
                 ),
                 InkWell(
@@ -148,38 +258,7 @@ class _HomeBodyState extends State<_HomeBody> {
               ],
             ),
             const SizedBox(height: 10),
-            SizedBox(
-              height: 104,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: joinedEvents.isEmpty
-                    ? [
-                        _ActivityCard(
-                          title: 'No joined events yet',
-                          subtitle: 'Join an event to see it here',
-                          icon: Icons.event_available,
-                          onTap: () {},
-                        ),
-                      ]
-                    : [
-                        for (int i = 0; i < joinedEvents.length; i++) ...[
-                          _ActivityCard(
-                            title: joinedEvents[i].title,
-                            subtitle: _activitySubtitle(joinedEvents[i]),
-                            icon: _sportIcon(joinedEvents[i].sport),
-                            onTap: () => Navigator.of(context).pushNamed(
-                              EventDetailScreen.routeName,
-                              arguments: EventDetailArgs(
-                                event: joinedEvents[i],
-                                showRegisterButton: false,
-                              ),
-                            ),
-                          ),
-                          if (i != joinedEvents.length - 1) const SizedBox(width: 12),
-                        ]
-                      ],
-              ),
-            ),
+            SizedBox(height: 116, child: _ActivityList()),
             const SizedBox(height: 18),
             Row(
               children: [
@@ -193,6 +272,109 @@ class _HomeBodyState extends State<_HomeBody> {
               ],
             ),
             const SizedBox(height: 10),
+            _HomeEventsSection(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActivityList extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Object?>>(
+      future: Future.wait<Object?>([
+        eventRepository().listEvents(),
+        profileRepository().getMyProfile(),
+      ]),
+      builder: (context, snap) {
+        final events = (snap.data != null ? snap.data![0] as List<Event> : const <Event>[]);
+        final profile = (snap.data != null ? snap.data![1] as UserProfile : null);
+        final preferred = profile?.preferredSports ?? const <String>{};
+        final prioritized = _prioritizeByPreferredSports(events, preferred);
+        final joinedEvents = prioritized.where((e) => e.joinedByMe).toList();
+
+        if (snap.connectionState != ConnectionState.done && events.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        return ListView(
+          scrollDirection: Axis.horizontal,
+          children: joinedEvents.isEmpty
+              ? [
+                  _ActivityCard(
+                    title: 'No joined events yet',
+                    subtitle: 'Join an event to see it here',
+                    icon: Icons.event_available,
+                    onTap: () {},
+                  ),
+                ]
+              : [
+                  for (int i = 0; i < joinedEvents.length; i++) ...[
+                    _ActivityCard(
+                      title: joinedEvents[i].title,
+                      subtitle: _activitySubtitle(joinedEvents[i]),
+                      icon: _sportIcon(joinedEvents[i].sport),
+                      onTap: () => Navigator.of(context).pushNamed(
+                        EventDetailScreen.routeName,
+                        arguments: EventDetailArgs(
+                          event: joinedEvents[i],
+                          showRegisterButton: false,
+                        ),
+                      ),
+                    ),
+                    if (i != joinedEvents.length - 1) const SizedBox(width: 12),
+                  ]
+                ],
+        );
+      },
+    );
+  }
+}
+
+class _HomeEventsSection extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Object?>>(
+      future: Future.wait<Object?>([
+        eventRepository().listEvents(),
+        profileRepository().getMyProfile(),
+      ]),
+      builder: (context, snap) {
+        final events = (snap.data != null ? snap.data![0] as List<Event> : const <Event>[]);
+        final profile = (snap.data != null ? snap.data![1] as UserProfile : null);
+        final preferred = profile?.preferredSports ?? const <String>{};
+        final prioritized = _prioritizeByPreferredSports(events, preferred);
+        final today = _today();
+        final todaysEvents = prioritized.where((e) => _isSameDay(e.startAt, today)).toList();
+        final upcomingEvents = prioritized
+            .where((e) => e.startAt.isAfter(today))
+            .toList()
+          ..sort((a, b) => a.startAt.compareTo(b.startAt));
+        final shownEvents = todaysEvents.isNotEmpty ? todaysEvents : upcomingEvents.take(3).toList();
+        final eventsLabel = todaysEvents.isNotEmpty ? "Today's Events" : 'Upcoming Events';
+
+        if (snap.connectionState != ConnectionState.done && events.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (snap.hasError) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Text(
+              'Failed to load events. Showing local data if available.',
+              style: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
+            ),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Text(
               eventsLabel,
               style: const TextStyle(fontWeight: FontWeight.w900),
@@ -216,8 +398,8 @@ class _HomeBodyState extends State<_HomeBody> {
                 ],
               ),
           ],
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -249,7 +431,21 @@ class _TodayEventCard extends StatelessWidget {
                   color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(_sportIcon(event.sport), color: Theme.of(context).colorScheme.primary),
+                clipBehavior: Clip.antiAlias,
+                child: event.thumbnailFileId != null && event.thumbnailFileId!.isNotEmpty
+                    ? FutureBuilder(
+                        future: AppwriteService.getFileViewBytes(
+                          bucketId: AppwriteConfig.eventImagesBucketId,
+                          fileId: event.thumbnailFileId!,
+                        ),
+                        builder: (context, snap) {
+                          if (snap.hasData) {
+                            return Image.memory(snap.data!, fit: BoxFit.cover);
+                          }
+                          return Icon(_sportIcon(event.sport), color: Theme.of(context).colorScheme.primary);
+                        },
+                      )
+                    : Icon(_sportIcon(event.sport), color: Theme.of(context).colorScheme.primary),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -355,7 +551,7 @@ class _ActivityCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        width: 150,
+        width: 168,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -375,9 +571,19 @@ class _ActivityCard extends StatelessWidget {
               child: Icon(icon, color: Theme.of(context).colorScheme.primary),
             ),
             const Spacer(),
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+            Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.w800),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             const SizedBox(height: 2),
-            Text(subtitle, style: const TextStyle(color: Colors.black54, fontSize: 12)),
+            Text(
+              subtitle,
+              style: const TextStyle(color: Colors.black54, fontSize: 12),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ],
         ),
       ),
@@ -412,5 +618,30 @@ IconData _sportIcon(String sport) {
   if (s.contains('table')) return Icons.sports_tennis;
   if (s.contains('tennis')) return Icons.sports_tennis;
   return Icons.sports;
+}
+
+List<Event> _prioritizeByPreferredSports(List<Event> events, Set<String> preferredSports) {
+  if (preferredSports.isEmpty) {
+    return events;
+  }
+  final preferred = preferredSports.map((e) => e.toLowerCase()).toSet();
+  final sorted = [...events];
+  sorted.sort((a, b) {
+    final aFav = _sportMatchesPreferred(a.sport, preferred) ? 0 : 1;
+    final bFav = _sportMatchesPreferred(b.sport, preferred) ? 0 : 1;
+    if (aFav != bFav) return aFav.compareTo(bFav);
+    return a.startAt.compareTo(b.startAt);
+  });
+  return sorted;
+}
+
+bool _sportMatchesPreferred(String sport, Set<String> preferred) {
+  final s = sport.toLowerCase();
+  for (final p in preferred) {
+    if (s.contains(p) || p.contains(s)) {
+      return true;
+    }
+  }
+  return false;
 }
 

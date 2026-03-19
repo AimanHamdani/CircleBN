@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:appwrite/appwrite.dart';
 
+import '../../../appwrite/appwrite_config.dart';
+import '../../../appwrite/appwrite_service.dart';
+import '../../../auth/current_user.dart';
 import '../../../models/event.dart';
+import 'create_event_screen.dart';
 
 class EventDetailArgs {
   final Event event;
@@ -24,6 +29,7 @@ class EventDetailScreen extends StatefulWidget {
 class _EventDetailScreenState extends State<EventDetailScreen> {
   _EventDetailTab _tab = _EventDetailTab.details;
   final _composerCtrl = TextEditingController();
+  bool _isDeleting = false;
 
   @override
   void dispose() {
@@ -80,7 +86,26 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                     ),
                   ),
                   alignment: Alignment.center,
-                  child: Icon(Icons.image_outlined, color: Colors.black.withValues(alpha: 0.35), size: 56),
+                  clipBehavior: Clip.antiAlias,
+                  child: e.thumbnailFileId != null && e.thumbnailFileId!.isNotEmpty
+                      ? FutureBuilder(
+                          future: AppwriteService.getFileViewBytes(
+                            bucketId: AppwriteConfig.eventImagesBucketId,
+                            fileId: e.thumbnailFileId!,
+                          ),
+                          builder: (context, snap) {
+                            if (snap.hasData) {
+                              return Image.memory(
+                                snap.data!,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                height: double.infinity,
+                              );
+                            }
+                            return Icon(Icons.image_outlined, color: Colors.black.withValues(alpha: 0.35), size: 56);
+                          },
+                        )
+                      : Icon(Icons.image_outlined, color: Colors.black.withValues(alpha: 0.35), size: 56),
                 ),
                 Positioned(
                   top: 12,
@@ -90,6 +115,27 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                     onTap: () => Navigator.of(context).maybePop(),
                   ),
                 ),
+                if (e.creatorId != null && e.creatorId == currentUserId)
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    child: Row(
+                      children: [
+                        _RoundIconButton(
+                          icon: Icons.edit_outlined,
+                          onTap: () => Navigator.of(context).pushNamed(
+                            CreateEventScreen.routeName,
+                            arguments: e,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _RoundIconButton(
+                          icon: _isDeleting ? Icons.hourglass_top : Icons.delete_outline,
+                          onTap: _isDeleting ? () {} : () => _confirmDeleteEvent(e),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
             Padding(
@@ -186,6 +232,69 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Message sent (mock). Not stored yet.')),
     );
+  }
+
+  Future<void> _confirmDeleteEvent(Event event) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Event'),
+        content: const Text('Cancel this event by deleting it? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true || !mounted) {
+      return;
+    }
+
+    if (!AppwriteService.isConfigured ||
+        AppwriteConfig.databaseId.isEmpty ||
+        AppwriteConfig.eventsCollectionId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Appwrite is not configured yet.')),
+      );
+      return;
+    }
+
+    setState(() => _isDeleting = true);
+    try {
+      await AppwriteService.deleteDocument(
+        collectionId: AppwriteConfig.eventsCollectionId,
+        documentId: event.id,
+      );
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context).pop('deleted');
+    } on AppwriteException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Failed to delete event.')),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to delete event.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isDeleting = false);
+      }
+    }
   }
 }
 

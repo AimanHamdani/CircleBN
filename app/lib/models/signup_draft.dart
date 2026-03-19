@@ -7,6 +7,7 @@ class SignUpDraft {
   final DateTime? dateOfBirth;
   final String? gender; // 'Male' | 'Female'
   final int? heightCm;
+  final String? emergencyContact;
 
   final Set<String> sports;
   final Set<String> clubIds;
@@ -19,6 +20,7 @@ class SignUpDraft {
     this.dateOfBirth,
     this.gender,
     this.heightCm,
+    this.emergencyContact,
     this.sports = const {},
     this.clubIds = const {},
   });
@@ -31,6 +33,7 @@ class SignUpDraft {
     DateTime? dateOfBirth,
     String? gender,
     int? heightCm,
+    String? emergencyContact,
     Set<String>? sports,
     Set<String>? clubIds,
   }) {
@@ -42,6 +45,7 @@ class SignUpDraft {
       dateOfBirth: dateOfBirth ?? this.dateOfBirth,
       gender: gender ?? this.gender,
       heightCm: heightCm ?? this.heightCm,
+      emergencyContact: emergencyContact ?? this.emergencyContact,
       sports: sports ?? this.sports,
       clubIds: clubIds ?? this.clubIds,
     );

@@ -68,6 +68,39 @@ class ProfileRepository {
       userId: profile.userId,
     );
   }
+
+  Future<List<UserProfile>> getProfilesByIds(List<String> userIds) async {
+    final uniqueIds = userIds.where((e) => e.trim().isNotEmpty).toSet().toList();
+    if (uniqueIds.isEmpty) {
+      return const [];
+    }
+
+    if (!AppwriteService.isConfigured ||
+        AppwriteConfig.databaseId.isEmpty ||
+        AppwriteConfig.profilesCollectionId.isEmpty) {
+      return uniqueIds.map((id) => UserProfile.empty(id)).toList();
+    }
+
+    final profiles = <UserProfile>[];
+    for (final userId in uniqueIds) {
+      try {
+        final doc = await AppwriteService.getDocument(
+          collectionId: AppwriteConfig.profilesCollectionId,
+          documentId: userId,
+        );
+        profiles.add(
+          UserProfile.fromMap(
+            Map<String, dynamic>.from(doc.data),
+            userId: userId,
+          ),
+        );
+      } catch (_) {
+        profiles.add(UserProfile.empty(userId));
+      }
+    }
+
+    return profiles;
+  }
 }
 
 ProfileRepository profileRepository() => ProfileRepository();

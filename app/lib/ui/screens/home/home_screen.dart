@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
 
-import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
 import '../../../data/event_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
+import '../../../auth/current_user.dart';
 import '../login_screen.dart';
 import 'all_events_screen.dart';
 import 'create_event_screen.dart';
+import 'create_club_screen.dart';
 import 'event_detail_screen.dart';
 import '../profile/profile_screen.dart';
+import 'activity_overview_screen.dart';
+import 'clubs_screen.dart';
+import '../../widgets/event_thumbnail_header.dart';
 
 class HomeScreen extends StatefulWidget {
   static const routeName = '/home';
@@ -25,9 +29,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // For now: only Home tab is functional (no db/pages yet).
+    // Tabs:
+    // - index 0: Home
+    // - index 1: Clubs (Circle)
+    // - index 2: Create modal
+    // - index 3: Calendar (placeholder)
+    // - index 4: Profile (route)
     return Scaffold(
-      body: _tabIndex == 0 ? const _HomeBody() : const _PlaceholderTab(),
+      body: _tabIndex == 0
+          ? const _HomeBody()
+          : _tabIndex == 1
+              ? const ClubsScreen()
+              : const _PlaceholderTab(),
       bottomNavigationBar: SafeArea(
         top: false,
         child: Padding(
@@ -138,9 +151,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 subtitle: const Text('Create a new club'),
                 onTap: () {
                   Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Club creation coming soon.')),
-                  );
+                  Navigator.of(context).pushNamed(CreateClubScreen.routeName).then((created) {
+                    if (created == true && mounted) {
+                      setState(() => _tabIndex = 0);
+                    }
+                  });
                 },
               ),
             ],
@@ -164,10 +179,17 @@ class _PlaceholderTab extends StatelessWidget {
             const Text('This page is not available yet.'),
             const SizedBox(height: 10),
             TextButton(
-              onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil(
-                LoginScreen.routeName,
-                (_) => false,
-              ),
+              onPressed: () async {
+                try {
+                  await AppwriteService.account.deleteSessions();
+                } catch (_) {}
+                CurrentUser.reset();
+                if (!context.mounted) return;
+                Navigator.of(context).pushNamedAndRemoveUntil(
+                  LoginScreen.routeName,
+                  (_) => false,
+                );
+              },
               child: const Text('Log out'),
             ),
           ],
@@ -195,53 +217,77 @@ class _HomeBodyState extends State<_HomeBody> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(18, 10, 18, 120),
+    return Scaffold(
+      backgroundColor: const Color(0xFFF0F4F3),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        automaticallyImplyLeading: false,
+        toolbarHeight: 76,
+        titleSpacing: 18,
+        title: Row(
+          children: [
+            Expanded(
+              child: FutureBuilder<UserProfile>(
+                future: _profileFuture,
+                builder: (context, snap) {
+                  final username = (snap.data?.username.trim().isNotEmpty ?? false)
+                      ? snap.data!.username.trim()
+                      : 'User';
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Good morning,',
+                        style: TextStyle(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        username,
+                        style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.black87),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            InkWell(
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Notifications (mock).')),
+                );
+              },
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0F4F3),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE3E7EE)),
+                ),
+                child: const Icon(Icons.notifications_none),
+              ),
+            ),
+          ],
+        ),
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(height: 1, thickness: 1, color: Color(0xFFE8EDEB)),
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 120),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: FutureBuilder<UserProfile>(
-                    future: _profileFuture,
-                    builder: (context, snap) {
-                      final username = (snap.data?.username.trim().isNotEmpty ?? false)
-                          ? snap.data!.username.trim()
-                          : 'User';
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Good morning,', style: TextStyle(color: Colors.black54)),
-                          const SizedBox(height: 2),
-                          Text(username, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-                InkWell(
-                  onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Notifications (mock).')),
-                    );
-                  },
-                  borderRadius: BorderRadius.circular(14),
-                  child: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: const Color(0xFFE3E7EE)),
-                    ),
-                    child: const Icon(Icons.notifications_none),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
             Row(
               children: [
                 const Expanded(
@@ -249,16 +295,14 @@ class _HomeBodyState extends State<_HomeBody> {
                 ),
                 TextButton(
                   onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Your Activity page is not available yet.')),
-                    );
+                    Navigator.of(context).pushNamed(ActivityOverviewScreen.routeName);
                   },
                   child: const Text('Show all'),
                 ),
               ],
             ),
             const SizedBox(height: 10),
-            SizedBox(height: 116, child: _ActivityList()),
+            SizedBox(height: 168, child: _ActivityList()),
             const SizedBox(height: 18),
             Row(
               children: [
@@ -293,7 +337,9 @@ class _ActivityList extends StatelessWidget {
         final profile = (snap.data != null ? snap.data![1] as UserProfile : null);
         final preferred = profile?.preferredSports ?? const <String>{};
         final prioritized = _prioritizeByPreferredSports(events, preferred);
-        final joinedEvents = prioritized.where((e) => e.joinedByMe).toList();
+        final joinedEvents = prioritized
+            .where((e) => e.joinedByMe || (e.creatorId != null && e.creatorId == currentUserId))
+            .toList();
 
         if (snap.connectionState != ConnectionState.done && events.isEmpty) {
           return const Center(child: CircularProgressIndicator());
@@ -304,8 +350,8 @@ class _ActivityList extends StatelessWidget {
           children: joinedEvents.isEmpty
               ? [
                   _ActivityCard(
-                    title: 'No joined events yet',
-                    subtitle: 'Join an event to see it here',
+                    title: 'No activity yet',
+                    subtitle: 'Join or create an event to see it here',
                     icon: Icons.event_available,
                     onTap: () {},
                   ),
@@ -411,6 +457,7 @@ class _TodayEventCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onOpen,
       borderRadius: BorderRadius.circular(18),
@@ -420,64 +467,46 @@ class _TodayEventCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: const Color(0xFFE3E7EE)),
         ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-          child: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: event.thumbnailFileId != null && event.thumbnailFileId!.isNotEmpty
-                    ? FutureBuilder(
-                        future: AppwriteService.getFileViewBytes(
-                          bucketId: AppwriteConfig.eventImagesBucketId,
-                          fileId: event.thumbnailFileId!,
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            EventThumbnailHeader(event: event),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(event.title, style: const TextStyle(fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${event.location} • ${_fmtTime(event.startAt)}',
+                          style: const TextStyle(color: Colors.black54, fontSize: 12),
                         ),
-                        builder: (context, snap) {
-                          if (snap.hasData) {
-                            return Image.memory(snap.data!, fit: BoxFit.cover);
-                          }
-                          return Icon(_sportIcon(event.sport), color: Theme.of(context).colorScheme.primary);
-                        },
-                      )
-                    : Icon(_sportIcon(event.sport), color: Theme.of(context).colorScheme.primary),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(event.title, style: const TextStyle(fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${event.location} • ${_fmtTime(event.startAt)}',
-                      style: const TextStyle(color: Colors.black54, fontSize: 12),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  'Open',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.primary,
-                    fontWeight: FontWeight.w800,
                   ),
-                ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: cs.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      'Open',
+                      style: TextStyle(
+                        color: cs.primary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -547,42 +576,49 @@ class _ActivityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
         width: 168,
-        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: const Color(0xFFE3E7EE)),
         ),
+        clipBehavior: Clip.antiAlias,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              width: 36,
-              height: 36,
+              height: 92,
+              width: double.infinity,
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
+                color: cs.primary.withValues(alpha: 0.15),
               ),
-              child: Icon(icon, color: Theme.of(context).colorScheme.primary),
+              child: Icon(icon, color: cs.primary, size: 30),
             ),
-            const Spacer(),
-            Text(
-              title,
-              style: const TextStyle(fontWeight: FontWeight.w800),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: const TextStyle(color: Colors.black54, fontSize: 12),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(color: Colors.black54, fontSize: 12),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
           ],
         ),

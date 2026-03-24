@@ -1,22 +1,48 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:appwrite/appwrite.dart';
 
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
+import '../../../utils/web_storage.dart';
+import '../../../data/event_repository.dart';
+import '../../../data/event_registration_repository.dart';
+import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
+import '../../../models/user_profile.dart';
 import 'create_event_screen.dart';
 
 class EventDetailArgs {
   final Event event;
   final bool showRegisterButton;
+  final bool allowCreatorActions;
+  final DateTime? chatEnabledUntil;
   const EventDetailArgs({
     required this.event,
     this.showRegisterButton = true,
+    this.allowCreatorActions = true,
+    this.chatEnabledUntil,
   });
 }
 
-enum _EventDetailTab { details, chat }
+enum _EventDetailTab { details, chat, participants }
+
+class _ParticipantItem {
+  final String userId;
+  final String username;
+  final Color color;
+  final String? avatarFileId;
+
+  const _ParticipantItem({
+    required this.userId,
+    required this.username,
+    required this.color,
+    this.avatarFileId,
+  });
+}
 
 class EventDetailScreen extends StatefulWidget {
   static const routeName = '/event';
@@ -30,6 +56,17 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   _EventDetailTab _tab = _EventDetailTab.details;
   final _composerCtrl = TextEditingController();
   bool _isDeleting = false;
+  Event? _eventOverride;
+  EventDetailArgs? _argsOverride;
+  String? _activeEventId;
+  bool? _isRegisteredByMe;
+  int? _joinedCount;
+  List<_ParticipantItem>? _participants;
+
+  bool _didTryReloadAfterRefresh = false;
+  bool _didTryInitialRouteRefresh = false;
+
+  static const String _storageKey = 'circlebn_last_event_detail';
 
   @override
   void dispose() {
@@ -37,35 +74,80 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     super.dispose();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    final args = ModalRoute.of(context)?.settings.arguments;
+
+    // Persist the current detail screen context for web refresh.
+    if (args is EventDetailArgs) {
+      _persistDetailArgs(args);
+    } else if (args is Event) {
+      _persistDetailArgs(EventDetailArgs(event: args));
+    }
+
+    // Refresh once for the current route's event id so we always read latest
+    // registration/joined state instead of stale navigation args.
+    if (!_didTryInitialRouteRefresh && args != null) {
+      _didTryInitialRouteRefresh = true;
+      final initialId = (args is EventDetailArgs ? args.event.id : (args is Event ? args.id : null));
+      if (initialId != null) {
+        _refreshEvent(eventId: initialId);
+      }
+    }
+
+    // If we refreshed the browser, route args are lost; reload from last stored event id.
+    if (!_didTryReloadAfterRefresh && args == null) {
+      _didTryReloadAfterRefresh = true;
+      final stored = _loadStoredArgs();
+      if (stored != null) {
+        _argsOverride = stored;
+        _refreshEvent(eventId: stored.event.id);
+      }
+    }
+  }
+
   EventDetailArgs _argsFromRoute(BuildContext context) {
     final args = ModalRoute.of(context)?.settings.arguments;
     if (args is EventDetailArgs) return args;
     if (args is Event) return EventDetailArgs(event: args);
 
-    return EventDetailArgs(
-      event: Event(
-        id: 'missing',
-        title: 'Event',
-        sport: 'Sport',
-        startAt: DateTime.now(),
-        duration: const Duration(hours: 1),
-        location: 'Location',
-        joined: 0,
-        capacity: 0,
-        skillLevel: '—',
-        entryFeeLabel: '—',
-        description: 'No data (mock).',
-        joinedByMe: false,
-      ),
-    );
+    // Web refresh fallback: try restore stored event detail flags and event id.
+    if (_argsOverride != null) {
+      return _argsOverride!;
+    }
+
+    return _loadStoredArgs() ??
+        EventDetailArgs(
+          event: Event(
+            id: 'missing',
+            title: 'Event',
+            sport: 'Sport',
+            startAt: DateTime.now(),
+            duration: const Duration(hours: 1),
+            location: 'Location',
+            joined: 0,
+            capacity: 0,
+            skillLevel: '—',
+            entryFeeLabel: '—',
+            description: 'No data (mock).',
+            joinedByMe: false,
+          ),
+        );
   }
 
   @override
   Widget build(BuildContext context) {
     final args = _argsFromRoute(context);
-    final e = args.event;
+    final e = _eventOverride ?? args.event;
+    _syncLocalEventState(e);
     final cs = Theme.of(context).colorScheme;
+    final canSendChat = args.chatEnabledUntil == null || DateTime.now().isBefore(args.chatEnabledUntil!);
     final messages = _sampleMessagesFor(e.id);
+    final isRegisteredByMe = _isRegisteredByMe ?? e.joinedByMe;
+    final joinedCount = (_joinedCount ?? e.joined).clamp(0, e.capacity > 0 ? e.capacity : 999999);
+    final participants = _participants ?? _participantsFromProfiles(_buildParticipantProfilesFromEvent(e));
 
     return Scaffold(
       body: SafeArea(
@@ -121,18 +203,17 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                     right: 12,
                     child: Row(
                       children: [
-                        _RoundIconButton(
-                          icon: Icons.edit_outlined,
-                          onTap: () => Navigator.of(context).pushNamed(
-                            CreateEventScreen.routeName,
-                            arguments: e,
+                        if (args.allowCreatorActions)
+                          _RoundIconButton(
+                            icon: Icons.edit_outlined,
+                            onTap: () => _onEditEvent(e),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        _RoundIconButton(
-                          icon: _isDeleting ? Icons.hourglass_top : Icons.delete_outline,
-                          onTap: _isDeleting ? () {} : () => _confirmDeleteEvent(e),
-                        ),
+                        if (args.allowCreatorActions) const SizedBox(width: 8),
+                        if (args.allowCreatorActions)
+                          _RoundIconButton(
+                            icon: _isDeleting ? Icons.hourglass_top : Icons.delete_outline,
+                            onTap: _isDeleting ? () {} : () => _confirmDeleteEvent(e),
+                          ),
                       ],
                     ),
                   ),
@@ -151,43 +232,102 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                 child: _tab == _EventDetailTab.details
                     ? _DetailsTab(
                         key: const ValueKey('details'),
-                        event: e,
+                        event: e.copyWith(
+                          joined: joinedCount,
+                          joinedByMe: isRegisteredByMe,
+                        ),
                       )
-                    : _ChatTab(
+                    : _tab == _EventDetailTab.chat
+                        ? _ChatTab(
                         key: const ValueKey('chat'),
                         eventTitle: e.title,
                         messages: messages,
-                      ),
+                      )
+                        : _ParticipantsTab(
+                            key: const ValueKey('participants'),
+                            participants: participants,
+                          ),
               ),
             ),
           ],
         ),
       ),
       bottomNavigationBar: _tab == _EventDetailTab.details
-          ? (args.showRegisterButton ? _registerBar(context) : null)
-          : _chatComposerBar(context),
+          ? ((args.showRegisterButton && (e.creatorId == null || e.creatorId != currentUserId))
+              ? _registerBar(
+                  context,
+                  isRegistered: isRegisteredByMe,
+                  joinedCount: joinedCount,
+                  capacity: e.capacity,
+                  onTap: () => _toggleRegistration(e),
+                )
+              : null)
+          : (_tab == _EventDetailTab.chat ? _chatComposerBar(context, canSendChat: canSendChat) : null),
     );
   }
 
-  Widget _registerBar(BuildContext context) {
+  Widget _registerBar(
+    BuildContext context, {
+    required bool isRegistered,
+    required int joinedCount,
+    required int capacity,
+    required VoidCallback onTap,
+  }) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final cs = Theme.of(context).colorScheme;
+    final isFull = capacity > 0 && joinedCount >= capacity;
+    final label = isRegistered ? 'Cancel Registration' : (isFull ? 'Event Full' : 'Register');
+    final counterText = capacity > 0 ? '$joinedCount / $capacity joined' : '$joinedCount joined';
     return SafeArea(
       top: false,
       child: Padding(
         padding: EdgeInsets.fromLTRB(18, 10, 18, 18 + bottomInset),
-        child: FilledButton(
-          onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Registered (mock).')),
-            );
-          },
-          child: const Text('Register'),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                counterText,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.black.withValues(alpha: 0.55),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            FilledButton(
+              onPressed: (!isRegistered && isFull) ? null : onTap,
+              style: FilledButton.styleFrom(
+                backgroundColor: isRegistered ? Colors.white : cs.primary,
+                foregroundColor: isRegistered ? Colors.black87 : Colors.white,
+                side: isRegistered ? const BorderSide(color: Color(0xFFE3E7EE)) : null,
+              ),
+              child: Text(label),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _chatComposerBar(BuildContext context) {
+  Future<void> _onEditEvent(Event event) async {
+    final result = await Navigator.of(context).pushNamed(
+      CreateEventScreen.routeName,
+      arguments: event,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (result == 'updated' || result == 'created' || result == true) {
+      await _refreshEvent(eventId: event.id);
+    }
+  }
+
+  Widget _chatComposerBar(BuildContext context, {required bool canSendChat}) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return SafeArea(
       top: false,
@@ -198,16 +338,17 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             Expanded(
               child: TextField(
                 controller: _composerCtrl,
+                enabled: canSendChat,
                 decoration: const InputDecoration(
                   hintText: 'Message (mock)',
                 ),
                 textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _sendMock(),
+                onSubmitted: canSendChat ? (_) => _sendMock() : (_) {},
               ),
             ),
             const SizedBox(width: 10),
             InkWell(
-              onTap: _sendMock,
+              onTap: canSendChat ? _sendMock : null,
               borderRadius: BorderRadius.circular(14),
               child: Container(
                 width: 48,
@@ -216,7 +357,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                   color: Theme.of(context).colorScheme.primary,
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Icon(Icons.send, color: Colors.white),
+                child: Icon(Icons.send, color: canSendChat ? Colors.white : Colors.white.withValues(alpha: 0.45)),
               ),
             ),
           ],
@@ -226,6 +367,14 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }
 
   void _sendMock() {
+    final args = _argsFromRoute(context);
+    final canSendChat = args.chatEnabledUntil == null || DateTime.now().isBefore(args.chatEnabledUntil!);
+    if (!canSendChat) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Messaging is locked for this event.')),
+      );
+      return;
+    }
     final txt = _composerCtrl.text.trim();
     _composerCtrl.clear();
     if (txt.isEmpty) return;
@@ -280,6 +429,13 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       if (!mounted) {
         return;
       }
+      if (e.code == 404) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not delete: event was not found (it may already be deleted).')),
+        );
+        Navigator.of(context).pop('already_deleted');
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.message ?? 'Failed to delete event.')),
       );
@@ -294,6 +450,325 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       if (mounted) {
         setState(() => _isDeleting = false);
       }
+    }
+  }
+
+  void _persistDetailArgs(EventDetailArgs args) {
+    if (!kIsWeb) {
+      return;
+    }
+
+    webSetString(
+      _storageKey,
+      jsonEncode({
+        'eventId': args.event.id,
+        'showRegisterButton': args.showRegisterButton,
+        'allowCreatorActions': args.allowCreatorActions,
+        'chatEnabledUntil': args.chatEnabledUntil?.toIso8601String(),
+      }),
+    );
+  }
+
+  EventDetailArgs? _loadStoredArgs() {
+    if (!kIsWeb) {
+      return null;
+    }
+
+    final raw = webGetString(_storageKey);
+    if (raw == null || raw.trim().isEmpty) return null;
+
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      final eventId = decoded['eventId']?.toString() ?? '';
+      if (eventId.isEmpty) return null;
+
+      final chatEnabledUntilRaw = decoded['chatEnabledUntil']?.toString();
+      final chatEnabledUntil = chatEnabledUntilRaw == null || chatEnabledUntilRaw.isEmpty
+          ? null
+          : DateTime.tryParse(chatEnabledUntilRaw);
+
+      final showRegisterButton = decoded['showRegisterButton'] is bool
+          ? decoded['showRegisterButton'] as bool
+          : true;
+      final allowCreatorActions = decoded['allowCreatorActions'] is bool
+          ? decoded['allowCreatorActions'] as bool
+          : true;
+
+      return EventDetailArgs(
+        event: Event(
+          id: eventId,
+          title: 'Event',
+          sport: 'Sport',
+          startAt: DateTime.now(),
+          duration: const Duration(hours: 1),
+          location: 'Location',
+          joined: 0,
+          capacity: 0,
+          skillLevel: '—',
+          entryFeeLabel: '—',
+          description: '',
+          joinedByMe: false,
+          creatorId: null,
+          thumbnailFileId: null,
+        ),
+        showRegisterButton: showRegisterButton,
+        allowCreatorActions: allowCreatorActions,
+        chatEnabledUntil: chatEnabledUntil,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _refreshEvent({required String eventId}) async {
+    try {
+      final events = await eventRepository().listEvents();
+      final updated = events.where((e) => e.id == eventId).isNotEmpty
+          ? events.firstWhere((e) => e.id == eventId)
+          : null;
+      if (updated != null && mounted) {
+        setState(() {
+          _eventOverride = updated;
+          _activeEventId = updated.id;
+          _isRegisteredByMe = updated.joinedByMe;
+          _joinedCount = updated.joined;
+          _participants = _participantsFromProfiles(
+            _buildParticipantProfilesFromEvent(updated),
+          );
+        });
+        _reloadRegistrationState(updated);
+      }
+    } catch (_) {
+      // If refresh fails, keep showing the existing event.
+    }
+  }
+
+  void _syncLocalEventState(Event event) {
+    if (_activeEventId == event.id && _isRegisteredByMe != null && _joinedCount != null && _participants != null) {
+      return;
+    }
+    _activeEventId = event.id;
+    _isRegisteredByMe = event.joinedByMe;
+    _joinedCount = event.joined;
+    _participants = _participantsFromProfiles(
+      _buildParticipantProfilesFromEvent(event),
+    );
+    _reloadRegistrationState(event);
+  }
+
+  List<String> _resolveParticipantIds(Event event) {
+    final ids = _participants != null && _participants!.isNotEmpty
+        ? _participants!.map((p) => p.userId).toList()
+        : [...event.participantIds];
+    if (event.joinedByMe && !ids.contains(currentUserId)) {
+      ids.insert(0, currentUserId);
+    }
+    return ids;
+  }
+
+  List<UserProfile> _buildParticipantProfilesFromEvent(Event event) {
+    final ids = _resolveParticipantIds(event);
+    if (ids.isEmpty) {
+      return const [];
+    }
+    return ids.map((id) => UserProfile.empty(id)).toList();
+  }
+
+  List<_ParticipantItem> _participantsFromProfiles(List<UserProfile> profiles) {
+    final palette = <Color>[
+      const Color(0xFF1AA57A),
+      const Color(0xFF4A90E2),
+      const Color(0xFFFF9800),
+      const Color(0xFF9C27B0),
+      const Color(0xFFEF5350),
+      const Color(0xFF26A69A),
+      const Color(0xFF5C6BC0),
+    ];
+    final items = <_ParticipantItem>[];
+    for (var i = 0; i < profiles.length; i++) {
+      final profile = profiles[i];
+      final username = profile.username.trim().isNotEmpty ? profile.username.trim() : 'user';
+      items.add(
+        _ParticipantItem(
+          userId: profile.userId,
+          username: username,
+          color: palette[i % palette.length],
+          avatarFileId: profile.avatarFileId,
+        ),
+      );
+    }
+    return items;
+  }
+
+  Future<void> _loadParticipantsFromProfiles(Event event) async {
+    final ids = _resolveParticipantIds(event);
+    if (ids.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _participants = const [];
+        });
+      }
+      return;
+    }
+
+    try {
+      final profiles = await profileRepository().getProfilesByIds(ids);
+      if (!mounted || _activeEventId != event.id) {
+        return;
+      }
+      setState(() {
+        _participants = _participantsFromProfiles(profiles);
+      });
+    } catch (_) {
+      // Keep fallback participants if profile fetch fails.
+    }
+  }
+
+  Future<void> _reloadRegistrationState(Event event) async {
+    try {
+      final repo = eventRegistrationRepository();
+      final ids = await repo.listParticipantUserIds(event.id);
+      if (!mounted || _activeEventId != event.id) {
+        return;
+      }
+      final isRegistered = ids.contains(currentUserId);
+      final count = ids.length;
+
+      List<_ParticipantItem> items;
+      if (ids.isEmpty) {
+        items = const [];
+      } else {
+        final profiles = await profileRepository().getProfilesByIds(ids);
+        if (!mounted || _activeEventId != event.id) {
+          return;
+        }
+        items = _participantsFromProfiles(profiles);
+      }
+
+      if (!mounted || _activeEventId != event.id) {
+        return;
+      }
+      setState(() {
+        _isRegisteredByMe = isRegistered;
+        _joinedCount = count;
+        _participants = items;
+        _eventOverride = (_eventOverride ?? event).copyWith(
+          joined: count,
+          joinedByMe: isRegistered,
+          participantIds: ids,
+        );
+      });
+    } catch (_) {
+      // Keep fallback state if loading registrations fails.
+    }
+  }
+
+  Future<void> _toggleRegistration(Event event) async {
+    final currentRegistered = _isRegisteredByMe ?? event.joinedByMe;
+    final currentJoined = _joinedCount ?? event.joined;
+    final maxCapacity = event.capacity > 0 ? event.capacity : 999999;
+    final currentParticipantIds = [..._resolveParticipantIds(event)];
+
+    if (!currentRegistered && currentJoined >= maxCapacity) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Event is full.')),
+      );
+      return;
+    }
+
+    setState(() {
+      if (currentRegistered) {
+        _isRegisteredByMe = false;
+        _joinedCount = (currentJoined - 1).clamp(0, maxCapacity);
+        currentParticipantIds.removeWhere((id) => id == currentUserId);
+      } else {
+        _isRegisteredByMe = true;
+        _joinedCount = (currentJoined + 1).clamp(0, maxCapacity);
+        if (!currentParticipantIds.contains(currentUserId)) {
+          currentParticipantIds.insert(0, currentUserId);
+        }
+      }
+      final provisionalProfiles = currentParticipantIds.map((id) => UserProfile.empty(id)).toList();
+      _participants = _participantsFromProfiles(provisionalProfiles);
+      _eventOverride = (_eventOverride ?? event).copyWith(
+        joined: _joinedCount,
+        joinedByMe: _isRegisteredByMe,
+        participantIds: currentParticipantIds,
+      );
+    });
+
+    final ok = await _persistRegistration(
+      eventId: event.id,
+      register: !currentRegistered,
+    );
+    if (ok) {
+      _loadParticipantsFromProfiles(
+        (_eventOverride ?? event).copyWith(
+          participantIds: currentParticipantIds,
+        ),
+      );
+    } else {
+      if (mounted) {
+        await _refreshEvent(eventId: event.id);
+      }
+    }
+
+    if (mounted && ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(currentRegistered ? 'Registration cancelled.' : 'Registered successfully.'),
+        ),
+      );
+    }
+  }
+
+  Future<bool> _persistRegistration({
+    required String eventId,
+    required bool register,
+  }) async {
+    final repo = eventRegistrationRepository();
+    try {
+      if (register) {
+        await repo.register(eventId: eventId, userId: currentUserId);
+      } else {
+        await repo.cancel(eventId: eventId, userId: currentUserId);
+      }
+      final joined = await repo.getJoinedCount(eventId);
+      if (AppwriteService.isConfigured &&
+          AppwriteConfig.databaseId.isNotEmpty &&
+          AppwriteConfig.eventsCollectionId.isNotEmpty) {
+        await AppwriteService.updateDocument(
+          collectionId: AppwriteConfig.eventsCollectionId,
+          documentId: eventId,
+          data: {
+            'joined': joined,
+          },
+        );
+      }
+      if (mounted && _activeEventId == eventId) {
+        setState(() {
+          _joinedCount = joined;
+          _eventOverride = (_eventOverride)?.copyWith(joined: joined);
+        });
+      }
+      final activeEvent = _eventOverride;
+      if (activeEvent != null && activeEvent.id == eventId) {
+        _reloadRegistrationState(activeEvent);
+      }
+      return true;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              register
+                  ? 'Register failed. Check event_registrations attributes/permissions.'
+                  : 'Cancel failed. Check event_registrations permissions.',
+            ),
+          ),
+        );
+      }
+      return false;
     }
   }
 }
@@ -318,6 +793,12 @@ class _TabHeader extends StatelessWidget {
           selected: selected == _EventDetailTab.chat,
           onTap: () => onSelect(_EventDetailTab.chat),
         ),
+        const SizedBox(width: 14),
+        _TabButton(
+          label: 'Participants',
+          selected: selected == _EventDetailTab.participants,
+          onTap: () => onSelect(_EventDetailTab.participants),
+        ),
       ],
     );
   }
@@ -339,10 +820,11 @@ class _TabButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Text(
               label,
+              textAlign: TextAlign.center,
               style: TextStyle(
                 fontWeight: FontWeight.w900,
                 color: selected ? Colors.black87 : Colors.black45,
@@ -406,10 +888,163 @@ class _DetailsTab extends StatelessWidget {
               Expanded(child: _MetricTile(title: 'ENTRY FEE', value: event.entryFeeLabel)),
             ],
           ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Expanded(child: _MetricTile(title: 'CATEGORY', value: 'Casual')),
+              const SizedBox(width: 10),
+              const Expanded(child: _MetricTile(title: 'PRIVACY', value: 'Public')),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Expanded(child: _MetricTile(title: 'GENDER', value: 'Any')),
+              const SizedBox(width: 10),
+              const Expanded(child: _MetricTile(title: 'AGE GROUP', value: 'Any')),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFE3E7EE)),
+            ),
+            child: Column(
+              children: const [
+                _PolicyRow(label: "Host's role", value: 'Host only'),
+                Divider(height: 1, color: Color(0xFFE3E7EE)),
+                _PolicyRow(label: 'Cancellation freeze', value: '12 Hours'),
+              ],
+            ),
+          ),
           const SizedBox(height: 16),
           const Text('Description', style: TextStyle(fontWeight: FontWeight.w900)),
           const SizedBox(height: 8),
           Text(event.description, style: const TextStyle(color: Colors.black54)),
+        ],
+      ),
+    );
+  }
+}
+
+class _ParticipantsTab extends StatelessWidget {
+  final List<_ParticipantItem> participants;
+  const _ParticipantsTab({super.key, required this.participants});
+
+  @override
+  Widget build(BuildContext context) {
+    if (participants.isEmpty) {
+      return const Center(
+        child: Text('No participants yet.'),
+      );
+    }
+
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 14,
+        childAspectRatio: 0.82,
+      ),
+      itemCount: participants.length,
+      itemBuilder: (context, index) {
+        final p = participants[index];
+        final initial = p.username.isNotEmpty ? p.username[0].toUpperCase() : '?';
+        return Column(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: p.color.withValues(alpha: 0.2),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: (p.avatarFileId != null && p.avatarFileId!.isNotEmpty)
+                  ? FutureBuilder<Uint8List>(
+                      future: AppwriteService.getFileViewBytes(
+                        bucketId: AppwriteConfig.profileImagesBucketId,
+                        fileId: p.avatarFileId!,
+                      ),
+                      builder: (context, snap) {
+                        if (snap.connectionState == ConnectionState.done &&
+                            snap.data != null &&
+                            snap.data!.isNotEmpty) {
+                          return Image.memory(
+                            snap.data!,
+                            fit: BoxFit.cover,
+                          );
+                        }
+                        return Center(
+                          child: Text(
+                            initial,
+                            style: TextStyle(
+                              color: p.color,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 20,
+                            ),
+                          ),
+                        );
+                      },
+                    )
+                  : Center(
+                      child: Text(
+                        initial,
+                        style: TextStyle(
+                          color: p.color,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 20,
+                        ),
+                      ),
+                    ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              p.username,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _PolicyRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _PolicyRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Colors.black.withValues(alpha: 0.6),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              fontWeight: FontWeight.w900,
+            ),
+          ),
         ],
       ),
     );

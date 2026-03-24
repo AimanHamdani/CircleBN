@@ -8,6 +8,7 @@ import 'package:appwrite/appwrite.dart';
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
+import '../../../data/sample_clubs.dart';
 import '../../../models/event.dart';
 import 'map_picker_screen.dart';
 
@@ -40,7 +41,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   String? _privacy;
   DateTime? _dateTime;
   String? _duration;
-  String? _fee;
   int? _skillMin;
   int? _skillMax;
   String? _gender;
@@ -82,8 +82,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _duration = _durationLabelFromDuration(e.duration);
     _durationDisplayCtrl.text = _duration ?? '';
     _participantsCtrl.text = e.capacity.toString();
-    _fee = e.entryFeeLabel;
-    _feeCtrl.text = e.entryFeeLabel;
+    _feeCtrl.text = _normalizeFeeLabel(e.entryFeeLabel);
     _thumbnailFileId = e.thumbnailFileId;
     final skill = _parseSkillLevel(e.skillLevel);
     _skillMin = skill.$1;
@@ -172,16 +171,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                           value: _sport ?? 'Sport',
                           onTap: () => _showOptionPicker<String>(
                             title: 'Sport',
-                            options: const [
-                              'Volleyball',
-                              'Badminton',
-                              'Football',
-                              'Basketball',
-                              'Jogging / Running',
-                              'Running',
-                              'Cycling',
-                              'Swimming',
-                            ],
+                            options: SampleData.sports,
                             onSelected: (v) => setState(() => _sport = v),
                           ),
                         ),
@@ -675,28 +665,55 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   }) async {
     final chosen = await showModalBottomSheet<T>(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: Row(
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: options.length > 8 ? 0.55 : 0.42,
+        minChildSize: 0.28,
+        maxChildSize: 0.92,
+        builder: (sheetCtx, scrollController) {
+          return SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    controller: scrollController,
+                    itemCount: options.length,
+                    itemBuilder: (context, i) {
+                      final o = options[i];
+                      return ListTile(
+                        title: Text(
+                          o.toString(),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onTap: () => Navigator.pop(ctx, o),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-            for (final o in options)
-              ListTile(
-                title: Text(o.toString()),
-                onTap: () => Navigator.pop(ctx, o),
-              ),
-          ],
-        ),
+          );
+        },
       ),
     );
     if (chosen != null && mounted) {
@@ -731,8 +748,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     final title = _titleCtrl.text.trim();
     final sport = _sport?.trim() ?? '';
     final location = _locationCtrl.text.trim();
-    final feeText = _feeCtrl.text.trim();
-    final fee = feeText.isEmpty ? 'Free' : feeText;
+    final fee = _normalizeFeeLabel(_feeCtrl.text.trim());
     final capacity = int.tryParse(_participantsCtrl.text.trim());
 
     if (startAt == null || durationMinutes == null || sport.isEmpty || location.isEmpty || capacity == null || capacity <= 0) {
@@ -760,6 +776,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       'lng': lng,
       'capacity': capacity,
       'joined': _initialEvent?.joined ?? 0,
+      'participantIds': _initialEvent?.participantIds ?? <String>[],
       'entryFeeLabel': fee,
       'skillLevel': skillLevel,
       'description': _descriptionCtrl.text.trim(),
@@ -930,6 +947,20 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       ),
     );
   }
+}
+
+String _normalizeFeeLabel(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty) {
+    return 'Free';
+  }
+  if (text.toLowerCase() == 'free') {
+    return 'Free';
+  }
+  if (text.startsWith('\$')) {
+    return text;
+  }
+  return '\$$text';
 }
 
 int? _durationMinutesFromLabel(String? label) {

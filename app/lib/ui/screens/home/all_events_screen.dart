@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../../appwrite/appwrite_config.dart';
-import '../../../appwrite/appwrite_service.dart';
 import '../../../data/event_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
 import 'event_detail_screen.dart';
+import '../../widgets/event_thumbnail_header.dart';
 
 class AllEventsScreen extends StatefulWidget {
   static const routeName = '/events';
@@ -18,13 +17,18 @@ class AllEventsScreen extends StatefulWidget {
 
 class _AllEventsScreenState extends State<AllEventsScreen> {
   DateTime? _selectedDate;
-  int _weekOffset = 0;
+  /// 0 = calendar week that contains today (Mon–Sun). Increase to show future weeks.
+  int _visibleWeekPage = 0;
 
-  late final Future<List<Object?>> _screenDataFuture;
+  late Future<List<Object?>> _screenDataFuture;
 
   @override
   void initState() {
     super.initState();
+    _refreshData();
+  }
+
+  void _refreshData() {
     _screenDataFuture = Future.wait<Object?>([
       eventRepository().listEvents(),
       profileRepository().getMyProfile(),
@@ -37,44 +41,129 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
     _selectedDate ??= _today();
   }
 
+  void _setVisibleWeekPage(int page) {
+    if (page < 0) {
+      return;
+    }
+    setState(() {
+      _visibleWeekPage = page;
+      _clampSelectedToVisibleWeek();
+    });
+  }
+
+  void _clampSelectedToVisibleWeek() {
+    final monday = _mondayOfWeekPage(_visibleWeekPage);
+    final sel = _selectedDate;
+    if (sel == null || !_isDateInWeek(sel, monday)) {
+      final today = _today();
+      _selectedDate = _isDateInWeek(today, monday) ? today : monday;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final selected = _selectedDate;
-    final weekDays = _weekDaysFromTodayOffset(_weekOffset);
-    final canPrevWeek = _weekOffset > 0;
+    final weekMonday = _mondayOfWeekPage(_visibleWeekPage);
+    final weekEnd = weekMonday.add(const Duration(days: 6));
+    const headerDividerColor = Color(0xFFE8EDEB);
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF0F4F3),
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).maybePop(),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        automaticallyImplyLeading: false,
+        leadingWidth: Navigator.of(context).canPop() ? 56 : 0,
+        leading: Navigator.of(context).canPop()
+            ? Padding(
+                padding: const EdgeInsets.only(left: 12),
+                child: Center(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () => Navigator.of(context).maybePop(),
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0F4F3),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE3E7EE)),
+                      ),
+                      child: const Icon(Icons.arrow_back),
+                    ),
+                  ),
+                ),
+              )
+            : const SizedBox.shrink(),
+        titleSpacing: 8,
+        toolbarHeight: 88,
+        title: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Home',
+                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, height: 1.0, color: Colors.black87),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'All Events',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, height: 1.0, color: Colors.black87),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: InkWell(
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Notifications (mock).')),
+                  );
+                },
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0F4F3),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFE3E7EE)),
+                  ),
+                  child: const Icon(Icons.notifications_none),
+                ),
+              ),
+            ),
+          ],
+        ),
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(height: 1, thickness: 1, color: headerDividerColor),
         ),
       ),
-      body: SafeArea(
-        child: FutureBuilder<List<Object?>>(
-          future: _screenDataFuture,
-          builder: (context, snap) {
-            final allRaw = (snap.data != null ? snap.data![0] as List<Event> : const <Event>[]);
-            final profile = (snap.data != null ? snap.data![1] as UserProfile : null);
-            final all = _prioritizeByPreferredSports(allRaw, profile?.preferredSports ?? const <String>{});
-            final events = selected == null ? all : all.where((e) => _isSameDay(e.startAt, selected)).toList();
+      body: FutureBuilder<List<Object?>>(
+        future: _screenDataFuture,
+        builder: (context, snap) {
+          final allRaw = (snap.data != null ? snap.data![0] as List<Event> : const <Event>[]);
+          final profile = (snap.data != null ? snap.data![1] as UserProfile : null);
+          final all = _prioritizeByPreferredSports(allRaw, profile?.preferredSports ?? const <String>{});
+          final events = selected == null ? all : all.where((e) => _isSameDay(e.startAt, selected)).toList();
 
-            return Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 6, 18, 0),
+          return Column(
+            children: [
+              Material(
+                color: Colors.white,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Home', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-                            SizedBox(height: 2),
-                            Text('All Events', style: TextStyle(color: Colors.black54)),
-                          ],
-                        ),
-                      ),
                       InkWell(
                         onTap: () {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -86,124 +175,158 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
                           width: 44,
                           height: 44,
                           decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: const Color(0xFFE3E7EE)),
-                          ),
-                          child: const Icon(Icons.tune),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: Row(
-                    children: [
-                      InkWell(
-                        onTap: canPrevWeek
-                            ? () => setState(() {
-                                _weekOffset -= 1;
-                                _selectedDate = _weekDaysFromTodayOffset(_weekOffset).first;
-                              })
-                            : null,
-                        borderRadius: BorderRadius.circular(14),
-                        child: Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: const Color(0xFFF0F4F3),
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(color: const Color(0xFFE3E7EE)),
                           ),
                           child: Icon(
-                            Icons.chevron_left,
-                            color: canPrevWeek ? null : Colors.black26,
+                            Icons.tune,
+                            color: Colors.black.withValues(alpha: 0.55),
                           ),
                         ),
                       ),
                       const SizedBox(width: 12),
+                      _WeekNavIconButton(
+                        icon: Icons.chevron_left,
+                        enabled: _visibleWeekPage > 0,
+                        onTap: () => _setVisibleWeekPage(_visibleWeekPage - 1),
+                      ),
+                      const SizedBox(width: 8),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _weekTitle(weekDays.first, weekDays.last),
-                              style: const TextStyle(fontWeight: FontWeight.w900),
-                            ),
-                            const SizedBox(height: 2),
-                            const Text('Pick a day', style: TextStyle(color: Colors.black54, fontSize: 12)),
-                          ],
+                        child: _WeekDateStrip(
+                          weekStart: weekMonday,
+                          weekEnd: weekEnd,
+                          selectedDate: selected,
+                          onSelectDay: (d) => setState(() => _selectedDate = d),
                         ),
                       ),
-                      InkWell(
-                        onTap: () => setState(() {
-                          _weekOffset += 1;
-                          _selectedDate = _weekDaysFromTodayOffset(_weekOffset).first;
-                        }),
-                        borderRadius: BorderRadius.circular(14),
-                        child: Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: const Color(0xFFE3E7EE)),
-                          ),
-                          child: const Icon(Icons.chevron_right),
-                        ),
+                      const SizedBox(width: 8),
+                      _WeekNavIconButton(
+                        icon: Icons.chevron_right,
+                        enabled: true,
+                        onTap: () => _setVisibleWeekPage(_visibleWeekPage + 1),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  height: 56,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: weekDays.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 10),
-                    itemBuilder: (context, i) {
-                      final d = weekDays[i];
-                      return _DateChip(
-                        label: '${d.day}',
-                        sub: _weekdayLetter(d),
-                        selected: selected != null && _isSameDay(d, selected),
-                        onTap: () => setState(() => _selectedDate = d),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: snap.connectionState != ConnectionState.done && all.isEmpty
-                      ? const Center(child: CircularProgressIndicator())
-                      : events.isEmpty
-                          ? _EmptyDayState(selectedDate: selected)
-                          : ListView.separated(
-                              padding: const EdgeInsets.fromLTRB(18, 6, 18, 18),
-                              itemCount: events.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 12),
-                              itemBuilder: (context, idx) {
-                                final e = events[idx];
-                                return _AllEventCard(
-                                  event: e,
-                                  onOpen: () => Navigator.of(context).pushNamed(
+              ),
+              Expanded(
+                child: snap.connectionState != ConnectionState.done && all.isEmpty
+                    ? const Center(child: CircularProgressIndicator())
+                    : events.isEmpty
+                        ? _EmptyDayState(selectedDate: selected)
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+                            itemCount: events.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 14),
+                            itemBuilder: (context, idx) {
+                              final e = events[idx];
+                              return _AllEventCard(
+                                event: e,
+                                onOpen: () async {
+                                  await Navigator.of(context).pushNamed(
                                     EventDetailScreen.routeName,
                                     arguments: EventDetailArgs(event: e, showRegisterButton: true),
-                                  ),
-                                );
-                              },
-                            ),
-                ),
-              ],
-            );
-          },
+                                  );
+                                  if (!mounted) {
+                                    return;
+                                  }
+                                  setState(_refreshData);
+                                },
+                              );
+                            },
+                          ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _WeekNavIconButton extends StatelessWidget {
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _WeekNavIconButton({
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: enabled ? onTap : null,
+      child: Container(
+        width: 44,
+        height: 44,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF0F4F3),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE3E7EE)),
+        ),
+        child: Icon(
+          icon,
+          color: enabled ? Colors.black87 : Colors.black26,
         ),
       ),
+    );
+  }
+}
+
+/// One calendar week (Mon–Sun) with a range label and day chips.
+class _WeekDateStrip extends StatelessWidget {
+  final DateTime weekStart;
+  final DateTime weekEnd;
+  final DateTime? selectedDate;
+  final ValueChanged<DateTime> onSelectDay;
+  const _WeekDateStrip({
+    required this.weekStart,
+    required this.weekEnd,
+    required this.selectedDate,
+    required this.onSelectDay,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final days = List<DateTime>.generate(
+      7,
+      (i) => DateTime(weekStart.year, weekStart.month, weekStart.day + i),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          _weekRangeLabel(weekStart, weekEnd),
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: Colors.black.withValues(alpha: 0.38),
+            letterSpacing: 0.2,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < days.length; i++) ...[
+              if (i > 0) const SizedBox(width: 8),
+              _DateChip(
+                label: '${days[i].day}',
+                sub: _weekdayShort(days[i]),
+                selected: selectedDate != null && _isSameDay(days[i], selectedDate!),
+                onTap: () => onSelectDay(days[i]),
+              ),
+            ],
+          ],
+        ),
+      ],
     );
   }
 }
@@ -215,80 +338,55 @@ class _AllEventCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onOpen,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(20),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(color: const Color(0xFFE3E7EE)),
         ),
+        clipBehavior: Clip.antiAlias,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              height: 165,
-              decoration: BoxDecoration(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Theme.of(context).colorScheme.primary.withValues(alpha: 0.20),
-                    const Color(0xFFFFFFFF),
-                  ],
-                ),
-              ),
-              alignment: Alignment.center,
-              clipBehavior: Clip.antiAlias,
-              child: event.thumbnailFileId != null && event.thumbnailFileId!.isNotEmpty
-                  ? FutureBuilder(
-                      future: AppwriteService.getFileViewBytes(
-                        bucketId: AppwriteConfig.eventImagesBucketId,
-                        fileId: event.thumbnailFileId!,
-                      ),
-                      builder: (context, snap) {
-                        if (snap.hasData) {
-                          return Image.memory(
-                            snap.data!,
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                            height: double.infinity,
-                          );
-                        }
-                        return Icon(Icons.image_outlined, color: Colors.black.withValues(alpha: 0.35), size: 44);
-                      },
-                    )
-                  : Icon(Icons.image_outlined, color: Colors.black.withValues(alpha: 0.35), size: 44),
-            ),
+            EventThumbnailHeader(event: event),
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
               child: Row(
                 children: [
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(event.title, style: const TextStyle(fontWeight: FontWeight.w900)),
+                        Text(
+                          event.title,
+                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 34, height: 0.95),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                         const SizedBox(height: 2),
                         Text(
-                          '${event.location} • ${_fmtTime(event.startAt)}',
-                          style: const TextStyle(color: Colors.black54, fontSize: 12),
+                          '${event.location} · ${_fmtTime(event.startAt)}',
+                          style: TextStyle(color: Colors.black.withValues(alpha: 0.4), fontSize: 24, height: 0.95),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+                      color: cs.primary.withValues(alpha: 0.14),
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text(
                       'Open',
                       style: TextStyle(
-                        color: Theme.of(context).colorScheme.primary,
+                        color: cs.primary,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -318,7 +416,7 @@ class _DateChip extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
       child: Container(
-        width: 56,
+        width: 62,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: bg,
@@ -329,7 +427,7 @@ class _DateChip extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(label, style: TextStyle(color: fg, fontWeight: FontWeight.w900)),
-            Text(sub, style: TextStyle(color: fg.withValues(alpha: 0.90), fontSize: 11)),
+            Text(sub, style: TextStyle(color: fg.withValues(alpha: 0.90), fontSize: 12)),
           ],
         ),
       ),
@@ -372,32 +470,33 @@ DateTime _today() {
   return DateTime(now.year, now.month, now.day);
 }
 
-List<DateTime> _weekDaysFromTodayOffset(int weekOffset) {
-  final start = _today().add(Duration(days: weekOffset * 7));
-  return List<DateTime>.generate(
-    7,
-    (i) => DateTime(start.year, start.month, start.day + i),
-  );
+/// Monday of the week for page 0 = week that contains today; page 1 = next week, etc.
+DateTime _mondayOfWeekPage(int page) {
+  final today = _today();
+  final monday = today.subtract(Duration(days: today.weekday - 1));
+  return monday.add(Duration(days: 7 * page));
+}
+
+bool _isDateInWeek(DateTime date, DateTime weekMonday) {
+  final d = DateTime(date.year, date.month, date.day);
+  final mon = DateTime(weekMonday.year, weekMonday.month, weekMonday.day);
+  final days = d.difference(mon).inDays;
+  return days >= 0 && days <= 6;
+}
+
+String _weekRangeLabel(DateTime start, DateTime end) {
+  if (start.year == end.year && start.month == end.month) {
+    return '${_monthShort(start.month)} ${start.day}–${end.day}';
+  }
+  if (start.year == end.year) {
+    return '${_monthShort(start.month)} ${start.day} – ${_monthShort(end.month)} ${end.day}';
+  }
+  return '${_monthShort(start.month)} ${start.day}, ${start.year} – ${_monthShort(end.month)} ${end.day}';
 }
 
 String _weekdayShort(DateTime dt) {
   const w = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   return w[(dt.weekday - 1).clamp(0, 6)];
-}
-
-String _weekdayLetter(DateTime dt) {
-  const w = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-  return w[(dt.weekday - 1).clamp(0, 6)];
-}
-
-String _weekTitle(DateTime start, DateTime end) {
-  if (start.year == end.year && start.month == end.month) {
-    return '${start.day}–${end.day} ${_monthShort(start.month)}';
-  }
-  if (start.year == end.year) {
-    return '${start.day} ${_monthShort(start.month)} – ${end.day} ${_monthShort(end.month)}';
-  }
-  return '${start.day} ${_monthShort(start.month)} ${start.year} – ${end.day} ${_monthShort(end.month)} ${end.year}';
 }
 
 class _EmptyDayState extends StatelessWidget {

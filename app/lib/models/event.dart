@@ -13,6 +13,8 @@ class Event {
   final String entryFeeLabel; // e.g. "Free"
   final String description;
   final bool joinedByMe;
+  final List<String> participantIds;
+  final String cancellationFreeze; // e.g. "12 Hours"
 
   /// User ID of the event creator. Used to show Edit only to the creator.
   final String? creatorId;
@@ -35,6 +37,8 @@ class Event {
     required this.entryFeeLabel,
     required this.description,
     required this.joinedByMe,
+    this.participantIds = const [],
+    this.cancellationFreeze = '12 Hours',
     this.creatorId,
     this.thumbnailFileId,
   });
@@ -79,6 +83,35 @@ class Event {
       return null;
     }
 
+    List<String> parseStringList(Object? v) {
+      if (v is List) {
+        return v.map((e) => e.toString()).where((e) => e.trim().isNotEmpty).toList();
+      }
+      if (v is String) {
+        return v
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+      }
+      return const [];
+    }
+
+    String normalizeFeeLabel(Object? raw) {
+      final text = (raw ?? '').toString().trim();
+      if (text.isEmpty) {
+        return 'Free';
+      }
+      final lower = text.toLowerCase();
+      if (lower == 'free') {
+        return 'Free';
+      }
+      if (text.startsWith('\$')) {
+        return text;
+      }
+      return '\$$text';
+    }
+
     return Event(
       id: id,
       title: (data['title'] ?? data['name'] ?? 'Event').toString(),
@@ -91,9 +124,11 @@ class Event {
       joined: parseInt(data['joined'] ?? data['joinedCount'] ?? data['joined_count']),
       capacity: parseInt(data['capacity'] ?? data['max'] ?? data['maxParticipants'] ?? data['max_participants']),
       skillLevel: (data['skillLevel'] ?? data['skill_level'] ?? '—').toString(),
-      entryFeeLabel: (data['entryFeeLabel'] ?? data['entry_fee'] ?? data['fee'] ?? '—').toString(),
+      entryFeeLabel: normalizeFeeLabel(data['entryFeeLabel'] ?? data['entry_fee'] ?? data['fee']),
       description: (data['description'] ?? '').toString(),
       joinedByMe: parseBool(data['joinedByMe'] ?? data['joined_by_me'] ?? false),
+      participantIds: parseStringList(data['participantIds'] ?? data['participant_ids']),
+      cancellationFreeze: (data['cancellationFreeze'] ?? data['cancellation_freeze'] ?? '12 Hours').toString(),
       creatorId: data['creatorId']?.toString() ?? data['creator_id']?.toString(),
       thumbnailFileId: data['thumbnailFileId']?.toString() ??
           data['thumbnail_file_id']?.toString() ??
@@ -117,6 +152,8 @@ class Event {
       'entryFeeLabel': entryFeeLabel,
       'description': description,
       'joinedByMe': joinedByMe,
+      'participantIds': participantIds,
+      'cancellationFreeze': cancellationFreeze,
       'creatorId': creatorId,
       'thumbnailFileId': thumbnailFileId,
     };
@@ -137,6 +174,8 @@ class Event {
     String? entryFeeLabel,
     String? description,
     bool? joinedByMe,
+    List<String>? participantIds,
+    String? cancellationFreeze,
     String? creatorId,
     String? thumbnailFileId,
   }) {
@@ -155,6 +194,8 @@ class Event {
       entryFeeLabel: entryFeeLabel ?? this.entryFeeLabel,
       description: description ?? this.description,
       joinedByMe: joinedByMe ?? this.joinedByMe,
+      participantIds: participantIds ?? this.participantIds,
+      cancellationFreeze: cancellationFreeze ?? this.cancellationFreeze,
       creatorId: creatorId ?? this.creatorId,
       thumbnailFileId: thumbnailFileId ?? this.thumbnailFileId,
     );

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:appwrite/appwrite.dart';
 import 'package:flutter/material.dart';
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
@@ -9,6 +10,7 @@ import '../../../models/user_profile.dart';
 import '../home/home_screen.dart';
 import '../login_screen.dart';
 import 'edit_profile_screen.dart';
+import '../../../auth/current_user.dart';
 
 class ProfileScreen extends StatefulWidget {
   static const routeName = '/profile';
@@ -330,8 +332,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 label: 'Log Out',
                                 onTap: () async {
                                   try {
-                                    await AppwriteService.account.deleteSession(sessionId: 'current');
-                                  } catch (_) {}
+                                    // Use deleteSessions() to also remove client-side cookies/session storage.
+                                    // This prevents the "log out then can't log back in" issue.
+                                    await AppwriteService.account.deleteSessions();
+                                  } on AppwriteException catch (e) {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(e.message ?? 'Failed to log out.')),
+                                    );
+                                  } catch (_) {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Failed to log out.')),
+                                    );
+                                  } finally {
+                                    CurrentUser.reset();
+                                  }
                                   if (!mounted) return;
                                   Navigator.of(context).pushNamedAndRemoveUntil(
                                     LoginScreen.routeName,

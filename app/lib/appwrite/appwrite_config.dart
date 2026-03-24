@@ -18,11 +18,15 @@ class AppwriteConfig {
   );
   static const clubsCollectionId = String.fromEnvironment(
     'APPWRITE_CLUBS_COLLECTION_ID',
-    defaultValue: '',
+    defaultValue: 'clubs',
   );
   static const profilesCollectionId = String.fromEnvironment(
     'APPWRITE_PROFILES_COLLECTION_ID',
     defaultValue: 'profiles',
+  );
+  static const eventRegistrationsCollectionId = String.fromEnvironment(
+    'APPWRITE_EVENT_REGISTRATIONS_COLLECTION_ID',
+    defaultValue: 'event_registrations',
   );
   static const storageBucketId = '69bbaadc0033918d8bba';
   static const profileImagesBucketId = storageBucketId;

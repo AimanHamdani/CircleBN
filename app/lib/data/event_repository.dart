@@ -1,6 +1,8 @@
 import '../appwrite/appwrite_config.dart';
 import '../appwrite/appwrite_service.dart';
+import '../auth/current_user.dart';
 import '../models/event.dart';
+import 'event_registration_repository.dart';
 import 'sample_events.dart';
 
 abstract class EventRepository {
@@ -29,7 +31,7 @@ class AppwriteEventRepository implements EventRepository {
 
     await _migrateLegacyThumbnailField(docs.documents);
 
-    return docs.documents
+    final events = docs.documents
         .map(
           (d) => Event.fromMap(
             Map<String, dynamic>.from(d.data),
@@ -38,6 +40,19 @@ class AppwriteEventRepository implements EventRepository {
         )
         .toList()
       ..sort((a, b) => a.startAt.compareTo(b.startAt));
+
+    final myId = currentUserId;
+    if (myId.trim().isEmpty) {
+      return events;
+    }
+    final myEventIds = await eventRegistrationRepository().listMyRegisteredEventIds(myId);
+    return events
+        .map(
+          (e) => e.copyWith(
+            joinedByMe: myEventIds.contains(e.id),
+          ),
+        )
+        .toList();
   }
 
   Future<void> _migrateLegacyThumbnailField(List<dynamic> documents) async {

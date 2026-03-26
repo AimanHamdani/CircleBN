@@ -14,6 +14,7 @@ import 'event_detail_screen.dart';
 import '../profile/profile_screen.dart';
 import 'activity_overview_screen.dart';
 import 'clubs_screen.dart';
+import 'calendar_screen.dart';
 import '../../widgets/event_thumbnail_header.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -40,6 +41,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ? const _HomeBody()
           : _tabIndex == 1
               ? const ClubsScreen()
+              : _tabIndex == 3
+                  ? const CalendarScreen()
               : const _PlaceholderTab(),
       bottomNavigationBar: SafeArea(
         top: false,

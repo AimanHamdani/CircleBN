@@ -28,6 +28,14 @@ class AppwriteConfig {
     'APPWRITE_EVENT_REGISTRATIONS_COLLECTION_ID',
     defaultValue: 'event_registrations',
   );
+  static const clubMembersCollectionId = String.fromEnvironment(
+    'APPWRITE_CLUB_MEMBERS_COLLECTION_ID',
+    defaultValue: 'club_members',
+  );
+  static const promoteClubAdminFunctionId = String.fromEnvironment(
+    'APPWRITE_PROMOTE_CLUB_ADMIN_FUNCTION_ID',
+    defaultValue: 'promote_club_admin',
+  );
   static const storageBucketId = '69bbaadc0033918d8bba';
   static const profileImagesBucketId = storageBucketId;
   static const eventImagesBucketId = storageBucketId;

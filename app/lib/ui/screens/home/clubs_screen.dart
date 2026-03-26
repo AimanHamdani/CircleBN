@@ -20,6 +20,19 @@ class _ClubsScreenState extends State<ClubsScreen> {
   final _searchCtrl = TextEditingController();
 
   String _selectedSport = 'All';
+  late Future<List<Club>> _clubsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _clubsFuture = clubRepository().listClubs();
+  }
+
+  void _refreshClubs() {
+    setState(() {
+      _clubsFuture = clubRepository().listClubs();
+    });
+  }
 
   @override
   void dispose() {
@@ -27,34 +40,40 @@ class _ClubsScreenState extends State<ClubsScreen> {
     super.dispose();
   }
 
-  String _mockLastMessage(Club c) {
-    final h = c.id.hashCode.abs();
-    final lastSports = c.sports.toList();
-    final sport = lastSports.isNotEmpty ? lastSports[h % lastSports.length] : 'Sport';
-    final templates = <String>[
-      'Let us play $sport tomorrow',
-      'Practice starts soon for $sport',
-      'Reminder: bring water for $sport',
-      'Schedule updated for $sport',
-      'Join us for $sport session',
-    ];
-    return templates[h % templates.length];
+  String _clubSubtitle(Club c) {
+    final d = c.description.trim();
+    if (d.isNotEmpty) {
+      return d;
+    }
+    if (c.sports.isNotEmpty) {
+      return c.sports.join(' · ');
+    }
+    final loc = c.location.trim();
+    if (loc.isNotEmpty) {
+      return loc;
+    }
+    return '';
   }
 
-  String _mockLastTimeText(Club c) {
-    final h = c.id.hashCode.abs();
-    final labels = <String>[
-      'Just Now',
-      'Yesterday',
-      '13/2',
-      '1:30',
-    ];
-    return labels[h % labels.length];
-  }
-
-  int _mockUnreadCount(Club c) {
-    final h = c.id.hashCode.abs();
-    return h % 3;
+  bool _clubMatchesSearch(Club c, String searchLower) {
+    if (searchLower.isEmpty) {
+      return true;
+    }
+    if (c.name.toLowerCase().contains(searchLower)) {
+      return true;
+    }
+    if (c.description.toLowerCase().contains(searchLower)) {
+      return true;
+    }
+    if (c.location.toLowerCase().contains(searchLower)) {
+      return true;
+    }
+    for (final s in c.sports) {
+      if (s.toLowerCase().contains(searchLower)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<void> _showPickSport() async {
@@ -196,27 +215,52 @@ class _ClubsScreenState extends State<ClubsScreen> {
             const SizedBox(height: 12),
             Expanded(
               child: FutureBuilder<List<Club>>(
-                future: clubRepository().listClubs(),
+                future: _clubsFuture,
                 builder: (context, snap) {
+                  if (snap.hasError) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'Could not load clubs.\n${snap.error}',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.black.withValues(alpha: 0.65)),
+                            ),
+                            const SizedBox(height: 16),
+                            FilledButton(
+                              onPressed: _refreshClubs,
+                              child: const Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+
                   if (snap.connectionState != ConnectionState.done) {
                     return const Center(child: CircularProgressIndicator());
                   }
 
-                  final clubs = snap.data ?? SampleData.clubs;
+                  final clubs = snap.data ?? const <Club>[];
                   final filtered = clubs.where((c) {
                     final sportOk = _selectedSport == 'All' || c.sports.contains(_selectedSport);
-                    if (!sportOk) return false;
-
-                    if (searchLower.isEmpty) return true;
-                    final lastMessage = _mockLastMessage(c).toLowerCase();
-                    final nameOk = c.name.toLowerCase().contains(searchLower);
-                    final msgOk = lastMessage.contains(searchLower);
-                    return nameOk || msgOk;
+                    if (!sportOk) {
+                      return false;
+                    }
+                    return _clubMatchesSearch(c, searchLower);
                   }).toList()
                     ..sort((a, b) => a.name.compareTo(b.name));
 
                   if (filtered.isEmpty) {
-                    return const Center(child: Text('No clubs found.'));
+                    return Center(
+                      child: Text(
+                        clubs.isEmpty ? 'No clubs yet. Create one from Home.' : 'No clubs match your filters.',
+                        textAlign: TextAlign.center,
+                      ),
+                    );
                   }
 
                   return ListView.separated(
@@ -225,9 +269,7 @@ class _ClubsScreenState extends State<ClubsScreen> {
                     separatorBuilder: (_, __) => const SizedBox(height: 12),
                     itemBuilder: (context, idx) {
                       final c = filtered[idx];
-                      final unread = _mockUnreadCount(c);
-                      final lastTime = _mockLastTimeText(c);
-                      final lastMessage = _mockLastMessage(c);
+                      final subtitle = _clubSubtitle(c);
 
                       return InkWell(
                         borderRadius: BorderRadius.circular(18),
@@ -239,10 +281,16 @@ class _ClubsScreenState extends State<ClubsScreen> {
                               if (!context.mounted) {
                                 return;
                               }
-                              Navigator.of(context).pushNamed(
-                                ClubChatScreen.routeName,
-                                arguments: c,
-                              );
+                              Navigator.of(context)
+                                  .pushNamed(
+                                    ClubChatScreen.routeName,
+                                    arguments: c,
+                                  )
+                                  .then((_) {
+                                if (context.mounted) {
+                                  _refreshClubs();
+                                }
+                              });
                             });
                           });
                         },
@@ -294,51 +342,33 @@ class _ClubsScreenState extends State<ClubsScreen> {
                                         c.name,
                                         style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5),
                                       ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        'User: $lastMessage',
-                                        style: TextStyle(
-                                          color: Colors.black.withValues(alpha: 0.55),
-                                          fontSize: 12.5,
+                                      if (subtitle.isNotEmpty) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          subtitle,
+                                          style: TextStyle(
+                                            color: Colors.black.withValues(alpha: 0.55),
+                                            fontSize: 12.5,
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
+                                      ],
                                     ],
                                   ),
                                 ),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      lastTime,
+                                if (c.privacy.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 8),
+                                    child: Text(
+                                      c.privacy,
                                       style: TextStyle(
-                                        color: Colors.black.withValues(alpha: 0.45),
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
+                                        color: Colors.black.withValues(alpha: 0.38),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
                                       ),
                                     ),
-                                    const SizedBox(height: 6),
-                                    if (unread > 0)
-                                      Container(
-                                        width: 24,
-                                        height: 24,
-                                        decoration: BoxDecoration(
-                                          color: Colors.green.withValues(alpha: 0.18),
-                                          borderRadius: BorderRadius.circular(999),
-                                        ),
-                                        alignment: Alignment.center,
-                                        child: Text(
-                                          '$unread',
-                                          style: TextStyle(
-                                            color: Theme.of(context).colorScheme.primary,
-                                            fontWeight: FontWeight.w900,
-                                            fontSize: 12.5,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
+                                  ),
                               ],
                             ),
                           ),

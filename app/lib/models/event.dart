@@ -19,6 +19,9 @@ class Event {
   /// User ID of the event creator. Used to show Edit only to the creator.
   final String? creatorId;
 
+  /// Optional link to a club document id (Appwrite `clubs` collection).
+  final String? clubId;
+
   // File ID stored in Appwrite Storage for event thumbnail.
   final String? thumbnailFileId;
 
@@ -40,6 +43,7 @@ class Event {
     this.participantIds = const [],
     this.cancellationFreeze = '12 Hours',
     this.creatorId,
+    this.clubId,
     this.thumbnailFileId,
   });
 
@@ -130,6 +134,7 @@ class Event {
       participantIds: parseStringList(data['participantIds'] ?? data['participant_ids']),
       cancellationFreeze: (data['cancellationFreeze'] ?? data['cancellation_freeze'] ?? '12 Hours').toString(),
       creatorId: data['creatorId']?.toString() ?? data['creator_id']?.toString(),
+      clubId: data['clubId']?.toString() ?? data['club_id']?.toString(),
       thumbnailFileId: data['thumbnailFileId']?.toString() ??
           data['thumbnail_file_id']?.toString() ??
           data['imageUrl']?.toString() ??
@@ -155,6 +160,7 @@ class Event {
       'participantIds': participantIds,
       'cancellationFreeze': cancellationFreeze,
       'creatorId': creatorId,
+      'clubId': clubId,
       'thumbnailFileId': thumbnailFileId,
     };
   }
@@ -177,6 +183,7 @@ class Event {
     List<String>? participantIds,
     String? cancellationFreeze,
     String? creatorId,
+    String? clubId,
     String? thumbnailFileId,
   }) {
     return Event(
@@ -197,6 +204,7 @@ class Event {
       participantIds: participantIds ?? this.participantIds,
       cancellationFreeze: cancellationFreeze ?? this.cancellationFreeze,
       creatorId: creatorId ?? this.creatorId,
+      clubId: clubId ?? this.clubId,
       thumbnailFileId: thumbnailFileId ?? this.thumbnailFileId,
     );
   }

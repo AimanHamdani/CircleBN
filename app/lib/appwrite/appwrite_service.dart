@@ -1,5 +1,7 @@
 import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 
 import 'appwrite_config.dart';
@@ -14,6 +16,7 @@ class AppwriteService {
   static Databases get databases => Databases(_client);
   static Account get account => Account(_client);
   static Storage get storage => Storage(_client);
+  static Functions get functions => Functions(_client);
 
   static bool get isConfigured => AppwriteConfig.isConfigured;
 
@@ -145,6 +148,75 @@ class AppwriteService {
       bucketId: bucketId,
       fileId: fileId,
     );
+  }
+
+  static Future<void> deleteFile({
+    required String bucketId,
+    required String fileId,
+  }) async {
+    try {
+      await storage.deleteFile(
+        bucketId: bucketId,
+        fileId: fileId,
+      );
+    } on AppwriteException catch (e) {
+      // If the file is already deleted or inaccessible, treat as best-effort.
+      if (e.code == 404) {
+        return;
+      }
+      rethrow;
+    }
+  }
+
+  /// Runs a function and waits for the result (`async: false` on the API).
+  ///
+  /// Throws if HTTP fails, execution status is `failed`, or JSON body contains `"ok": false`.
+  static Future<models.Execution> executeFunction({
+    required String functionId,
+    Map<String, dynamic>? payload,
+  }) async {
+    final execution = await functions.createExecution(
+      functionId: functionId,
+      body: payload == null ? null : jsonEncode(payload),
+      xasync: false,
+    );
+    _ensureExecutionSucceeded(execution);
+    return execution;
+  }
+
+  static void _ensureExecutionSucceeded(models.Execution execution) {
+    if (execution.status == 'failed') {
+      final detail = execution.errors.trim().isNotEmpty
+          ? execution.errors.trim()
+          : execution.responseBody.trim();
+      throw Exception(
+        detail.isNotEmpty ? detail : 'Function execution failed',
+      );
+    }
+
+    final code = execution.responseStatusCode;
+    if (code >= 400) {
+      final body = execution.responseBody.trim();
+      throw Exception(
+        body.isNotEmpty ? body : 'Function returned HTTP $code',
+      );
+    }
+
+    final raw = execution.responseBody.trim();
+    if (raw.isEmpty) {
+      return;
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map && decoded['ok'] == false) {
+        final msg = decoded['message']?.toString();
+        throw Exception(
+          (msg != null && msg.isNotEmpty) ? msg : 'Request rejected',
+        );
+      }
+    } on FormatException {
+      // Non-JSON success body is fine.
+    }
   }
 
   static String? _contentBasedFileId(Uint8List? bytes) {

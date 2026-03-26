@@ -3,6 +3,7 @@ import 'package:appwrite/appwrite.dart';
 
 import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
+import '../../../data/club_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../data/sample_clubs.dart';
 import '../../../models/club.dart';
@@ -28,6 +29,9 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
   late RecommendedClubsArgs _args;
   late Set<String> _selectedClubIds;
   bool _isSubmitting = false;
+  late final Future<List<Club>> _clubsFuture = clubRepository()
+      .listClubs()
+      .catchError((Object _) => SampleData.clubs);
 
   @override
   void didChangeDependencies() {
@@ -37,13 +41,24 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
     _selectedClubIds = {..._args.draft.clubIds};
   }
 
-  List<Club> _recommendedClubs() {
+  List<Club> _filterRecommended(List<Club> all) {
     final pickedSports = _args.draft.sports;
-    if (pickedSports.isEmpty) return SampleData.clubs;
-    return SampleData.clubs
-        .where((c) => c.sports.any(pickedSports.contains))
-        .toList()
+    if (pickedSports.isEmpty) {
+      return List<Club>.from(all)..sort((a, b) => a.name.compareTo(b.name));
+    }
+    return all.where((c) => c.sports.any(pickedSports.contains)).toList()
       ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  String _clubListSubtitle(Club club) {
+    if (club.sports.isNotEmpty) {
+      return club.sports.join(' • ');
+    }
+    final d = club.description.trim();
+    if (d.isEmpty) {
+      return '';
+    }
+    return d.length > 80 ? '${d.substring(0, 80)}…' : d;
   }
 
   Future<void> _finish() async {
@@ -155,7 +170,6 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final clubs = _recommendedClubs();
     final header = _args.skippedSports || _args.draft.sports.isEmpty
         ? 'Recommended Clubs'
         : 'Recommended Clubs for ${_args.draft.sports.join(', ')}';
@@ -179,7 +193,7 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
               ),
               const SizedBox(height: 6),
               const Text(
-                'Pick clubs to follow (mock)',
+                'Pick clubs to follow',
                 style: TextStyle(color: Colors.black54),
               ),
               const SizedBox(height: 10),
@@ -194,72 +208,86 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
               ),
               const SizedBox(height: 14),
               Expanded(
-                child: ListView.separated(
-                  itemCount: clubs.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, idx) {
-                    final club = clubs[idx];
-                    final selected = _selectedClubIds.contains(club.id);
-                    return InkWell(
-                      onTap: () => setState(() {
-                        if (selected) {
-                          _selectedClubIds.remove(club.id);
-                        } else {
-                          _selectedClubIds.add(club.id);
-                        }
-                      }),
-                      borderRadius: BorderRadius.circular(14),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
+                child: FutureBuilder<List<Club>>(
+                  future: _clubsFuture,
+                  builder: (context, snap) {
+                    if (snap.connectionState != ConnectionState.done) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final clubs = _filterRecommended(snap.data ?? const <Club>[]);
+                    if (clubs.isEmpty) {
+                      return const Center(child: Text('No clubs match your sports yet.'));
+                    }
+                    return ListView.separated(
+                      itemCount: clubs.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (context, idx) {
+                        final club = clubs[idx];
+                        final selected = _selectedClubIds.contains(club.id);
+                        return InkWell(
+                          onTap: () => setState(() {
+                            if (selected) {
+                              _selectedClubIds.remove(club.id);
+                            } else {
+                              _selectedClubIds.add(club.id);
+                            }
+                          }),
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: selected
-                                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.55)
-                                : const Color(0xFFE3E7EE),
-                            width: selected ? 2 : 1,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 22,
-                              height: 22,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: selected
-                                      ? Theme.of(context).colorScheme.primary
-                                      : const Color(0xFFB8C0CC),
-                                  width: 2,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: selected
+                                    ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.55)
+                                    : const Color(0xFFE3E7EE),
+                                width: selected ? 2 : 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 22,
+                                  height: 22,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: selected
+                                          ? Theme.of(context).colorScheme.primary
+                                          : const Color(0xFFB8C0CC),
+                                      width: 2,
+                                    ),
+                                    color: selected ? Theme.of(context).colorScheme.primary : Colors.transparent,
+                                  ),
+                                  child: selected
+                                      ? const Icon(Icons.check, size: 14, color: Colors.white)
+                                      : null,
                                 ),
-                                color: selected ? Theme.of(context).colorScheme.primary : Colors.transparent,
-                              ),
-                              child: selected
-                                  ? const Icon(Icons.check, size: 14, color: Colors.white)
-                                  : null,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    club.name,
-                                    style: const TextStyle(fontWeight: FontWeight.w800),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        club.name,
+                                        style: const TextStyle(fontWeight: FontWeight.w800),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        _clubListSubtitle(club),
+                                        style: const TextStyle(color: Colors.black54, fontSize: 12),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    club.sports.join(' • '),
-                                    style: const TextStyle(color: Colors.black54, fontSize: 12),
-                                  ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
+                          ),
+                        );
+                      },
                     );
                   },
                 ),

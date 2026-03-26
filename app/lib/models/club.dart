@@ -17,6 +17,15 @@ class Club {
   // Used for creator-only actions.
   final String? creatorId;
 
+  /// When set in Appwrite (e.g. `membersCount`, `memberCount`), shown on club info.
+  final int? membersCount;
+
+  /// Optional stored admin count; defaults to 1 when [creatorId] is set in UI.
+  final int? adminsCount;
+
+  /// Custom founded date from attributes, or filled from document `$createdAt` in repository.
+  final DateTime? foundedAt;
+
   const Club({
     required this.id,
     required this.name,
@@ -29,9 +38,16 @@ class Club {
     this.location = '',
     this.thumbnailFileId,
     this.creatorId,
+    this.membersCount,
+    this.adminsCount,
+    this.foundedAt,
   });
 
-  factory Club.fromMap(Map<String, dynamic> data, {required String id}) {
+  factory Club.fromMap(
+    Map<String, dynamic> data, {
+    required String id,
+    DateTime? documentCreatedAt,
+  }) {
     final rawSports = data['sports'];
     final parsedSports = rawSports is List
         ? rawSports.map((e) => e.toString()).toSet()
@@ -57,6 +73,39 @@ class Club {
       return defaultValue;
     }
 
+    int? parseOptionalInt(Object? v) {
+      if (v == null) {
+        return null;
+      }
+      if (v is int) {
+        return v;
+      }
+      if (v is num) {
+        return v.toInt();
+      }
+      if (v is String) {
+        return int.tryParse(v.trim());
+      }
+      return null;
+    }
+
+    DateTime? parseOptionalDate(Object? v) {
+      if (v == null) {
+        return null;
+      }
+      if (v is DateTime) {
+        return v;
+      }
+      if (v is String && v.trim().isNotEmpty) {
+        return DateTime.tryParse(v.trim());
+      }
+      return null;
+    }
+
+    final foundedFromData = parseOptionalDate(
+      data['foundedAt'] ?? data['founded_at'] ?? data['createdAt'] ?? data['created_at'],
+    );
+
     return Club(
       id: id,
       name: (data['name'] ?? data['title'] ?? 'Club').toString(),
@@ -72,6 +121,11 @@ class Club {
           data['imageUrl']?.toString() ??
           data['image_url']?.toString(),
       creatorId: data['creatorId']?.toString() ?? data['creator_id']?.toString(),
+      membersCount: parseOptionalInt(
+        data['membersCount'] ?? data['members_count'] ?? data['memberCount'] ?? data['member_count'] ?? data['members'],
+      ),
+      adminsCount: parseOptionalInt(data['adminsCount'] ?? data['admins_count'] ?? data['adminCount'] ?? data['admin_count']),
+      foundedAt: foundedFromData ?? documentCreatedAt,
     );
   }
 
@@ -87,6 +141,9 @@ class Club {
       'location': location,
       'thumbnailFileId': thumbnailFileId,
       'creatorId': creatorId,
+      if (membersCount != null) 'membersCount': membersCount,
+      if (adminsCount != null) 'adminsCount': adminsCount,
+      if (foundedAt != null) 'foundedAt': foundedAt!.toIso8601String(),
     };
   }
 }

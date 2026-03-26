@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -8,7 +6,9 @@ import 'package:appwrite/appwrite.dart';
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
+import '../../../data/club_member_repository.dart';
 import '../../../data/sample_clubs.dart';
+import '../../../models/club.dart';
 
 class CreateClubScreen extends StatefulWidget {
   static const routeName = '/create-club';
@@ -38,6 +38,65 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
 
   bool _isSubmitting = false;
 
+  bool _didInitFromRoute = false;
+  bool _isEditMode = false;
+  bool _canEdit = true;
+  bool _checkingAccess = false;
+  Club? _editingClub;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didInitFromRoute) {
+      return;
+    }
+
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Club) {
+      _isEditMode = true;
+      _editingClub = args;
+      _canEdit = args.creatorId != null && args.creatorId == currentUserId;
+      _applyClubToForm(args);
+
+      if (!_canEdit && !_checkingAccess) {
+        _checkingAccess = true;
+        clubMemberRepository()
+            .isAdmin(clubId: args.id, userId: currentUserId)
+            .then((isAdmin) {
+          if (!mounted) return;
+          setState(() => _canEdit = isAdmin);
+
+          if (!isAdmin) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Only admins can edit this club.')),
+              );
+              Navigator.of(context).pop();
+            });
+          }
+        }).whenComplete(() {
+          if (!mounted) return;
+          setState(() => _checkingAccess = false);
+        });
+      }
+    }
+
+    _didInitFromRoute = true;
+  }
+
+  void _applyClubToForm(Club club) {
+    _nameCtrl.text = club.name;
+    _descriptionCtrl.text = club.description;
+    _locationCtrl.text = club.location;
+    _privacy = club.privacy.isNotEmpty ? club.privacy : 'Public';
+    _memberLimit = club.memberLimit;
+    _approvalRequired = club.approvalRequired;
+    _whoCanSendMessages = club.whoCanSendMessages.isNotEmpty ? club.whoCanSendMessages : 'Everyone';
+    _selectedSports = {...club.sports};
+    _thumbnailFileId = club.thumbnailFileId;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -54,6 +113,8 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final titleText = _isEditMode ? 'Edit Club' : 'Create Club';
+    final submitText = _isEditMode ? 'Save Changes' : 'Create Club';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8FA),
@@ -62,9 +123,9 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(),
         ),
-        title: const Text(
-          'Create Club',
-          style: TextStyle(fontWeight: FontWeight.w800),
+        title: Text(
+          titleText,
+          style: const TextStyle(fontWeight: FontWeight.w800),
         ),
         centerTitle: true,
       ),
@@ -79,7 +140,7 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                 child: Column(
                   children: [
                     GestureDetector(
-                      onTap: _isSubmitting ? null : _pickClubPhoto,
+                      onTap: (!_canEdit || _isSubmitting) ? null : _pickClubPhoto,
                       behavior: HitTestBehavior.opaque,
                       child: Container(
                         height: 140,
@@ -96,7 +157,7 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
-                          onPressed: _isSubmitting
+                          onPressed: (!_canEdit || _isSubmitting)
                               ? null
                               : () {
                                   setState(() {
@@ -123,6 +184,7 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                         if (txt.isEmpty) return 'Club name is required';
                         return null;
                       },
+                          enabled: !_isSubmitting && _canEdit,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
@@ -132,12 +194,13 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                       decoration: const InputDecoration(
                         hintText: 'Tell people what your club is about...',
                       ),
+                          enabled: !_isSubmitting && _canEdit,
                     ),
                     const SizedBox(height: 12),
                     Align(
                       alignment: Alignment.centerLeft,
                       child: TextButton(
-                        onPressed: _isSubmitting ? null : () => _showSportsPicker(context),
+                        onPressed: (!_canEdit || _isSubmitting) ? null : () => _showSportsPicker(context),
                         child: const Text('Choose Sports'),
                       ),
                     ),
@@ -174,7 +237,7 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                     _PickerRow(
                       label: 'Privacy',
                       value: _privacy,
-                      onTap: _isSubmitting ? null : () => _showOptionPicker<String>(
+                      onTap: (!_canEdit || _isSubmitting) ? null : () => _showOptionPicker<String>(
                         context,
                         'Privacy',
                         const ['Public', 'Private'],
@@ -184,12 +247,12 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                     const SizedBox(height: 14),
                     _MemberLimitRow(
                       memberLimit: _memberLimit,
-                      onChanged: (v) => setState(() => _memberLimit = v),
+                      onChanged: (!_canEdit || _isSubmitting) ? (_) {} : (v) => setState(() => _memberLimit = v),
                     ),
                     const SizedBox(height: 14),
                     SwitchListTile(
                       value: _approvalRequired,
-                      onChanged: _isSubmitting ? null : (v) => setState(() => _approvalRequired = v),
+                      onChanged: (!_canEdit || _isSubmitting) ? null : (v) => setState(() => _approvalRequired = v),
                       title: const Text('Approval required'),
                       subtitle: const Text('Members must be approved to join'),
                     ),
@@ -197,7 +260,7 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                     _PickerRow(
                       label: 'Who can send messages',
                       value: _whoCanSendMessages,
-                      onTap: _isSubmitting ? null : () => _showOptionPicker<String>(
+                      onTap: (!_canEdit || _isSubmitting) ? null : () => _showOptionPicker<String>(
                         context,
                         'Who can send messages',
                         const ['Everyone', 'Admins only', 'Admins & moderators'],
@@ -217,14 +280,14 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
               ),
               const SizedBox(height: 24),
               FilledButton(
-                onPressed: _isSubmitting ? null : _onCreateClub,
+                onPressed: (!_canEdit || _isSubmitting) ? null : _onCreateClub,
                 child: _isSubmitting
                     ? const SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
-                    : const Text('Create Club'),
+                    : Text(submitText),
               ),
             ],
           ),
@@ -413,9 +476,11 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
   Future<void> _onCreateClub() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (!AppwriteService.isConfigured || AppwriteConfig.clubsCollectionId.isEmpty) {
+    if (!AppwriteService.isConfigured ||
+        AppwriteConfig.databaseId.isEmpty ||
+        AppwriteConfig.clubsCollectionId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Appwrite club collection is not configured yet.')),
+        const SnackBar(content: Text('Appwrite database/clubs collection is not configured.')),
       );
       return;
     }
@@ -438,14 +503,36 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
         'approvalRequired': _approvalRequired,
         'whoCanSendMessages': _whoCanSendMessages,
         'location': _locationCtrl.text.trim(),
-        'creatorId': currentUserId,
+        'creatorId': _isEditMode ? (_editingClub?.creatorId ?? currentUserId) : currentUserId,
         'thumbnailFileId': _thumbnailFileId,
       };
 
-      await AppwriteService.createDocument(
-        collectionId: AppwriteConfig.clubsCollectionId,
-        data: data,
-      );
+      if (_isEditMode) {
+        final clubId = _editingClub?.id;
+        if (clubId == null || clubId.trim().isEmpty) {
+          throw AppwriteException('Missing club id for update.', 400);
+        }
+        await AppwriteService.updateDocument(
+          collectionId: AppwriteConfig.clubsCollectionId,
+          documentId: clubId,
+          data: data,
+        );
+      } else {
+        final created = await AppwriteService.createDocument(
+          collectionId: AppwriteConfig.clubsCollectionId,
+          data: data,
+        );
+
+        try {
+          await clubMemberRepository().joinAsMember(
+            clubId: created.$id,
+            userId: currentUserId,
+            role: ClubMemberRole.admin,
+          );
+        } catch (_) {
+          // Club creation should not fail if membership creation is temporarily blocked.
+        }
+      }
 
       if (!mounted) return;
       Navigator.of(context).pop(true);

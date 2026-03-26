@@ -1,16 +1,89 @@
 import 'package:flutter/material.dart';
+import 'package:appwrite/appwrite.dart';
 
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
+import '../../../auth/current_user.dart';
+import '../../../data/club_member_repository.dart';
+import '../../../data/club_repository.dart';
+import '../../../data/event_repository.dart';
+import '../../../data/profile_repository.dart';
 import '../../../models/club.dart';
+import '../../../models/event.dart';
+import '../../../models/user_profile.dart';
+import 'create_club_screen.dart';
+import 'clubs_screen.dart';
+import 'event_detail_screen.dart';
+
+String _promoteMemberErrorMessage(Object e) {
+  if (e is AppwriteException) {
+    final msg = (e.message ?? '').trim();
+    if (msg.isEmpty) {
+      return 'Could not run promote function. If Appwrite shows no execution, the request failed before it was queued (wrong function ID, permissions, or network).';
+    }
+    final lower = msg.toLowerCase();
+    if (e.code == 404 || lower.contains('function with the requested id could not be found')) {
+      return 'Wrong function ID: copy the Function \$id from Appwrite and set '
+          'APPWRITE_PROMOTE_CLUB_ADMIN_FUNCTION_ID (the default name is not always the real ID).';
+    }
+    if (e.code == 401 || e.code == 403) {
+      return 'Not allowed to execute this function. In Appwrite open the function → Settings → '
+          'Execution permissions, and allow your users (e.g. any user / role) to execute it.';
+    }
+    return msg;
+  }
+  final s = e.toString();
+  if (s.startsWith('Exception: ')) {
+    return s.substring('Exception: '.length);
+  }
+  return s;
+}
 
 /// Club profile / info page (opened from chat app bar).
-class ClubInfoScreen extends StatelessWidget {
+class ClubInfoScreen extends StatefulWidget {
   static const routeName = '/club-info';
 
   const ClubInfoScreen({super.key});
 
-  Club _club(BuildContext context) {
+  @override
+  State<ClubInfoScreen> createState() => _ClubInfoScreenState();
+}
+
+class _ClubInfoPayload {
+  final Club club;
+  final List<Event> upcomingEvents;
+  final int allClubEventsCount;
+  final List<_ClubMemberItem> members;
+  final int membersCount;
+  final int adminsCount;
+  final bool isCurrentUserMember;
+  final bool isCurrentUserAdmin;
+
+  const _ClubInfoPayload({
+    required this.club,
+    required this.upcomingEvents,
+    required this.allClubEventsCount,
+    required this.members,
+    required this.membersCount,
+    required this.adminsCount,
+    required this.isCurrentUserMember,
+    required this.isCurrentUserAdmin,
+  });
+}
+
+class _ClubMemberItem {
+  final UserProfile profile;
+  final bool isAdmin;
+
+  const _ClubMemberItem({required this.profile, required this.isAdmin});
+}
+
+class _ClubInfoScreenState extends State<ClubInfoScreen> {
+  Future<_ClubInfoPayload>? _payloadFuture;
+  Club? _cachedClub;
+  bool _isPromoting = false;
+
+  Club _clubFromRoute(BuildContext context) {
     final args = ModalRoute.of(context)?.settings.arguments;
     if (args is Club) {
       return args;
@@ -23,9 +96,74 @@ class ClubInfoScreen extends StatelessWidget {
     );
   }
 
-  int _members(Club c) => 20 + (c.id.hashCode.abs() % 80);
-  int _eventsCount(Club c) => 8 + (c.id.hashCode.abs() % 25);
-  int _admins(Club c) => 1 + (c.id.hashCode.abs() % 3);
+  Future<_ClubInfoPayload> _load({bool refreshClub = true}) async {
+    final initial = _clubFromRoute(context);
+    final fresh = refreshClub
+        ? (await clubRepository().getClub(initial.id) ?? initial)
+        : (_cachedClub ?? initial);
+
+    if (refreshClub) {
+      _cachedClub = fresh;
+    }
+    final events = await eventRepository().listEvents();
+    final now = DateTime.now();
+    final clubEvents = events.where((e) => e.clubId != null && e.clubId == fresh.id).toList();
+    final upcoming = clubEvents.where((e) => e.startAt.add(e.duration).isAfter(now)).toList()
+      ..sort((a, b) => a.startAt.compareTo(b.startAt));
+
+    final clubId = fresh.id;
+    var members = await clubMemberRepository().listMembers(clubId: clubId);
+
+    // Backward-compatible fallback: if the club has a creatorId but no membership docs yet,
+    // treat the creator as an admin so the UI still works for old data.
+    final creatorId = fresh.creatorId?.trim();
+    if (creatorId != null && creatorId.isNotEmpty) {
+      final hasCreator = members.any((m) => m.userId == creatorId);
+      if (!hasCreator) {
+        members = [
+          ...members,
+          ClubMember(
+            clubId: clubId,
+            userId: creatorId,
+            role: ClubMemberRole.admin,
+            joinedAt: DateTime.fromMillisecondsSinceEpoch(0),
+          ),
+        ];
+      }
+    }
+
+    final memberUserIds = members.map((m) => m.userId).toList(growable: false);
+    final memberProfiles = await profileRepository().getProfilesByIds(memberUserIds);
+    final profileById = {for (final p in memberProfiles) p.userId: p};
+
+    final memberItems = members.map((m) {
+      final profile = profileById[m.userId] ?? UserProfile.empty(m.userId);
+      return _ClubMemberItem(
+        profile: profile,
+        isAdmin: m.role == ClubMemberRole.admin,
+      );
+    }).toList();
+
+    final isCurrentUserMember = members.any((m) => m.userId == currentUserId);
+    final isCurrentUserAdmin = members.any((m) => m.userId == currentUserId && m.role == ClubMemberRole.admin);
+
+    return _ClubInfoPayload(
+      club: fresh,
+      upcomingEvents: upcoming,
+      allClubEventsCount: clubEvents.length,
+      members: memberItems,
+      membersCount: memberItems.length,
+      adminsCount: memberItems.where((m) => m.isAdmin).length,
+      isCurrentUserMember: isCurrentUserMember,
+      isCurrentUserAdmin: isCurrentUserAdmin,
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _payloadFuture ??= _load(refreshClub: true);
+  }
 
   String _primarySport(Club c) {
     if (c.sports.isEmpty) {
@@ -36,39 +174,360 @@ class ClubInfoScreen extends StatelessWidget {
   }
 
   String _foundedLabel(Club c) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    final m = c.id.hashCode.abs() % 12;
-    final y = 2021 + (c.id.hashCode.abs() % 5);
-    return 'Founded ${months[m]} $y';
+    final d = c.foundedAt;
+    if (d != null) {
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return 'Founded ${months[(d.month - 1).clamp(0, 11)]} ${d.year}';
+    }
+    return 'Founded date not set';
+  }
+
+  Future<bool> _confirmDisbandStep1(Club club) async {
+    final res = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Disband club'),
+        content: Text('Step 1/3: Are you sure you want to disband “${club.name}”?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    return res == true;
+  }
+
+  Future<bool> _confirmDisbandStep2(Club club) async {
+    final res = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Disband club'),
+        content: const Text('Step 2/3: This will delete the club members and linked events. This cannot be undone. Continue?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Back'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    return res == true;
+  }
+
+  Future<bool> _confirmDisbandStep3(Club club) async {
+    final res = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Final confirmation'),
+        content: Text('Step 3/3: Confirm again to DISBAND “${club.name}”.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Disband'),
+          ),
+        ],
+      ),
+    );
+    return res == true;
+  }
+
+  Future<void> _deleteEventsForClub(String clubId) async {
+    if (!AppwriteService.isConfigured || AppwriteConfig.eventsCollectionId.isEmpty) {
+      return;
+    }
+
+    Future<void> deleteByField(String field) async {
+      final docs = await AppwriteService.listDocuments(
+        collectionId: AppwriteConfig.eventsCollectionId,
+        queries: [
+          Query.equal(field, clubId),
+          Query.limit(5000),
+        ],
+      );
+      for (final d in docs.documents) {
+        final data = Map<String, dynamic>.from(d.data);
+        final thumbId = data['thumbnailFileId']?.toString() ??
+            data['thumbnail_file_id']?.toString() ??
+            data['imageUrl']?.toString() ??
+            data['image_url']?.toString();
+        if (thumbId != null && thumbId.isNotEmpty) {
+          await AppwriteService.deleteFile(
+            bucketId: AppwriteConfig.storageBucketId,
+            fileId: thumbId,
+          ).catchError((_) {});
+        }
+        await AppwriteService.deleteDocument(
+          collectionId: AppwriteConfig.eventsCollectionId,
+          documentId: d.$id,
+        );
+      }
+    }
+
+    try {
+      await deleteByField('clubId');
+      return;
+    } catch (_) {}
+
+    try {
+      await deleteByField('club_id');
+      return;
+    } catch (_) {}
+
+    // Fallback: scan and delete best-effort (may be slow if you have many events).
+    try {
+      final docs = await AppwriteService.listDocuments(
+        collectionId: AppwriteConfig.eventsCollectionId,
+        queries: [Query.limit(5000)],
+      );
+      for (final d in docs.documents) {
+        final data = Map<String, dynamic>.from(d.data);
+        final raw = (data['clubId'] ?? data['club_id'] ?? data['clubid'] ?? data['clubID'])?.toString();
+        if (raw == clubId) {
+          final thumbId = data['thumbnailFileId']?.toString() ??
+              data['thumbnail_file_id']?.toString() ??
+              data['imageUrl']?.toString() ??
+              data['image_url']?.toString();
+          if (thumbId != null && thumbId.isNotEmpty) {
+            await AppwriteService.deleteFile(
+              bucketId: AppwriteConfig.storageBucketId,
+              fileId: thumbId,
+            ).catchError((_) {});
+          }
+          await AppwriteService.deleteDocument(
+            collectionId: AppwriteConfig.eventsCollectionId,
+            documentId: d.$id,
+          );
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _disbandClub(Club club) async {
+    if (!await _confirmDisbandStep1(club) || !await _confirmDisbandStep2(club)) {
+      return;
+    }
+    if (!await _confirmDisbandStep3(club)) {
+      return;
+    }
+
+    try {
+      final clubThumbId = club.thumbnailFileId?.trim();
+      if (clubThumbId != null && clubThumbId.isNotEmpty) {
+        await AppwriteService.deleteFile(
+          bucketId: AppwriteConfig.storageBucketId,
+          fileId: clubThumbId,
+        ).catchError((_) {});
+      }
+      await clubMemberRepository().deleteMembersForClub(club.id);
+      await _deleteEventsForClub(club.id);
+      await AppwriteService.deleteDocument(
+        collectionId: AppwriteConfig.clubsCollectionId,
+        documentId: club.id,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to disband club: ${e.toString()}')),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Club disbanded.')),
+    );
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      ClubsScreen.routeName,
+      (_) => false,
+    );
+  }
+
+  Future<void> _openMemberActions({
+    required _ClubInfoPayload payload,
+    required _ClubMemberItem member,
+  }) async {
+    if (!payload.isCurrentUserAdmin) {
+      return;
+    }
+    if (member.profile.userId == currentUserId) {
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 18),
+              ListTile(
+                leading: Icon(
+                  Icons.admin_panel_settings_outlined,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                title: Text(
+                  member.isAdmin ? 'Already an admin' : 'Make admin',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                enabled: !member.isAdmin && !_isPromoting,
+                onTap: member.isAdmin
+                    ? null
+                    : () async {
+                        Navigator.pop(sheetCtx);
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Make admin'),
+                            content: Text('Promote ${member.profile.username} to admin?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop(false),
+                                child: const Text('Cancel'),
+                              ),
+                              FilledButton(
+                                onPressed: () => Navigator.of(ctx).pop(true),
+                                child: const Text('Make admin'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirmed != true) {
+                          return;
+                        }
+
+                        if (!mounted) {
+                          return;
+                        }
+                        final messenger = ScaffoldMessenger.of(context);
+                        setState(() {
+                          _isPromoting = true;
+                        });
+                        try {
+                          await clubMemberRepository().promoteToAdminViaFunction(
+                            clubId: payload.club.id,
+                            targetUserId: member.profile.userId,
+                          );
+                          if (!mounted) return;
+                          setState(() {
+                            _payloadFuture = _load(refreshClub: false);
+                          });
+                          messenger.showSnackBar(
+                            const SnackBar(content: Text('Member promoted to admin.')),
+                          );
+                        } catch (e) {
+                          if (!mounted) return;
+                          messenger.showSnackBar(
+                            SnackBar(content: Text(_promoteMemberErrorMessage(e))),
+                          );
+                        } finally {
+                          if (mounted) {
+                            setState(() {
+                              _isPromoting = false;
+                            });
+                          }
+                        }
+                      },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final club = _club(context);
     final cs = Theme.of(context).colorScheme;
-    final members = _members(club);
-    final eventsN = _eventsCount(club);
-    final admins = _admins(club);
-    final sport = _primarySport(club);
-    final locationText = club.location.trim().isNotEmpty ? club.location.trim() : 'Location not set';
-    final desc = club.description.trim().isNotEmpty
-        ? club.description.trim()
-        : 'A casual club for all skill levels. Everyone is welcome — join us for sessions and events.';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8FA),
       // Web / route transition: horizontal constraints can be loose briefly; Row→Expanded
       // under SingleChildScrollView then never lays out → blank screen + mouse_tracker asserts.
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          var w = constraints.maxWidth;
-          if (!w.isFinite || w <= 0) {
-            w = MediaQuery.sizeOf(context).width;
+      body: FutureBuilder<_ClubInfoPayload>(
+        future: _payloadFuture,
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
           }
-          if (!w.isFinite || w <= 0) {
-            w = 400.0;
+          if (snap.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'Could not load club.',
+                      style: TextStyle(color: Colors.black.withValues(alpha: 0.65)),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton(
+                      onPressed: () {
+                        setState(() {
+                          _payloadFuture = _load(refreshClub: true);
+                        });
+                      },
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            );
           }
-          return SingleChildScrollView(
+          final p = snap.data!;
+          final club = p.club;
+          final members = p.membersCount;
+          final eventsN = p.allClubEventsCount;
+          final admins = p.adminsCount;
+          final sport = _primarySport(club);
+          final locationText = club.location.trim().isNotEmpty ? club.location.trim() : 'Location not set';
+          final desc = club.description.trim().isNotEmpty ? club.description.trim() : 'No description yet.';
+
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              var w = constraints.maxWidth;
+              if (!w.isFinite || w <= 0) {
+                w = MediaQuery.sizeOf(context).width;
+              }
+              if (!w.isFinite || w <= 0) {
+                w = 400.0;
+              }
+              return SingleChildScrollView(
             physics: const ClampingScrollPhysics(),
             child: SizedBox(
               width: w,
@@ -136,8 +595,105 @@ class ClubInfoScreen extends StatelessWidget {
                                         padding: EdgeInsets.zero,
                                         icon: const Icon(Icons.more_vert),
                                         onPressed: () {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(content: Text('Club menu (mock).')),
+                                          final isAdmin = p.isCurrentUserAdmin;
+
+                                          showModalBottomSheet<void>(
+                                            context: context,
+                                            backgroundColor: Colors.transparent,
+                                            builder: (sheetCtx) => Container(
+                                              decoration: const BoxDecoration(
+                                                color: Colors.white,
+                                                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                                              ),
+                                              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                                              child: SafeArea(
+                                                top: false,
+                                                child: Column(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Container(
+                                                      width: 40,
+                                                      height: 4,
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.black.withValues(alpha: 0.18),
+                                                        borderRadius: BorderRadius.circular(2),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 18),
+                                                    if (isAdmin)
+                                                      ListTile(
+                                                        leading: Icon(
+                                                          Icons.edit,
+                                                          color: Theme.of(context).colorScheme.primary,
+                                                        ),
+                                                        title: const Text(
+                                                          'Edit club',
+                                                          style: TextStyle(fontWeight: FontWeight.w800),
+                                                        ),
+                                                        onTap: () {
+                                                          Navigator.pop(sheetCtx);
+                                                          Navigator.of(context).pushNamed(
+                                                            CreateClubScreen.routeName,
+                                                            arguments: club,
+                                                          );
+                                                        },
+                                                      ),
+                                                    if (isAdmin)
+                                                      ListTile(
+                                                        leading: const Icon(
+                                                          Icons.delete_outline,
+                                                          color: Colors.red,
+                                                        ),
+                                                        title: const Text(
+                                                          'Disband club',
+                                                          style: TextStyle(
+                                                            fontWeight: FontWeight.w900,
+                                                            color: Colors.red,
+                                                          ),
+                                                        ),
+                                                        onTap: () async {
+                                                          Navigator.pop(sheetCtx);
+                                                          await _disbandClub(club);
+                                                        },
+                                                      ),
+                                                    if (!p.isCurrentUserMember)
+                                                      ListTile(
+                                                        leading: const Icon(Icons.group_add_rounded),
+                                                        title: const Text(
+                                                          'Join club',
+                                                          style: TextStyle(fontWeight: FontWeight.w800),
+                                                        ),
+                                                        onTap: () async {
+                                                          Navigator.pop(sheetCtx);
+
+                                                          final messenger = ScaffoldMessenger.of(context);
+                                                          try {
+                                                            await clubMemberRepository().joinAsMember(
+                                                              clubId: club.id,
+                                                              userId: currentUserId,
+                                                              role: ClubMemberRole.member,
+                                                            );
+                                                          } catch (_) {
+                                                            if (!mounted) return;
+                                                            messenger.showSnackBar(
+                                                              const SnackBar(content: Text('Failed to join club.')),
+                                                            );
+                                                            return;
+                                                          }
+
+                                                          if (!mounted) return;
+                                                          setState(() {
+                                                            _payloadFuture = _load(refreshClub: false);
+                                                          });
+                                                          messenger.showSnackBar(
+                                                            const SnackBar(content: Text('Joined club.')),
+                                                          );
+                                                        },
+                                                      ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
                                           );
                                         },
                                       ),
@@ -208,28 +764,49 @@ class ClubInfoScreen extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            // Row lays out non-flex children with an unbounded main-axis max width;
-                            // FilledButton then hits "BoxConstraints forces an infinite width".
-                            Flexible(
-                              fit: FlexFit.loose,
-                              child: Align(
-                                alignment: Alignment.centerRight,
-                                child: FilledButton(
-                                  onPressed: () {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Join club (mock).')),
-                                    );
-                                  },
-                                  style: FilledButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-                                    minimumSize: Size.zero,
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            if (!p.isCurrentUserMember)
+                              Flexible(
+                                fit: FlexFit.loose,
+                                child: Align(
+                                  alignment: Alignment.centerRight,
+                                  child: FilledButton(
+                                    onPressed: () async {
+                                      final messenger = ScaffoldMessenger.of(context);
+                                      try {
+                                        await clubMemberRepository().joinAsMember(
+                                          clubId: club.id,
+                                          userId: currentUserId,
+                                          role: ClubMemberRole.member,
+                                        );
+                                      } catch (_) {
+                                        if (!mounted) return;
+                                        messenger.showSnackBar(
+                                          const SnackBar(content: Text('Failed to join club.')),
+                                        );
+                                        return;
+                                      }
+
+                                      if (!mounted) return;
+                                      setState(() {
+                                        _payloadFuture = _load(refreshClub: false);
+                                      });
+                                      messenger.showSnackBar(
+                                        const SnackBar(content: Text('Joined club.')),
+                                      );
+                                    },
+                                    style: FilledButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                                      minimumSize: Size.zero,
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    child: const Text(
+                                      'Join',
+                                      style: TextStyle(fontWeight: FontWeight.w800),
+                                    ),
                                   ),
-                                  child: const Text('Join', style: TextStyle(fontWeight: FontWeight.w800)),
                                 ),
                               ),
-                            ),
                           ],
                         ),
                         const SizedBox(height: 18),
@@ -267,69 +844,62 @@ class ClubInfoScreen extends StatelessWidget {
                                 style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                               ),
                             ),
-                            TextButton(
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('See all members (mock).')),
-                                );
-                              },
-                              child: Text('See all', style: TextStyle(fontWeight: FontWeight.w800, color: cs.primary)),
-                            ),
                           ],
                         ),
                         const SizedBox(height: 8),
-                        _MemberTile(
-                          name: 'Alex Tan',
-                          subtitle: 'Admin · Joined Mar 2023',
-                          avatarColor: cs.primary,
-                          icon: Icons.sports_soccer,
-                          badge: 'Admin',
-                          primary: cs.primary,
-                        ),
-                        const SizedBox(height: 10),
-                        _MemberTile(
-                          name: 'Sarah Lim',
-                          subtitle: 'Member · Joined Jun 2023',
-                          avatarColor: const Color(0xFFFF9800),
-                          icon: Icons.emoji_events_outlined,
-                        ),
-                        const SizedBox(height: 10),
-                        _MemberTile(
-                          name: 'James Wong',
-                          subtitle: 'Member · Joined Aug 2023',
-                          avatarColor: const Color(0xFF2196F3),
-                          icon: Icons.bolt_outlined,
-                        ),
-                        const SizedBox(height: 10),
-                        _MemberTile(
-                          name: 'Nurul Ain',
-                          subtitle: 'Member · Joined Sep 2023',
-                          avatarColor: const Color(0xFF9C27B0),
-                          icon: Icons.track_changes_outlined,
-                        ),
+                        if (p.members.isEmpty)
+                          Text(
+                            'No members found for this club yet.',
+                            style: TextStyle(color: Colors.black.withValues(alpha: 0.5), fontSize: 13),
+                          )
+                        else
+                          ...p.members.map(
+                            (m) => Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: p.isCurrentUserAdmin
+                                    ? () => _openMemberActions(payload: p, member: m)
+                                    : null,
+                                child: _MemberProfileTile(
+                                  profile: m.profile,
+                                  primary: cs.primary,
+                                  isAdmin: m.isAdmin,
+                                ),
+                              ),
+                            ),
+                          ),
                         const SizedBox(height: 24),
-                        Row(
+                        const Row(
                           children: [
-                            const Expanded(
+                            Expanded(
                               child: Text(
                                 'Upcoming Events',
                                 style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                               ),
                             ),
-                            TextButton(
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('See all events (mock).')),
-                                );
-                              },
-                              child: Text('See all', style: TextStyle(fontWeight: FontWeight.w800, color: cs.primary)),
-                            ),
                           ],
                         ),
                         const SizedBox(height: 8),
-                        _UpcomingEventLargeCard(primary: cs.primary),
-                        const SizedBox(height: 12),
-                        _UpcomingEventCompactCard(primary: cs.primary),
+                        if (p.upcomingEvents.isEmpty)
+                          Text(
+                            'No upcoming events linked to this club. Set a clubId field on event documents in Appwrite to list them here.',
+                            style: TextStyle(
+                              height: 1.4,
+                              color: Colors.black.withValues(alpha: 0.55),
+                              fontSize: 13,
+                            ),
+                          )
+                        else
+                          ...[
+                            for (var i = 0; i < p.upcomingEvents.length && i < 5; i++) ...[
+                              if (i > 0) const SizedBox(height: 12),
+                              _ClubUpcomingEventCard(
+                                event: p.upcomingEvents[i],
+                                primary: cs.primary,
+                              ),
+                            ],
+                          ],
                         const SizedBox(height: 32),
                       ],
                     ),
@@ -338,6 +908,8 @@ class ClubInfoScreen extends StatelessWidget {
               ),
             ),
           );
+            },
+          );
         },
       ),
     );
@@ -345,6 +917,174 @@ class ClubInfoScreen extends StatelessWidget {
 
   Widget _divider() {
     return Container(width: 1, height: 36, color: const Color(0xFFE3E7EE));
+  }
+}
+
+String _fmtClubEventSubtitle(Event e) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  final dt = e.startAt;
+  String two(int n) => n.toString().padLeft(2, '0');
+  final h = dt.hour;
+  final m = two(dt.minute);
+  final hour12 = ((h + 11) % 12) + 1;
+  final ampm = h >= 12 ? 'PM' : 'AM';
+  return '${wd[dt.weekday - 1]} ${dt.day} ${months[dt.month - 1]} · $hour12:$m $ampm · ${e.location}';
+}
+
+class _ClubUpcomingEventCard extends StatelessWidget {
+  final Event event;
+  final Color primary;
+
+  const _ClubUpcomingEventCard({required this.event, required this.primary});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () {
+        Navigator.of(context).pushNamed(
+          EventDetailScreen.routeName,
+          arguments: EventDetailArgs(event: event, showRegisterButton: true),
+        );
+      },
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFE3E7EE)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(event.title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                  const SizedBox(height: 4),
+                  Text(
+                    _fmtClubEventSubtitle(event),
+                    style: const TextStyle(color: Colors.black54, fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text('Open', style: TextStyle(color: primary, fontWeight: FontWeight.w900, fontSize: 12)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberProfileTile extends StatelessWidget {
+  final UserProfile profile;
+  final Color primary;
+  final bool isAdmin;
+
+  const _MemberProfileTile({
+    required this.profile,
+    required this.primary,
+    required this.isAdmin,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final name = profile.realName.trim().isNotEmpty ? profile.realName.trim() : profile.username;
+    final sportsPreview = profile.preferredSports.toList()..sort();
+    final roleLabel = isAdmin ? 'Admin' : 'Member';
+    final subtitle = sportsPreview.isEmpty
+        ? roleLabel
+        : '$roleLabel · ${sportsPreview.take(2).join(', ')}${sportsPreview.length > 2 ? '…' : ''}';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE3E7EE)),
+      ),
+      child: Row(
+        children: [
+          _ClubMemberAvatar(avatarFileId: profile.avatarFileId, primary: primary, label: name),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(fontSize: 12, color: Colors.black.withValues(alpha: 0.45), fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+          if (isAdmin) _AdminPill(text: 'Admin', color: primary),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClubMemberAvatar extends StatelessWidget {
+  final String? avatarFileId;
+  final Color primary;
+  final String label;
+
+  const _ClubMemberAvatar({
+    required this.avatarFileId,
+    required this.primary,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fid = avatarFileId?.trim();
+    if (fid != null && fid.isNotEmpty) {
+      return ClipOval(
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: FutureBuilder(
+            future: AppwriteService.getFileViewBytes(
+              bucketId: AppwriteConfig.profileImagesBucketId,
+              fileId: fid,
+            ),
+            builder: (context, snap) {
+              if (snap.hasData && snap.data != null && snap.data!.isNotEmpty) {
+                return Image.memory(snap.data!, fit: BoxFit.cover);
+              }
+              return _letterFallback();
+            },
+          ),
+        ),
+      );
+    }
+    return _letterFallback();
+  }
+
+  Widget _letterFallback() {
+    final letter = label.isNotEmpty ? label[0].toUpperCase() : '?';
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: primary.withValues(alpha: 0.2),
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: Text(letter, style: TextStyle(color: primary, fontWeight: FontWeight.w900, fontSize: 18)),
+    );
   }
 }
 
@@ -519,179 +1259,6 @@ class _AdminPill extends StatelessWidget {
       child: Text(
         text,
         style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 11),
-      ),
-    );
-  }
-}
-
-class _MemberTile extends StatelessWidget {
-  final String name;
-  final String subtitle;
-  final Color avatarColor;
-  final IconData icon;
-  final String? badge;
-  final Color? primary;
-
-  const _MemberTile({
-    required this.name,
-    required this.subtitle,
-    required this.avatarColor,
-    required this.icon,
-    this.badge,
-    this.primary,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE3E7EE)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: avatarColor.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: avatarColor, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
-                const SizedBox(height: 2),
-                Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.black.withValues(alpha: 0.45), fontWeight: FontWeight.w600)),
-              ],
-            ),
-          ),
-          if (badge != null && primary != null)
-            _AdminPill(text: badge!, color: primary!),
-        ],
-      ),
-    );
-  }
-}
-
-class _UpcomingEventLargeCard extends StatelessWidget {
-  final Color primary;
-
-  const _UpcomingEventLargeCard({required this.primary});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE3E7EE)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            height: 140,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  primary.withValues(alpha: 0.22),
-                  Colors.white,
-                ],
-              ),
-            ),
-            alignment: Alignment.center,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.image_outlined, size: 40, color: Colors.black.withValues(alpha: 0.25)),
-                const SizedBox(height: 4),
-                Text('Event', style: TextStyle(color: Colors.black.withValues(alpha: 0.35), fontWeight: FontWeight.w700)),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('5-a-side Football', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                      SizedBox(height: 4),
-                      Text(
-                        'Sat 13 Sep · 6pm · Bukit Timah',
-                        style: TextStyle(color: Colors.black54, fontSize: 12, fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: primary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text('Open', style: TextStyle(color: primary, fontWeight: FontWeight.w900, fontSize: 12)),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _UpcomingEventCompactCard extends StatelessWidget {
-  final Color primary;
-
-  const _UpcomingEventCompactCard({required this.primary});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE3E7EE)),
-      ),
-      child: Row(
-        children: [
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Training Session', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
-                SizedBox(height: 4),
-                Text(
-                  'Wed 17 Sep · 7pm · Bishan',
-                  style: TextStyle(color: Colors.black54, fontSize: 12, fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text('Open', style: TextStyle(color: primary, fontWeight: FontWeight.w900, fontSize: 12)),
-          ),
-        ],
       ),
     );
   }

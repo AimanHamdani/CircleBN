@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class MapPickerResult {
   final double lat;
@@ -40,11 +38,6 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final useFallback = kIsWeb ||
-        defaultTargetPlatform == TargetPlatform.windows ||
-        defaultTargetPlatform == TargetPlatform.macOS ||
-        defaultTargetPlatform == TargetPlatform.linux;
-
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -54,7 +47,7 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
         title: const Text('Pick Location'),
         centerTitle: true,
       ),
-      body: useFallback ? _desktopFallback(context) : _interactiveMap(context),
+      body: _interactiveMap(context),
     );
   }
 
@@ -115,6 +108,11 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                 ),
                 FilledButton(
                   onPressed: () => _confirmPick(context),
+                  style: FilledButton.styleFrom(
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
                   child: const Text('Use'),
                 ),
               ],
@@ -123,50 +121,6 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
         ),
       ],
     );
-  }
-
-  Widget _desktopFallback(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'Map interaction has issues on Windows. Enter coordinates below or open map in browser.',
-            style: TextStyle(color: Colors.black54),
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _latCtrl,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
-            decoration: const InputDecoration(labelText: 'Latitude'),
-          ),
-          const SizedBox(height: 10),
-          TextFormField(
-            controller: _lngCtrl,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
-            decoration: const InputDecoration(labelText: 'Longitude'),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton(
-            onPressed: _openInBrowser,
-            child: const Text('Open Map in Browser'),
-          ),
-          const Spacer(),
-          FilledButton(
-            onPressed: () => _confirmPick(context),
-            child: const Text('Use Coordinates'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _openInBrowser() async {
-    final lat = double.tryParse(_latCtrl.text.trim()) ?? _picked.latitude;
-    final lng = double.tryParse(_lngCtrl.text.trim()) ?? _picked.longitude;
-    final uri = Uri.parse('https://www.openstreetmap.org/?mlat=$lat&mlon=$lng#map=15/$lat/$lng');
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   void _confirmPick(BuildContext context) {

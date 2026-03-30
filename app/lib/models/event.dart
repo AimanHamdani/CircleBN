@@ -1,3 +1,24 @@
+DateTime _parseEventStartAt(Object? v) {
+  if (v is DateTime) {
+    return v;
+  }
+  if (v is int) {
+    return DateTime.fromMillisecondsSinceEpoch(v, isUtc: true);
+  }
+  if (v is String) {
+    final raw = v.trim();
+    if (raw.isEmpty) {
+      return DateTime.now();
+    }
+    // Dart: if there is no zone in the string, [tryParse] interprets the time
+    // as *local* wall clock — this matches events saved from the app when the
+    // backend returns the same string without an offset. Forcing `Z` on
+    // naive strings was wrong and shifted calendar/list times by several hours.
+    return DateTime.tryParse(raw) ?? DateTime.now();
+  }
+  return DateTime.now();
+}
+
 class Event {
   final String id;
   final String title;
@@ -48,13 +69,6 @@ class Event {
   });
 
   factory Event.fromMap(Map<String, dynamic> data, {required String id}) {
-    DateTime parseDateTime(Object? v) {
-      if (v is DateTime) return v;
-      if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
-      if (v is String) return DateTime.tryParse(v) ?? DateTime.now();
-      return DateTime.now();
-    }
-
     Duration parseDuration(Object? v) {
       if (v is Duration) return v;
       if (v is int) return Duration(minutes: v);
@@ -120,7 +134,7 @@ class Event {
       id: id,
       title: (data['title'] ?? data['name'] ?? 'Event').toString(),
       sport: (data['sport'] ?? 'Sport').toString(),
-      startAt: parseDateTime(data['startAt'] ?? data['start_at'] ?? data['start']),
+      startAt: _parseEventStartAt(data['startAt'] ?? data['start_at'] ?? data['start']),
       duration: parseDuration(data['durationMinutes'] ?? data['duration_minutes'] ?? data['duration']),
       location: (data['location'] ?? 'Location').toString(),
       lat: parseDouble(data['lat'] ?? data['latitude']),

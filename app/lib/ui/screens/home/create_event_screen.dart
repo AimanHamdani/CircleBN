@@ -1,9 +1,8 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:appwrite/appwrite.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
@@ -22,6 +21,9 @@ class CreateEventScreen extends StatefulWidget {
 }
 
 class _CreateEventScreenState extends State<CreateEventScreen> {
+  static const _draftPrefsKey = 'create_event_draft_v1';
+  static _CreateEventDraft? _lastDraft;
+
   final _formKey = GlobalKey<FormState>();
   final _titleCtrl = TextEditingController();
   final _descriptionCtrl = TextEditingController();
@@ -35,14 +37,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   Event? _initialEvent;
   bool _hasPrefilled = false;
+  bool _didPromptDraftChoice = false;
 
   String? _sport;
   String? _category;
   String? _privacy;
   DateTime? _dateTime;
   String? _duration;
-  int? _skillMin;
-  int? _skillMax;
+  String? _skillLevel;
   String? _gender;
   String? _ageGroup;
   String? _hostRole;
@@ -58,6 +60,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!_hasPrefilled) {
+      _restoreDraftFromPrefs();
       final args = ModalRoute.of(context)?.settings.arguments;
       if (args is Event) {
         _initialEvent = args;
@@ -67,6 +70,81 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         _hasPrefilled = true;
       }
     }
+
+    if (!_isEditMode && !_didPromptDraftChoice) {
+      _didPromptDraftChoice = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        _maybePromptDraftStartChoice();
+      });
+    }
+  }
+
+  Future<void> _maybePromptDraftStartChoice() async {
+    final draft = _lastDraft;
+    if (draft == null || draft.isEmpty) {
+      return;
+    }
+
+    final choice = await showDialog<_CreateEventStartChoice>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Create event'),
+          content: const Text('Would you like to start a new event or continue from your previous draft?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(_CreateEventStartChoice.newBlank),
+              child: const Text('New'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(_CreateEventStartChoice.fromPrevious),
+              child: const Text('From previous'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || choice == null) {
+      return;
+    }
+
+    switch (choice) {
+      case _CreateEventStartChoice.newBlank:
+        setState(() {
+          _clearDraftAndForm();
+        });
+        break;
+      case _CreateEventStartChoice.fromPrevious:
+        setState(() {
+          _applyDraftToForm(draft);
+        });
+        break;
+    }
+  }
+
+  void _restoreDraftFromPrefs() {
+    SharedPreferences.getInstance().then((prefs) {
+      final raw = prefs.getString(_draftPrefsKey);
+      final draft = _CreateEventDraft.tryParse(raw);
+      if (draft == null || draft.isEmpty) {
+        return;
+      }
+      _lastDraft = draft;
+    });
+  }
+
+  Future<void> _saveDraftToPrefs(_CreateEventDraft? draft) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (draft == null || draft.isEmpty) {
+      await prefs.remove(_draftPrefsKey);
+      return;
+    }
+    await prefs.setString(_draftPrefsKey, draft.encode());
   }
 
   void _prefillFromEvent(Event e) {
@@ -84,9 +162,88 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _participantsCtrl.text = e.capacity.toString();
     _feeCtrl.text = _normalizeFeeLabel(e.entryFeeLabel);
     _thumbnailFileId = e.thumbnailFileId;
-    final skill = _parseSkillLevel(e.skillLevel);
-    _skillMin = skill.$1;
-    _skillMax = skill.$2;
+    _skillLevel = _normalizeSkillLevelLabel(e.skillLevel);
+  }
+
+  void _applyDraftToForm(_CreateEventDraft draft) {
+    _titleCtrl.text = draft.title;
+    _descriptionCtrl.text = draft.description;
+    _locationCtrl.text = draft.location;
+    _latCtrl.text = draft.latText;
+    _lngCtrl.text = draft.lngText;
+    _participantsCtrl.text = draft.participantsText.isEmpty ? '1' : draft.participantsText;
+    _feeCtrl.text = draft.feeText.isEmpty ? 'Free' : draft.feeText;
+    _sport = draft.sport;
+    _category = draft.category;
+    _privacy = draft.privacy;
+    _dateTime = draft.dateTime;
+    _duration = draft.duration;
+    _skillLevel = draft.skillLevel;
+    _gender = draft.gender;
+    _ageGroup = draft.ageGroup;
+    _hostRole = draft.hostRole;
+    _cancellationFreeze = draft.cancellationFreeze;
+    _repeat = draft.repeat ?? 'None';
+    _thumbnailFileId = draft.thumbnailFileId;
+    _thumbnailPreviewBytes = null;
+
+    final dt = draft.dateTime;
+    _dateTimeDisplayCtrl.text = dt == null
+        ? ''
+        : '${dt.day}/${dt.month}/${dt.year.toString().substring(2)}, ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+    _durationDisplayCtrl.text = draft.duration ?? '';
+  }
+
+  _CreateEventDraft _buildDraftFromForm() {
+    return _CreateEventDraft(
+      title: _titleCtrl.text.trim(),
+      description: _descriptionCtrl.text.trim(),
+      location: _locationCtrl.text.trim(),
+      latText: _latCtrl.text.trim(),
+      lngText: _lngCtrl.text.trim(),
+      participantsText: _participantsCtrl.text.trim(),
+      feeText: _feeCtrl.text.trim(),
+      sport: _sport,
+      category: _category,
+      privacy: _privacy,
+      dateTime: _dateTime,
+      duration: _duration,
+      skillLevel: _skillLevel,
+      gender: _gender,
+      ageGroup: _ageGroup,
+      hostRole: _hostRole,
+      cancellationFreeze: _cancellationFreeze,
+      repeat: _repeat,
+      thumbnailFileId: _thumbnailFileId,
+    );
+  }
+
+  void _clearDraftAndForm() {
+    _lastDraft = null;
+    _saveDraftToPrefs(null);
+    _titleCtrl.clear();
+    _descriptionCtrl.clear();
+    _locationCtrl.clear();
+    _latCtrl.clear();
+    _lngCtrl.clear();
+    _participantsCtrl.text = '1';
+    _dateTimeDisplayCtrl.clear();
+    _durationDisplayCtrl.clear();
+    _feeCtrl.text = 'Free';
+
+    _sport = null;
+    _category = null;
+    _privacy = null;
+    _dateTime = null;
+    _duration = null;
+    _skillLevel = null;
+    _gender = null;
+    _ageGroup = null;
+    _hostRole = null;
+    _cancellationFreeze = null;
+    _repeat = 'None';
+    _thumbnailFileId = null;
+    _thumbnailPreviewBytes = null;
   }
 
   String? _durationLabelFromDuration(Duration d) {
@@ -104,23 +261,16 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     final m = d.inMinutes.remainder(60);
     if (h > 0 && m > 0) return '$h Hours $m Min';
     if (h > 0) return '$h Hours';
-    return '${totalMin} Min';
-  }
-
-  (int?, int?) _parseSkillLevel(String s) {
-    final parts = s.split(RegExp(r'[\s\-–]+'));
-    if (parts.length >= 2) {
-      final a = int.tryParse(parts[0].trim());
-      final b = int.tryParse(parts[1].trim());
-      if (a != null && b != null) return (a, b);
-    }
-    final single = int.tryParse(s.trim());
-    if (single != null) return (single, single);
-    return (null, null);
+    return '$totalMin Min';
   }
 
   @override
   void dispose() {
+    if (!_isEditMode && !_isSubmitting) {
+      final draft = _buildDraftFromForm();
+      _lastDraft = draft.isEmpty ? null : draft;
+      _saveDraftToPrefs(_lastDraft);
+    }
     _titleCtrl.dispose();
     _descriptionCtrl.dispose();
     _locationCtrl.dispose();
@@ -224,18 +374,21 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                         firstDate: DateTime.now(),
                         lastDate: DateTime.now().add(const Duration(days: 365)),
                       );
-                      if (date != null && mounted) {
-                        final time = await showTimePicker(
-                          context: context,
-                          initialTime: TimeOfDay.now(),
-                        );
-                        if (time != null && mounted) {
-                          setState(() {
-                            _dateTime = DateTime(date.year, date.month, date.day, time.hour, time.minute);
-                            _dateTimeDisplayCtrl.text = '${_dateTime!.day}/${_dateTime!.month}/${_dateTime!.year.toString().substring(2)}, ${_dateTime!.hour}:${_dateTime!.minute.toString().padLeft(2, '0')}';
-                          });
-                        }
+                      if (!context.mounted || date == null) {
+                        return;
                       }
+                      final time = await showTimePicker(
+                        context: context,
+                        initialTime: TimeOfDay.now(),
+                      );
+                      if (!context.mounted || time == null) {
+                        return;
+                      }
+                      setState(() {
+                        _dateTime = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+                        _dateTimeDisplayCtrl.text =
+                            '${_dateTime!.day}/${_dateTime!.month}/${_dateTime!.year.toString().substring(2)}, ${_dateTime!.hour}:${_dateTime!.minute.toString().padLeft(2, '0')}';
+                      });
                     },
                     controller: _dateTimeDisplayCtrl,
                   ),
@@ -306,41 +459,18 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Skill Level', style: TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600)),
+                  const Text(
+                    'Skill Level',
+                    style: TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600),
+                  ),
                   const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _TapPickerField(
-                          label: 'Min',
-                          value: (_skillMin?.toString() ?? 'Min'),
-                          onTap: () => _showOptionPicker<int>(
-                            title: 'Min Skill',
-                            options: List.generate(10, (i) => i + 1),
-                            onSelected: (v) => setState(() {
-                              _skillMin = v;
-                              if (_skillMax != null && _skillMax! < v) {
-                                _skillMax = v;
-                              }
-                            }),
-                          ),
-                        ),
-                      ),
-                      const Padding(padding: EdgeInsets.symmetric(horizontal: 8), child: Text('to')),
-                      Expanded(
-                        child: _TapPickerField(
-                          label: 'Max',
-                          value: (_skillMax?.toString() ?? 'Max'),
-                          onTap: () => _showOptionPicker<int>(
-                            title: 'Max Skill',
-                            options: List.generate(10, (i) => i + 1)
-                                .where((value) => _skillMin == null || value >= _skillMin!)
-                                .toList(),
-                            onSelected: (v) => setState(() => _skillMax = v),
-                          ),
-                        ),
-                      ),
-                    ],
+                  _TapPickerField(
+                    value: _skillLevel ?? 'Select level',
+                    onTap: () => _showOptionPicker<String>(
+                      title: 'Skill Level',
+                      options: _skillLevelOptions,
+                      onSelected: (v) => setState(() => _skillLevel = v),
+                    ),
                   ),
                   const SizedBox(height: 14),
                   const Text('No. of Participants', style: TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600)),
@@ -758,10 +888,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       return;
     }
 
-    final skillMin = _skillMin;
-    final skillMax = _skillMax;
-    final skillLevel =
-        (skillMin != null && skillMax != null) ? '$skillMin - $skillMax' : (_initialEvent?.skillLevel ?? '—');
+    final skillLevel = _skillLevel ?? _normalizeSkillLevelLabel(_initialEvent?.skillLevel ?? '—');
 
     final lat = _latCtrl.text.trim().isEmpty ? null : double.tryParse(_latCtrl.text.trim());
     final lng = _lngCtrl.text.trim().isEmpty ? null : double.tryParse(_lngCtrl.text.trim());
@@ -808,6 +935,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       }
 
       if (mounted) {
+        if (!_isEditMode) {
+          _lastDraft = null;
+          _saveDraftToPrefs(null);
+        }
         final navigator = Navigator.of(context);
         final result = _isEditMode ? 'updated' : 'created';
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -949,6 +1080,187 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   }
 }
 
+enum _CreateEventStartChoice { newBlank, fromPrevious }
+
+class _CreateEventDraft {
+  final String title;
+  final String description;
+  final String location;
+  final String latText;
+  final String lngText;
+  final String participantsText;
+  final String feeText;
+  final String? sport;
+  final String? category;
+  final String? privacy;
+  final DateTime? dateTime;
+  final String? duration;
+  final String? skillLevel;
+  final String? gender;
+  final String? ageGroup;
+  final String? hostRole;
+  final String? cancellationFreeze;
+  final String? repeat;
+  final String? thumbnailFileId;
+
+  const _CreateEventDraft({
+    required this.title,
+    required this.description,
+    required this.location,
+    required this.latText,
+    required this.lngText,
+    required this.participantsText,
+    required this.feeText,
+    required this.sport,
+    required this.category,
+    required this.privacy,
+    required this.dateTime,
+    required this.duration,
+    required this.skillLevel,
+    required this.gender,
+    required this.ageGroup,
+    required this.hostRole,
+    required this.cancellationFreeze,
+    required this.repeat,
+    required this.thumbnailFileId,
+  });
+
+  static _CreateEventDraft? tryParse(String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final parts = raw.split('\u0001');
+    if (parts.length < 20) {
+      return null;
+    }
+    DateTime? asDateTime(String s) => s.isEmpty ? null : DateTime.tryParse(s);
+    String? asOpt(String s) => s.isEmpty ? null : s;
+    final legacyMin = int.tryParse(parts[12]);
+    final legacyMax = int.tryParse(parts[13]);
+    final parsedSkillLevel = legacyMin != null && legacyMax != null
+        ? _skillLevelFromLegacyNumbers(legacyMin, legacyMax)
+        : asOpt(parts[12]);
+    return _CreateEventDraft(
+      title: parts[0],
+      description: parts[1],
+      location: parts[2],
+      latText: parts[3],
+      lngText: parts[4],
+      participantsText: parts[5],
+      feeText: parts[6],
+      sport: asOpt(parts[7]),
+      category: asOpt(parts[8]),
+      privacy: asOpt(parts[9]),
+      dateTime: asDateTime(parts[10]),
+      duration: asOpt(parts[11]),
+      skillLevel: parsedSkillLevel,
+      gender: asOpt(parts[14]),
+      ageGroup: asOpt(parts[15]),
+      hostRole: asOpt(parts[16]),
+      cancellationFreeze: asOpt(parts[17]),
+      repeat: asOpt(parts[18]),
+      thumbnailFileId: asOpt(parts[19]),
+    );
+  }
+
+  String encode() {
+    String s(String? v) => v ?? '';
+    String d(DateTime? v) => v?.toIso8601String() ?? '';
+    return [
+      title,
+      description,
+      location,
+      latText,
+      lngText,
+      participantsText,
+      feeText,
+      s(sport),
+      s(category),
+      s(privacy),
+      d(dateTime),
+      s(duration),
+      s(skillLevel),
+      '',
+      s(gender),
+      s(ageGroup),
+      s(hostRole),
+      s(cancellationFreeze),
+      s(repeat),
+      s(thumbnailFileId),
+    ].join('\u0001');
+  }
+
+  bool get isEmpty {
+    return title.isEmpty &&
+        description.isEmpty &&
+        location.isEmpty &&
+        latText.isEmpty &&
+        lngText.isEmpty &&
+        (participantsText.isEmpty || participantsText == '1') &&
+        (feeText.isEmpty || feeText.toLowerCase() == 'free') &&
+        sport == null &&
+        category == null &&
+        privacy == null &&
+        dateTime == null &&
+        duration == null &&
+        skillLevel == null &&
+        gender == null &&
+        ageGroup == null &&
+        hostRole == null &&
+        cancellationFreeze == null &&
+        (repeat == null || repeat == 'None') &&
+        (thumbnailFileId == null || thumbnailFileId!.isEmpty);
+  }
+}
+
+String _skillLevelFromLegacyNumbers(int min, int max) {
+  final score = max >= min ? max : min;
+  if (score <= 2) {
+    return 'Beginner';
+  }
+  if (score <= 4) {
+    return 'Novice';
+  }
+  if (score <= 6) {
+    return 'Intermediate';
+  }
+  if (score <= 8) {
+    return 'Advanced';
+  }
+  return 'Pro/Master';
+}
+
+const List<String> _skillLevelOptions = <String>[
+  'Beginner',
+  'Novice',
+  'Intermediate',
+  'Advanced',
+  'Pro/Master',
+];
+
+String _normalizeSkillLevelLabel(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty || text == '—') {
+    return '—';
+  }
+  for (final option in _skillLevelOptions) {
+    if (text.toLowerCase() == option.toLowerCase()) {
+      return option;
+    }
+  }
+  if (text.toLowerCase() == 'novice intermediate') {
+    return 'Intermediate';
+  }
+
+  final matches = RegExp(r'\d+').allMatches(text).map((m) => int.tryParse(m.group(0)!)).whereType<int>().toList();
+  if (matches.isNotEmpty) {
+    final min = matches.first;
+    final max = matches.last;
+    return _skillLevelFromLegacyNumbers(min, max);
+  }
+  return text;
+}
+
 String _normalizeFeeLabel(String raw) {
   final text = raw.trim();
   if (text.isEmpty) {
@@ -1018,45 +1330,6 @@ class _SectionCard extends StatelessWidget {
           child,
         ],
       ),
-    );
-  }
-}
-
-class _DropdownField<T> extends StatelessWidget {
-  final T? value;
-  final String hint;
-  final String? label;
-  final List<T> items;
-  final ValueChanged<T?> onChanged;
-
-  const _DropdownField({
-    required this.value,
-    required this.hint,
-    this.label,
-    required this.items,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (label != null) ...[
-          Text(label!, style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-        ],
-        DropdownButtonFormField<T>(
-          value: value,
-          decoration: const InputDecoration(
-            contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          ),
-          hint: Text(hint),
-          items: items.map((e) => DropdownMenuItem<T>(value: e, child: Text(e.toString()))).toList(),
-          onChanged: onChanged,
-        ),
-      ],
     );
   }
 }

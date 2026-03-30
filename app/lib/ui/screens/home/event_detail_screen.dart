@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:appwrite/appwrite.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
@@ -851,6 +852,20 @@ class _DetailsTab extends StatelessWidget {
   final Event event;
   const _DetailsTab({super.key, required this.event});
 
+  Future<void> _openLocationInGoogleMaps(BuildContext context) async {
+    final lat = event.lat;
+    final lng = event.lng;
+    final query = (lat != null && lng != null) ? '$lat,$lng' : Uri.encodeComponent(event.location.trim());
+    final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$query');
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!context.mounted || ok) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Could not open Google Maps.')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -869,7 +884,12 @@ class _DetailsTab extends StatelessWidget {
               const SizedBox(height: 6),
               _InfoRow(icon: Icons.schedule, label: _fmtDuration(event.duration)),
               const SizedBox(height: 6),
-              _InfoRow(icon: Icons.location_on_outlined, label: event.location),
+              _InfoRow(
+                icon: Icons.location_on_outlined,
+                label: event.location,
+                isLink: true,
+                onTap: () => _openLocationInGoogleMaps(context),
+              ),
             ],
           ),
           const SizedBox(height: 14),
@@ -1120,16 +1140,45 @@ class _MessageBubble extends StatelessWidget {
 class _InfoRow extends StatelessWidget {
   final IconData icon;
   final String label;
-  const _InfoRow({required this.icon, required this.label});
+  final bool isLink;
+  final VoidCallback? onTap;
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    this.isLink = false,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    final row = Row(
       children: [
         Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
         const SizedBox(width: 10),
-        Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700))),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: isLink ? Theme.of(context).colorScheme.primary : null,
+              decoration: isLink ? TextDecoration.underline : TextDecoration.none,
+            ),
+          ),
+        ),
+        if (isLink) ...[
+          const SizedBox(width: 8),
+          Icon(Icons.open_in_new, size: 16, color: Theme.of(context).colorScheme.primary),
+        ],
       ],
+    );
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: row,
+      ),
     );
   }
 }

@@ -340,8 +340,15 @@ class _ActivityList extends StatelessWidget {
         final profile = (snap.data != null ? snap.data![1] as UserProfile : null);
         final preferred = profile?.preferredSports ?? const <String>{};
         final prioritized = _prioritizeByPreferredSports(events, preferred);
+        final now = DateTime.now();
         final joinedEvents = prioritized
-            .where((e) => e.joinedByMe || (e.creatorId != null && e.creatorId == currentUserId))
+            .where((e) {
+              if (!(e.joinedByMe || (e.creatorId != null && e.creatorId == currentUserId))) {
+                return false;
+              }
+              final endAt = e.startAt.add(e.duration);
+              return endAt.isAfter(now);
+            })
             .toList();
 
         if (snap.connectionState != ConnectionState.done && events.isEmpty) {

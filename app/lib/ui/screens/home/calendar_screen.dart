@@ -223,6 +223,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   static String _dayKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
+  /// Calendar bucket in the device’s local zone (date-only; avoids DST edge quirks).
+  static String _calendarDayKey(DateTime instant) {
+    final l = instant.toLocal();
+    return _dayKey(DateTime(l.year, l.month, l.day));
+  }
+
   static bool _isMyEvent(Event e, String me) {
     if (me.isEmpty) {
       return false;
@@ -233,12 +239,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   static Set<String> _myEventDayKeys(List<Event> events) {
     final me = currentUserId.trim();
+    final now = DateTime.now();
     final out = <String>{};
     for (final e in events) {
       if (!_isMyEvent(e, me)) {
         continue;
       }
-      out.add(_dayKey(e.startAt.toLocal()));
+      // Match list below: only upcoming — past / history days stay unmarked.
+      if (e.startAt.isBefore(now)) {
+        continue;
+      }
+      out.add(_calendarDayKey(e.startAt));
     }
     return out;
   }
@@ -388,9 +399,10 @@ class _MonthGrid extends StatelessWidget {
 
   Widget _dayCell(DateTime d, double cellSize) {
     final isInMonth = d.month == monthStart.month;
-    final key = _CalendarScreenState._dayKey(d);
+    final key = _CalendarScreenState._calendarDayKey(d);
     final hasEvent = eventDayKeys.contains(key);
-    final selectedKey = selectedDate == null ? null : _CalendarScreenState._dayKey(selectedDate!);
+    final selectedKey =
+        selectedDate == null ? null : _CalendarScreenState._calendarDayKey(selectedDate!);
     final isSelected = selectedKey == key;
     final baseText = isInMonth ? Colors.black : Colors.black.withValues(alpha: 0.35);
 

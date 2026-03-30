@@ -10,6 +10,7 @@ import '../../../models/user_profile.dart';
 import '../home/home_screen.dart';
 import '../login_screen.dart';
 import 'edit_profile_screen.dart';
+import 'change_password_screen.dart';
 import '../../../auth/current_user.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -326,7 +327,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 },
                               ),
                               const Divider(height: 1),
-                              const _MenuRow(label: 'Change Password'),
+                              _MenuRow(
+                                label: 'Change Password',
+                                onTap: () {
+                                  Navigator.of(context).pushNamed(
+                                    ChangePasswordScreen.routeName,
+                                  );
+                                },
+                              ),
                               const Divider(height: 1),
                               _MenuRow(
                                 label: 'Log Out',

@@ -5,6 +5,7 @@ import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
 import 'event_detail_screen.dart';
+import 'notifications_screen.dart';
 import '../../widgets/event_thumbnail_header.dart';
 
 class AllEventsScreen extends StatefulWidget {
@@ -155,11 +156,7 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 2),
               child: InkWell(
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Notifications (mock).')),
-                  );
-                },
+                onTap: () => Navigator.of(context).pushNamed(NotificationsScreen.routeName),
                 borderRadius: BorderRadius.circular(14),
                 child: Container(
                   width: 44,

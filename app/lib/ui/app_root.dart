@@ -11,6 +11,7 @@ import 'screens/home/club_info_screen.dart';
 import 'screens/home/event_detail_screen.dart';
 import 'screens/home/map_picker_screen.dart';
 import 'screens/home/activity_overview_screen.dart';
+import 'screens/home/notifications_screen.dart';
 import 'screens/profile/edit_profile_screen.dart';
 import 'screens/profile/change_password_screen.dart';
 import 'screens/profile/profile_screen.dart';
@@ -25,11 +26,14 @@ class AppRoot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final qp = Uri.base.queryParameters;
+    final hasRecoveryParams = qp['userId']?.isNotEmpty == true && qp['secret']?.isNotEmpty == true;
+    final initialRoute = hasRecoveryParams ? ResetPasswordScreen.routeName : LoginScreen.routeName;
     return MaterialApp(
       title: 'CircleBN',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
-      initialRoute: LoginScreen.routeName,
+      initialRoute: initialRoute,
       routes: {
         LoginScreen.routeName: (_) => const LoginScreen(),
         SignUpScreen.routeName: (_) => const SignUpScreen(),
@@ -45,6 +49,7 @@ class AppRoot extends StatelessWidget {
         EventDetailScreen.routeName: (_) => const EventDetailScreen(),
         MapPickerScreen.routeName: (_) => const MapPickerScreen(),
         ActivityOverviewScreen.routeName: (_) => const ActivityOverviewScreen(),
+        NotificationsScreen.routeName: (_) => const NotificationsScreen(),
         ProfileScreen.routeName: (_) => const ProfileScreen(),
         EditProfileScreen.routeName: (_) => const EditProfileScreen(),
         ChangePasswordScreen.routeName: (_) => const ChangePasswordScreen(),

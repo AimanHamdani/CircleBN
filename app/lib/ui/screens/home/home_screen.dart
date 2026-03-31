@@ -15,6 +15,7 @@ import '../profile/profile_screen.dart';
 import 'activity_overview_screen.dart';
 import 'clubs_screen.dart';
 import 'calendar_screen.dart';
+import 'notifications_screen.dart';
 import '../../widgets/event_thumbnail_header.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -262,11 +263,7 @@ class _HomeBodyState extends State<_HomeBody> {
               ),
             ),
             InkWell(
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Notifications (mock).')),
-                );
-              },
+              onTap: () => Navigator.of(context).pushNamed(NotificationsScreen.routeName),
               borderRadius: BorderRadius.circular(14),
               child: Container(
                 width: 44,

@@ -23,12 +23,31 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   bool _isLoading = false;
 
   @override
+  void initState() {
+    super.initState();
+    _prefillFromRecoveryUrl();
+  }
+
+  @override
   void dispose() {
     _userIdCtrl.dispose();
     _secretCtrl.dispose();
     _passwordCtrl.dispose();
     _confirmCtrl.dispose();
     super.dispose();
+  }
+
+  void _prefillFromRecoveryUrl() {
+    final qp = Uri.base.queryParameters;
+    final userId = qp['userId'];
+    final secret = qp['secret'];
+
+    if ((userId ?? '').trim().isNotEmpty && _userIdCtrl.text.trim().isEmpty) {
+      _userIdCtrl.text = userId!.trim();
+    }
+    if ((secret ?? '').trim().isNotEmpty && _secretCtrl.text.trim().isEmpty) {
+      _secretCtrl.text = secret!.trim();
+    }
   }
 
   Future<void> _submit() async {

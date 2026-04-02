@@ -6,6 +6,7 @@ import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
 import '../../../auth/current_user.dart';
+import '../../../auth/session_persistence.dart';
 import '../login_screen.dart';
 import 'all_events_screen.dart';
 import 'create_event_screen.dart';
@@ -187,6 +188,7 @@ class _PlaceholderTab extends StatelessWidget {
                 try {
                   await AppwriteService.account.deleteSessions();
                 } catch (_) {}
+                await SessionPersistence.clear();
                 CurrentUser.reset();
                 if (!context.mounted) return;
                 Navigator.of(context).pushNamedAndRemoveUntil(

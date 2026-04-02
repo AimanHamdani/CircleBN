@@ -4,6 +4,7 @@ import 'package:appwrite/appwrite.dart';
 import '../../appwrite/appwrite_config.dart';
 import '../../appwrite/appwrite_service.dart';
 import '../../auth/current_user.dart';
+import '../../auth/session_persistence.dart';
 import '../widgets/sample_app_icon.dart';
 import 'home/home_screen.dart';
 import 'reset_password_screen.dart';
@@ -38,10 +39,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
     try {
-      await AppwriteService.account.createEmailPasswordSession(
+      final session = await AppwriteService.account.createEmailPasswordSession(
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text,
       );
+      await SessionPersistence.save(session.$id);
       await CurrentUser.init();
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed(HomeScreen.routeName);

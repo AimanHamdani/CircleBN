@@ -12,6 +12,7 @@ import '../login_screen.dart';
 import 'edit_profile_screen.dart';
 import 'change_password_screen.dart';
 import '../../../auth/current_user.dart';
+import '../../../auth/session_persistence.dart';
 
 class ProfileScreen extends StatefulWidget {
   static const routeName = '/profile';
@@ -354,6 +355,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       const SnackBar(content: Text('Failed to log out.')),
                                     );
                                   } finally {
+                                    await SessionPersistence.clear();
                                     CurrentUser.reset();
                                   }
                                   if (!mounted) return;

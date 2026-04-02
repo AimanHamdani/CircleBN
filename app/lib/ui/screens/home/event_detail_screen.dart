@@ -1,7 +1,7 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:appwrite/appwrite.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -455,10 +455,6 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }
 
   void _persistDetailArgs(EventDetailArgs args) {
-    if (!kIsWeb) {
-      return;
-    }
-
     webSetString(
       _storageKey,
       jsonEncode({
@@ -471,10 +467,6 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }
 
   EventDetailArgs? _loadStoredArgs() {
-    if (!kIsWeb) {
-      return null;
-    }
-
     final raw = webGetString(_storageKey);
     if (raw == null || raw.trim().isEmpty) return null;
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'auth_gate_screen.dart';
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/home/home_screen.dart';
@@ -26,14 +27,11 @@ class AppRoot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final qp = Uri.base.queryParameters;
-    final hasRecoveryParams = qp['userId']?.isNotEmpty == true && qp['secret']?.isNotEmpty == true;
-    final initialRoute = hasRecoveryParams ? ResetPasswordScreen.routeName : LoginScreen.routeName;
     return MaterialApp(
       title: 'CircleBN',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
-      initialRoute: initialRoute,
+      home: const AuthGateScreen(),
       routes: {
         LoginScreen.routeName: (_) => const LoginScreen(),
         SignUpScreen.routeName: (_) => const SignUpScreen(),

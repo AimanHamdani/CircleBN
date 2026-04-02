@@ -13,6 +13,12 @@ class AppwriteService {
     ..setEndpoint(AppwriteConfig.endpoint)
     ..setProject(AppwriteConfig.projectId);
 
+  /// Call before [Account.get] on cold start so requests include `X-Appwrite-Session`
+  /// (cookies / fallback storage are not always restored reliably on web).
+  static void applySessionId(String sessionId) {
+    _client.setSession(sessionId);
+  }
+
   static Databases get databases => Databases(_client);
   static Account get account => Account(_client);
   static Storage get storage => Storage(_client);

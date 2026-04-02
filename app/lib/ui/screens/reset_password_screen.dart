@@ -2,6 +2,8 @@ import 'package:appwrite/appwrite.dart';
 import 'package:flutter/material.dart';
 
 import '../../appwrite/appwrite_service.dart';
+import '../../auth/session_persistence.dart';
+import '../../utils/recovery_uri.dart';
 
 class ResetPasswordScreen extends StatefulWidget {
   static const routeName = '/reset-password';
@@ -38,7 +40,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   }
 
   void _prefillFromRecoveryUrl() {
-    final qp = Uri.base.queryParameters;
+    final qp = recoveryLinkQueryParameters();
     final userId = qp['userId'];
     final secret = qp['secret'];
 
@@ -65,6 +67,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         secret: _secretCtrl.text.trim(),
         password: _passwordCtrl.text,
       );
+      await SessionPersistence.clear();
       if (!mounted) {
         return;
       }

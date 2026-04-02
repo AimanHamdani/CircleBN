@@ -3,6 +3,7 @@ import 'package:appwrite/appwrite.dart';
 
 import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
+import '../../../auth/session_persistence.dart';
 import '../../../data/club_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../data/sample_clubs.dart';
@@ -95,10 +96,11 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
       }
 
       try {
-        await AppwriteService.account.createEmailPasswordSession(
+        final session = await AppwriteService.account.createEmailPasswordSession(
           email: email,
           password: password,
         );
+        await SessionPersistence.save(session.$id);
       } on AppwriteException catch (e) {
         // If already logged in, session creation can fail; continue.
         if (e.code != 401 && e.code != 409) {

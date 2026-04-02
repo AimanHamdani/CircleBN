@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 
-import 'auth/current_user.dart';
 import 'ui/app_root.dart';
+import 'utils/url_strategy_config.dart';
+import 'utils/web_storage.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  configureAppUrlStrategy();
+  await initWebStorage();
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -14,6 +17,5 @@ void main() async {
   } catch (_) {
     // App still works without Firebase configured (mock auth flow).
   }
-  await CurrentUser.init();
   runApp(const AppRoot());
 }

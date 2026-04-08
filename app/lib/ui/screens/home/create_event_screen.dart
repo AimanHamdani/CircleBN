@@ -21,7 +21,7 @@ class CreateEventScreen extends StatefulWidget {
 }
 
 class _CreateEventScreenState extends State<CreateEventScreen> {
-  static const _draftPrefsKey = 'create_event_draft_v1';
+  static const _draftPrefsKey = 'create_event_draft_v2';
   static _CreateEventDraft? _lastDraft;
 
   final _formKey = GlobalKey<FormState>();
@@ -49,7 +49,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   String? _ageGroup;
   String? _hostRole;
   String? _cancellationFreeze;
-  String? _repeat = 'None';
   String? _thumbnailFileId;
   Uint8List? _thumbnailPreviewBytes;
   bool _isSubmitting = false;
@@ -163,6 +162,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _feeCtrl.text = _normalizeFeeLabel(e.entryFeeLabel);
     _thumbnailFileId = e.thumbnailFileId;
     _skillLevel = _normalizeSkillLevelLabel(e.skillLevel);
+    _gender = e.gender;
+    _ageGroup = e.ageGroup;
+    _hostRole = e.hostRole;
+    _cancellationFreeze = e.cancellationFreeze;
   }
 
   void _applyDraftToForm(_CreateEventDraft draft) {
@@ -183,7 +186,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _ageGroup = draft.ageGroup;
     _hostRole = draft.hostRole;
     _cancellationFreeze = draft.cancellationFreeze;
-    _repeat = draft.repeat ?? 'None';
     _thumbnailFileId = draft.thumbnailFileId;
     _thumbnailPreviewBytes = null;
 
@@ -213,7 +215,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       ageGroup: _ageGroup,
       hostRole: _hostRole,
       cancellationFreeze: _cancellationFreeze,
-      repeat: _repeat,
       thumbnailFileId: _thumbnailFileId,
     );
   }
@@ -241,7 +242,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _ageGroup = null;
     _hostRole = null;
     _cancellationFreeze = null;
-    _repeat = 'None';
     _thumbnailFileId = null;
     _thumbnailPreviewBytes = null;
   }
@@ -465,7 +465,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   ),
                   const SizedBox(height: 8),
                   _TapPickerField(
-                    value: _skillLevel ?? 'Select level',
+                    value: _skillLevel ?? 'Any',
                     onTap: () => _showOptionPicker<String>(
                       title: 'Skill Level',
                       options: _skillLevelOptions,
@@ -632,36 +632,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                       onSelected: (v) => setState(() => _cancellationFreeze = v),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Repeat',
-                    style: TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 8),
-                  InkWell(
-                    onTap: () => _showRepeatPicker(context),
-                    borderRadius: BorderRadius.circular(12),
-                    child: InputDecorator(
-                      decoration: const InputDecoration(
-                        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(child: Text(_repeat ?? 'None')),
-                          const Icon(Icons.keyboard_arrow_down),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Default is None. You can still set repeat for reference.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.black.withValues(alpha: 0.55),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -758,33 +728,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         _duration = chosen;
         _durationDisplayCtrl.text = chosen;
       });
-    }
-  }
-
-  Future<void> _showRepeatPicker(BuildContext context) async {
-    const options = [
-      'None',
-      'Next 2 Weeks',
-      'Next 3 Weeks',
-      'Next 4 Weeks',
-    ];
-    final chosen = await showModalBottomSheet<String>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final o in options)
-              ListTile(
-                title: Text(o),
-                onTap: () => Navigator.pop(ctx, o),
-              ),
-          ],
-        ),
-      ),
-    );
-    if (chosen != null && mounted) {
-      setState(() => _repeat = chosen);
     }
   }
 
@@ -914,8 +857,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       'ageGroup': _ageGroup,
       'hostRole': _hostRole,
       'cancellationFreeze': _cancellationFreeze,
-      'repeat': _repeat,
-      'repeatWeeks': 0,
       'thumbnailFileId': _thumbnailFileId,
     };
 
@@ -1100,7 +1041,6 @@ class _CreateEventDraft {
   final String? ageGroup;
   final String? hostRole;
   final String? cancellationFreeze;
-  final String? repeat;
   final String? thumbnailFileId;
 
   const _CreateEventDraft({
@@ -1121,7 +1061,6 @@ class _CreateEventDraft {
     required this.ageGroup,
     required this.hostRole,
     required this.cancellationFreeze,
-    required this.repeat,
     required this.thumbnailFileId,
   });
 
@@ -1130,7 +1069,7 @@ class _CreateEventDraft {
       return null;
     }
     final parts = raw.split('\u0001');
-    if (parts.length < 20) {
+    if (parts.length < 19) {
       return null;
     }
     DateTime? asDateTime(String s) => s.isEmpty ? null : DateTime.tryParse(s);
@@ -1140,6 +1079,12 @@ class _CreateEventDraft {
     final parsedSkillLevel = legacyMin != null && legacyMax != null
         ? _skillLevelFromLegacyNumbers(legacyMin, legacyMax)
         : asOpt(parts[12]);
+
+    // v1 had: [18]=repeat, [19]=thumbnailFileId (length 20)
+    // v2 has: [18]=thumbnailFileId (length 19)
+    final String? repeatLegacy = parts.length >= 20 ? asOpt(parts[18]) : null;
+    final String? thumbnail =
+        parts.length >= 20 ? asOpt(parts[19]) : asOpt(parts[18]);
     return _CreateEventDraft(
       title: parts[0],
       description: parts[1],
@@ -1158,8 +1103,7 @@ class _CreateEventDraft {
       ageGroup: asOpt(parts[15]),
       hostRole: asOpt(parts[16]),
       cancellationFreeze: asOpt(parts[17]),
-      repeat: asOpt(parts[18]),
-      thumbnailFileId: asOpt(parts[19]),
+      thumbnailFileId: thumbnail,
     );
   }
 
@@ -1185,7 +1129,6 @@ class _CreateEventDraft {
       s(ageGroup),
       s(hostRole),
       s(cancellationFreeze),
-      s(repeat),
       s(thumbnailFileId),
     ].join('\u0001');
   }
@@ -1208,7 +1151,6 @@ class _CreateEventDraft {
         ageGroup == null &&
         hostRole == null &&
         cancellationFreeze == null &&
-        (repeat == null || repeat == 'None') &&
         (thumbnailFileId == null || thumbnailFileId!.isEmpty);
   }
 }
@@ -1231,6 +1173,7 @@ String _skillLevelFromLegacyNumbers(int min, int max) {
 }
 
 const List<String> _skillLevelOptions = <String>[
+  'Any',
   'Beginner',
   'Novice',
   'Intermediate',
@@ -1241,7 +1184,7 @@ const List<String> _skillLevelOptions = <String>[
 String _normalizeSkillLevelLabel(String raw) {
   final text = raw.trim();
   if (text.isEmpty || text == '—') {
-    return '—';
+    return 'Any';
   }
   for (final option in _skillLevelOptions) {
     if (text.toLowerCase() == option.toLowerCase()) {

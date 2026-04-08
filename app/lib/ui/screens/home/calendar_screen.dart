@@ -30,27 +30,31 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   @override
   Widget build(BuildContext context) {
+    const accentOrange = Color(0xFFF6A300);
     final cs = Theme.of(context).colorScheme;
     final monthLabel = _monthYearLabel(_visibleMonth);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F4F3),
+      backgroundColor: const Color(0xFFEFF7F3),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  const Text(
-                    'Calendar',
-                    style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900),
-                  ),
-                  const Spacer(),
-                ],
+        child: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              color: accentOrange,
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
+              child: const Text(
+                'Calendar',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 34 / 1.6,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
-              const SizedBox(height: 14),
-              Expanded(
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
                 child: FutureBuilder<List<Event>>(
                   future: _eventsFuture,
                   builder: (context, snap) {
@@ -90,9 +94,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           flex: 6,
                           child: Container(
                             decoration: BoxDecoration(
-                              color: Colors.white,
+                              color: const Color(0xFFFEFEFC),
                               borderRadius: BorderRadius.circular(18),
-                              border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+                              border: Border.all(color: const Color(0xFFE9C261), width: 1.2),
                             ),
                             padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                             child: Column(
@@ -110,9 +114,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                         child: Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                           decoration: BoxDecoration(
-                                            color: const Color(0xFFF4F6F6),
+                                            color: const Color(0xFFFFF5DB),
                                             borderRadius: BorderRadius.circular(12),
-                                            border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+                                            border: Border.all(color: const Color(0xFFE8C36A)),
                                           ),
                                           child: Text(
                                             monthLabel,
@@ -125,6 +129,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     _MonthNavButton(
                                       icon: Icons.chevron_right,
                                       onPressed: () => _shiftMonth(1),
+                                      color: const Color(0xFFFFF5DB),
+                                      borderColor: const Color(0xFFE8C36A),
                                     ),
                                   ],
                                 ),
@@ -137,7 +143,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     selectedDate: _selectedDate,
                                     eventDayKeys: eventDays,
                                     onSelectDate: (d) => setState(() => _selectedDate = d),
-                                    accent: cs.primary,
+                                    accent: accentOrange,
                                   ),
                                 ),
                               ],
@@ -173,6 +179,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     return _UpcomingEventCard(
                                       event: e,
                                       badgeText: badge,
+                                    accent: accentOrange,
                                       onTap: () => Navigator.of(context).pushNamed(
                                         EventDetailScreen.routeName,
                                         arguments: e,
@@ -186,8 +193,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   },
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -283,17 +290,24 @@ class _CalendarScreenState extends State<CalendarScreen> {
 class _MonthNavButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onPressed;
+  final Color color;
+  final Color borderColor;
 
   const _MonthNavButton({
     required this.icon,
     required this.onPressed,
+    this.color = const Color(0xFFF4F6F6),
+    this.borderColor = const Color(0xFFE3E7EE),
   });
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: const Color(0xFFF4F6F6),
-      borderRadius: BorderRadius.circular(12),
+      color: color,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: borderColor),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: onPressed,
@@ -459,19 +473,24 @@ class _UpcomingEventCard extends StatelessWidget {
   final Event event;
   final String badgeText;
   final VoidCallback onTap;
+  final Color accent;
 
   const _UpcomingEventCard({
     required this.event,
     required this.badgeText,
     required this.onTap,
+    required this.accent,
   });
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(18),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: Color(0xFFE8C36A)),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
         onTap: onTap,
@@ -510,13 +529,13 @@ class _UpcomingEventCard extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: cs.primary.withValues(alpha: 0.14),
+                        color: accent.withValues(alpha: 0.14),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
                         badgeText,
                         style: TextStyle(
-                          color: cs.primary,
+                          color: accent.withValues(alpha: 0.95),
                           fontWeight: FontWeight.w900,
                           fontSize: 12,
                         ),

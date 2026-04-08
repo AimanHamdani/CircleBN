@@ -37,6 +37,10 @@ class Event {
   final List<String> participantIds;
   final String cancellationFreeze; // e.g. "12 Hours"
 
+  final String? gender; // "Any" | "Male" | "Female"
+  final String? ageGroup; // "Any" | "Junior (<18)" | "Adult (19 - 59)" | "Senior (60+)"
+  final String? hostRole; // "Host only" | "Host & Play"
+
   /// User ID of the event creator. Used to show Edit only to the creator.
   final String? creatorId;
 
@@ -63,6 +67,9 @@ class Event {
     required this.joinedByMe,
     this.participantIds = const [],
     this.cancellationFreeze = '12 Hours',
+    this.gender,
+    this.ageGroup,
+    this.hostRole,
     this.creatorId,
     this.clubId,
     this.thumbnailFileId,
@@ -147,6 +154,9 @@ class Event {
       joinedByMe: parseBool(data['joinedByMe'] ?? data['joined_by_me'] ?? false),
       participantIds: parseStringList(data['participantIds'] ?? data['participant_ids']),
       cancellationFreeze: (data['cancellationFreeze'] ?? data['cancellation_freeze'] ?? '12 Hours').toString(),
+      gender: data['gender']?.toString() ?? data['genderFilter']?.toString() ?? data['gender_filter']?.toString(),
+      ageGroup: data['ageGroup']?.toString() ?? data['age_group']?.toString(),
+      hostRole: data['hostRole']?.toString() ?? data['host_role']?.toString(),
       creatorId: data['creatorId']?.toString() ?? data['creator_id']?.toString(),
       clubId: data['clubId']?.toString() ?? data['club_id']?.toString(),
       thumbnailFileId: data['thumbnailFileId']?.toString() ??
@@ -173,6 +183,9 @@ class Event {
       'joinedByMe': joinedByMe,
       'participantIds': participantIds,
       'cancellationFreeze': cancellationFreeze,
+      'gender': gender,
+      'ageGroup': ageGroup,
+      'hostRole': hostRole,
       'creatorId': creatorId,
       'clubId': clubId,
       'thumbnailFileId': thumbnailFileId,
@@ -196,6 +209,9 @@ class Event {
     bool? joinedByMe,
     List<String>? participantIds,
     String? cancellationFreeze,
+    String? gender,
+    String? ageGroup,
+    String? hostRole,
     String? creatorId,
     String? clubId,
     String? thumbnailFileId,
@@ -217,6 +233,9 @@ class Event {
       joinedByMe: joinedByMe ?? this.joinedByMe,
       participantIds: participantIds ?? this.participantIds,
       cancellationFreeze: cancellationFreeze ?? this.cancellationFreeze,
+      gender: gender ?? this.gender,
+      ageGroup: ageGroup ?? this.ageGroup,
+      hostRole: hostRole ?? this.hostRole,
       creatorId: creatorId ?? this.creatorId,
       clubId: clubId ?? this.clubId,
       thumbnailFileId: thumbnailFileId ?? this.thumbnailFileId,

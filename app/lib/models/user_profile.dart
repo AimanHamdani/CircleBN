@@ -7,6 +7,7 @@ class UserProfile {
   final int? age;
   final String gender;
   final int? heightCm;
+  final String skillLevel; // Beginner | Novice | Intermediate | Advanced | Pro/Master
   final Set<String> preferredSports;
   final String emergencyContact;
   final String bio;
@@ -21,6 +22,7 @@ class UserProfile {
     required this.age,
     required this.gender,
     required this.heightCm,
+    required this.skillLevel,
     required this.preferredSports,
     required this.emergencyContact,
     required this.bio,
@@ -37,6 +39,7 @@ class UserProfile {
       age: null,
       gender: 'Male',
       heightCm: null,
+      skillLevel: 'Beginner',
       preferredSports: const {},
       emergencyContact: '',
       bio: '',
@@ -61,6 +64,7 @@ class UserProfile {
       age: ageVal is int ? ageVal : (ageVal is num ? ageVal.toInt() : int.tryParse((ageVal ?? '').toString())),
       gender: (data['gender'] ?? 'Male').toString(),
       heightCm: h is int ? h : (h is num ? h.toInt() : int.tryParse((h ?? '').toString())),
+      skillLevel: (data['skillLevel'] ?? 'Beginner').toString(),
       preferredSports: preferredSports,
       emergencyContact: (data['emergencyContact'] ?? '').toString(),
       bio: (data['bio'] ?? '').toString(),
@@ -77,6 +81,7 @@ class UserProfile {
       'age': age,
       'gender': gender,
       'heightCm': heightCm,
+      'skillLevel': skillLevel,
       'preferredSports': preferredSports.toList(),
       'emergencyContact': emergencyContact,
       'bio': bio,
@@ -92,6 +97,7 @@ class UserProfile {
     int? age,
     String? gender,
     int? heightCm,
+    String? skillLevel,
     Set<String>? preferredSports,
     String? emergencyContact,
     String? bio,
@@ -106,6 +112,7 @@ class UserProfile {
       age: age ?? this.age,
       gender: gender ?? this.gender,
       heightCm: heightCm ?? this.heightCm,
+      skillLevel: skillLevel ?? this.skillLevel,
       preferredSports: preferredSports ?? this.preferredSports,
       emergencyContact: emergencyContact ?? this.emergencyContact,
       bio: bio ?? this.bio,

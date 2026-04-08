@@ -26,6 +26,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController _bioCtrl;
 
   UserProfile? _profile;
+  String _skillLevel = 'Beginner';
   bool _hasInit = false;
   bool _isSaving = false;
   Uint8List? _avatarPreviewBytes;
@@ -45,6 +46,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _heightCtrl = TextEditingController(text: args.heightCm?.toString() ?? '');
       _emergencyCtrl = TextEditingController(text: args.emergencyContact);
       _bioCtrl = TextEditingController(text: args.bio);
+      _skillLevel = _normalizeSkillLevelLabel(args.skillLevel);
     } else {
       _nameCtrl = TextEditingController();
       _heightCtrl = TextEditingController();
@@ -63,6 +65,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _emergencyCtrl.text = p.emergencyContact;
     _bioCtrl.text = p.bio;
     _avatarFileId = p.avatarFileId;
+    _skillLevel = _normalizeSkillLevelLabel(p.skillLevel);
   }
 
   @override
@@ -130,6 +133,50 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 },
               ),
               const SizedBox(height: 14),
+              const Text('Skill Level', style: TextStyle(color: Color(0xFF4A5A66), fontSize: 16)),
+              const SizedBox(height: 6),
+              InkWell(
+                onTap: _isSaving
+                    ? null
+                    : () async {
+                        final chosen = await showModalBottomSheet<String>(
+                          context: context,
+                          builder: (ctx) => SafeArea(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                for (final o in _skillLevelOptions)
+                                  ListTile(
+                                    title: Text(o),
+                                    onTap: () => Navigator.pop(ctx, o),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                        if (chosen != null && mounted) {
+                          setState(() => _skillLevel = chosen);
+                        }
+                      },
+                borderRadius: BorderRadius.circular(14),
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _skillLevel,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      const Icon(Icons.keyboard_arrow_down),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
               const Text('Emergency Contact', style: TextStyle(color: Color(0xFF4A5A66), fontSize: 16)),
               const SizedBox(height: 6),
               TextFormField(
@@ -172,6 +219,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final updated = base.copyWith(
       username: _nameCtrl.text.trim(),
       heightCm: _heightCtrl.text.trim().isEmpty ? null : int.tryParse(_heightCtrl.text.trim()),
+      skillLevel: _skillLevel,
       emergencyContact: _emergencyCtrl.text.trim(),
       bio: _bioCtrl.text.trim(),
       avatarFileId: _avatarFileId ?? base.avatarFileId,
@@ -290,6 +338,44 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
     return name;
   }
+}
+
+const List<String> _skillLevelOptions = <String>[
+  'Beginner',
+  'Novice',
+  'Intermediate',
+  'Advanced',
+  'Pro/Master',
+];
+
+String _normalizeSkillLevelLabel(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty || text == '—') {
+    return 'Beginner';
+  }
+  for (final option in _skillLevelOptions) {
+    if (text.toLowerCase() == option.toLowerCase()) {
+      return option;
+    }
+  }
+  if (text.toLowerCase() == 'novice intermediate') {
+    return 'Intermediate';
+  }
+
+  final matches = RegExp(r'\d+')
+      .allMatches(text)
+      .map((m) => int.tryParse(m.group(0)!))
+      .whereType<int>()
+      .toList();
+  if (matches.isNotEmpty) {
+    final score = matches.last;
+    if (score <= 2) return 'Beginner';
+    if (score <= 4) return 'Novice';
+    if (score <= 6) return 'Intermediate';
+    if (score <= 8) return 'Advanced';
+    return 'Pro/Master';
+  }
+  return text;
 }
 
 class _AvatarPreviewCircle extends StatelessWidget {

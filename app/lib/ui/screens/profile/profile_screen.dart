@@ -167,6 +167,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           final bio = profile?.bio.trim().isNotEmpty == true ? profile!.bio.trim() : 'No Description';
           final age = profile?.age != null ? '${profile!.age}' : '—';
           final gender = profile?.gender.trim().isNotEmpty == true ? profile!.gender.trim() : '—';
+          final skillLevel = profile?.skillLevel.trim().isNotEmpty == true ? profile!.skillLevel.trim() : '—';
           final email = profile?.email.trim().isNotEmpty == true ? profile!.email.trim() : '—';
           final emergency = profile?.emergencyContact.trim().isNotEmpty == true ? profile!.emergencyContact.trim() : '—';
           final height = profile?.heightCm != null ? '${profile!.heightCm} cm' : '—';
@@ -231,6 +232,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               _InfoRow(label: 'Height', value: height),
                               _InfoRow(label: 'Age', value: age),
                               _InfoRow(label: 'Gender', value: gender),
+                              _InfoRow(label: 'Skill Level', value: skillLevel),
                               _InfoRow(label: 'Email', value: email, valueColor: const Color(0xFF138E6F)),
                               _InfoRow(label: 'Emergency', value: emergency),
                             ],
@@ -239,14 +241,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const SizedBox(height: 14),
                         _CardSection(
                           title: 'SKILL LEVEL',
-                          child: const Column(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _SkillRow(label: 'Football', value: 3),
-                              _SkillRow(label: 'Badminton', value: 4),
-                              _SkillRow(label: 'Basketball', value: 6),
-                              _SkillRow(label: 'Pickleball', value: 2),
-                              _SkillRow(label: 'Volleyball', value: 3),
-                              _SkillRow(label: 'Jogging', value: 3),
+                              Text(
+                                skillLevel,
+                                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Used for event join restrictions.',
+                                style: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
+                              ),
                             ],
                           ),
                         ),

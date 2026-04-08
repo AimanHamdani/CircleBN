@@ -10,6 +10,7 @@ import '../../../data/sample_clubs.dart';
 import '../../../models/club.dart';
 import '../../../models/signup_draft.dart';
 import '../../../models/user_profile.dart';
+import '../../theme/app_theme.dart';
 import '../home/home_screen.dart';
 
 class RecommendedClubsArgs {
@@ -125,6 +126,7 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
         age: _calcAge(finalDraft.dateOfBirth),
         gender: finalDraft.gender ?? 'Male',
         heightCm: finalDraft.heightCm,
+        skillLevel: 'Beginner',
         preferredSports: finalDraft.sports,
         emergencyContact: finalDraft.emergencyContact ?? '',
         bio: '',
@@ -172,43 +174,90 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final green = AppTheme.brandGreen;
     final header = _args.skippedSports || _args.draft.sports.isEmpty
         ? 'Recommended Clubs'
         : 'Recommended Clubs for ${_args.draft.sports.join(', ')}';
 
     return Scaffold(
+      backgroundColor: const Color(0xFFEFF7F3),
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).maybePop(),
+        backgroundColor: const Color(0xFFEFF7F3),
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+        leadingWidth: 64,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 12),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: InkWell(
+              onTap: () => Navigator.of(context).maybePop(),
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF63C8A7), width: 1.2),
+                ),
+                child: Icon(Icons.arrow_back, size: 18, color: green),
+              ),
+            ),
+          ),
+        ),
+        titleSpacing: 4,
+        title: Text(
+          'Recommended Clubs',
+          style: TextStyle(
+            color: green,
+            fontWeight: FontWeight.w900,
+            fontSize: 20,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: _isSubmitting
+                ? null
+                : () {
+                    _selectedClubIds.clear();
+                    _finish();
+                  },
+            style: TextButton.styleFrom(
+              foregroundColor: green,
+              textStyle: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
+              ),
+            ),
+            child: const Text('Skip'),
+          ),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(
+            height: 1,
+            color: const Color(0xFF9FD7C1),
+          ),
         ),
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 6, 18, 18),
+          padding: const EdgeInsets.fromLTRB(28, 12, 28, 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
                 header,
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Pick clubs to follow',
-                style: TextStyle(color: Colors.black54),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black.withValues(alpha: 0.70),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 10),
-              const Text(
-                'STEP 3 OF 3',
-                style: TextStyle(
-                  fontSize: 12,
-                  letterSpacing: 0.8,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.black54,
-                ),
-              ),
-              const SizedBox(height: 14),
               Expanded(
                 child: FutureBuilder<List<Club>>(
                   future: _clubsFuture,
@@ -236,14 +285,14 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
                           }),
                           borderRadius: BorderRadius.circular(14),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(
                                 color: selected
-                                    ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.55)
-                                    : const Color(0xFFE3E7EE),
+                                    ? green.withValues(alpha: 0.55)
+                                    : const Color(0xFFD6D8D6),
                                 width: selected ? 2 : 1,
                               ),
                             ),
@@ -256,11 +305,11 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
                                     shape: BoxShape.circle,
                                     border: Border.all(
                                       color: selected
-                                          ? Theme.of(context).colorScheme.primary
+                                          ? green
                                           : const Color(0xFFB8C0CC),
                                       width: 2,
                                     ),
-                                    color: selected ? Theme.of(context).colorScheme.primary : Colors.transparent,
+                                    color: selected ? green : Colors.transparent,
                                   ),
                                   child: selected
                                       ? const Icon(Icons.check, size: 14, color: Colors.white)
@@ -297,13 +346,21 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
               const SizedBox(height: 12),
               FilledButton(
                 onPressed: _isSubmitting ? null : _finish,
+                style: FilledButton.styleFrom(
+                  backgroundColor: green,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(54),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                  elevation: 2,
+                ),
                 child: _isSubmitting
                     ? const SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
-                    : const Text('Next'),
+                    : const Text('Done'),
               ),
             ],
           ),

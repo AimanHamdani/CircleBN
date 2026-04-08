@@ -139,80 +139,67 @@ class _ClubsScreenState extends State<ClubsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    const headerTeal = Color(0xFF1FB8AD);
     final searchLower = _searchCtrl.text.trim().toLowerCase();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F4F3),
+      backgroundColor: const Color(0xFFEFF7F3),
       body: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
+            Container(
+              width: double.infinity,
+              color: headerTeal,
+              padding: const EdgeInsets.fromLTRB(18, 14, 18, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Club', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
-                  const SizedBox(height: 14),
+                  const Text(
+                    'Clubs',
+                    style: TextStyle(
+                      fontSize: 34 / 1.6,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   TextField(
                     controller: _searchCtrl,
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.search),
-                      hintText: 'Search for Clubs',
-                      fillColor: Colors.white,
+                      prefixIcon: const Icon(Icons.search, color: Color(0xFFBDE7E3)),
+                      suffixIcon: const Icon(Icons.tune, size: 18, color: Color(0xFFBDE7E3)),
+                      hintText: 'Search for clubs...',
+                      hintStyle: const TextStyle(color: Color(0xFFBDE7E3)),
+                      fillColor: Colors.white.withValues(alpha: 0.14),
                       filled: true,
-                      border: OutlineInputBorder(
+                      enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(999),
-                        borderSide: BorderSide.none,
+                        borderSide: const BorderSide(color: Color(0xFF6CD8D0)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(999),
+                        borderSide: const BorderSide(color: Color(0xFFBDE7E3), width: 1.5),
                       ),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     ),
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
                     onChanged: (_) => setState(() {}),
                   ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Sport', style: TextStyle(fontWeight: FontWeight.w800, color: Colors.black54)),
                   const SizedBox(height: 10),
                   InkWell(
                     onTap: _showPickSport,
-                    borderRadius: BorderRadius.circular(12),
-                    child: SizedBox(
-                      height: 48,
-                      child: InputDecorator(
-                        isEmpty: _selectedSport.isEmpty,
-                        decoration: const InputDecoration(
-                          contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.all(Radius.circular(12)),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                _selectedSport,
-                                style: const TextStyle(fontWeight: FontWeight.w700),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                softWrap: false,
-                              ),
-                            ),
-                            const Icon(Icons.keyboard_arrow_down),
-                          ],
-                        ),
+                    child: Text(
+                      'Sport  ▾',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.95),
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Expanded(
               child: FutureBuilder<List<Club>>(
                 future: _clubsFuture,
@@ -264,15 +251,15 @@ class _ClubsScreenState extends State<ClubsScreen> {
                   }
 
                   return ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
                     itemCount: filtered.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
                     itemBuilder: (context, idx) {
                       final c = filtered[idx];
                       final subtitle = _clubSubtitle(c);
 
                       return InkWell(
-                        borderRadius: BorderRadius.circular(18),
+                        borderRadius: BorderRadius.circular(16),
                         onTap: () {
                           // Defer push so web pointer/hover teardown finishes before chat builds
                           // (avoids hit-test / mouse_tracker / hasSize assertions).
@@ -297,22 +284,22 @@ class _ClubsScreenState extends State<ClubsScreen> {
                         child: Container(
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(color: const Color(0xFFE3E7EE)),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFDDE8E5)),
                           ),
                           child: Padding(
-                            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                             child: Row(
                               children: [
                                 Container(
-                                  width: 46,
-                                  height: 46,
+                                  width: 44,
+                                  height: 44,
                                   decoration: BoxDecoration(
-                                    color: Colors.grey.shade200,
-                                    borderRadius: BorderRadius.circular(999),
+                                    color: const Color(0xFFDDF3F0),
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(999),
+                                    borderRadius: BorderRadius.circular(12),
                                     clipBehavior: Clip.antiAlias,
                                     child: c.thumbnailFileId != null && c.thumbnailFileId!.isNotEmpty
                                         ? FutureBuilder(
@@ -357,18 +344,7 @@ class _ClubsScreenState extends State<ClubsScreen> {
                                     ],
                                   ),
                                 ),
-                                if (c.privacy.isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(left: 8),
-                                    child: Text(
-                                      c.privacy,
-                                      style: TextStyle(
-                                        color: Colors.black.withValues(alpha: 0.38),
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ),
+                                _rightMetaPill(idx),
                               ],
                             ),
                           ),
@@ -381,6 +357,46 @@ class _ClubsScreenState extends State<ClubsScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _rightMetaPill(int idx) {
+    if (idx % 3 == 0) {
+      return const Text(
+        '1:30',
+        style: TextStyle(
+          color: Color(0xFF9AA6A3),
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      );
+    }
+    if (idx % 3 == 1) {
+      return Container(
+        width: 18,
+        height: 18,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: const Color(0xFF12B7AA),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: const Text(
+          '2',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      );
+    }
+    return const Text(
+      'Yesterday',
+      style: TextStyle(
+        color: Color(0xFF9AA6A3),
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
       ),
     );
   }

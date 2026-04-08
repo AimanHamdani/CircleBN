@@ -662,6 +662,13 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     final maxCapacity = event.capacity > 0 ? event.capacity : 999999;
     final currentParticipantIds = [..._resolveParticipantIds(event)];
 
+    if (!currentRegistered) {
+      final allowed = await _canRegisterForEvent(event);
+      if (!allowed) {
+        return;
+      }
+    }
+
     if (!currentRegistered && currentJoined >= maxCapacity) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Event is full.')),
@@ -764,6 +771,98 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       return false;
     }
   }
+
+  Future<bool> _canRegisterForEvent(Event event) async {
+    String normalize(String? v) => (v ?? '').trim().toLowerCase();
+
+    final requiredGender = normalize(event.gender);
+    final requiredAgeGroup = normalize(event.ageGroup);
+    final requiredSkillLevel = normalize(_normalizeSkillLevelLabel(event.skillLevel));
+
+    final requiresGender = requiredGender.isNotEmpty && requiredGender != 'any';
+    final requiresAgeGroup = requiredAgeGroup.isNotEmpty && requiredAgeGroup != 'any';
+    final requiresSkillLevel = requiredSkillLevel.isNotEmpty &&
+        requiredSkillLevel != 'any' &&
+        requiredSkillLevel != '—';
+
+    if (!requiresGender && !requiresAgeGroup && !requiresSkillLevel) {
+      return true;
+    }
+
+    UserProfile profile;
+    try {
+      profile = await profileRepository().getMyProfile();
+    } catch (_) {
+      if (!mounted) {
+        return false;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load your profile. Please try again.')),
+      );
+      return false;
+    }
+
+    if (!mounted) {
+      return false;
+    }
+
+    if (requiresGender) {
+      final myGender = normalize(profile.gender);
+      if (myGender.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('You must set your gender in Profile to join this event.')),
+        );
+        return false;
+      }
+      if (myGender != requiredGender) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('This event is for ${event.gender}.')),
+        );
+        return false;
+      }
+    }
+
+    if (requiresAgeGroup) {
+      final age = profile.age;
+      if (age == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('You must set your age in Profile to join this event.')),
+        );
+        return false;
+      }
+      final myGroup = normalize(_ageGroupFromAge(age));
+      if (myGroup != requiredAgeGroup) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('This event is for ${event.ageGroup}.')),
+        );
+        return false;
+      }
+    }
+
+    if (requiresSkillLevel) {
+      final mySkill = normalize(_normalizeSkillLevelLabel(profile.skillLevel));
+      if (mySkill.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('You must set your skill level in Profile to join this event.')),
+        );
+        return false;
+      }
+
+      final myRank = _skillRank(mySkill);
+      final requiredRank = _skillRank(requiredSkillLevel);
+      if (myRank < requiredRank) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('This event requires ${_titleSkill(requiredSkillLevel)} skill level.')),
+        );
+        return false;
+      }
+    }
+
+    // Host role is informational only; no restriction.
+    return true;
+  }
+
+  // Gender / Age Group have restrictions; Host Role is display-only.
 }
 
 class _TabHeader extends StatelessWidget {
@@ -860,6 +959,9 @@ class _DetailsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final genderLabel = (event.gender == null || event.gender!.trim().isEmpty) ? 'Any' : event.gender!.trim();
+    final ageGroupLabel = (event.ageGroup == null || event.ageGroup!.trim().isEmpty) ? 'Any' : event.ageGroup!.trim();
+    final hostRoleLabel = (event.hostRole == null || event.hostRole!.trim().isEmpty) ? 'Host only' : event.hostRole!.trim();
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
       child: Column(
@@ -889,7 +991,12 @@ class _DetailsTab extends StatelessWidget {
             children: [
               Expanded(child: _MetricTile(title: 'SPORT', value: event.sport)),
               const SizedBox(width: 10),
-              Expanded(child: _MetricTile(title: 'SKILL LEVEL', value: event.skillLevel)),
+              Expanded(
+                child: _MetricTile(
+                  title: 'SKILL LEVEL',
+                  value: _normalizeSkillLevelLabel(event.skillLevel),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -911,9 +1018,9 @@ class _DetailsTab extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: [
-              const Expanded(child: _MetricTile(title: 'GENDER', value: 'Any')),
+              Expanded(child: _MetricTile(title: 'GENDER', value: genderLabel)),
               const SizedBox(width: 10),
-              const Expanded(child: _MetricTile(title: 'AGE GROUP', value: 'Any')),
+              Expanded(child: _MetricTile(title: 'AGE GROUP', value: ageGroupLabel)),
             ],
           ),
           const SizedBox(height: 12),
@@ -924,10 +1031,10 @@ class _DetailsTab extends StatelessWidget {
               border: Border.all(color: const Color(0xFFE3E7EE)),
             ),
             child: Column(
-              children: const [
-                _PolicyRow(label: "Host's role", value: 'Host only'),
-                Divider(height: 1, color: Color(0xFFE3E7EE)),
-                _PolicyRow(label: 'Cancellation freeze', value: '12 Hours'),
+              children: [
+                _PolicyRow(label: "Host's role", value: hostRoleLabel),
+                const Divider(height: 1, color: Color(0xFFE3E7EE)),
+                _PolicyRow(label: 'Cancellation freeze', value: event.cancellationFreeze),
               ],
             ),
           ),
@@ -1243,6 +1350,88 @@ String _fmtDuration(Duration d) {
   if (h > 0 && m > 0) return '$h Hours $m Min';
   if (h > 0) return '$h Hours';
   return '$m Min';
+}
+
+String _ageGroupFromAge(int age) {
+  if (age < 18) {
+    return 'Junior (<18)';
+  }
+  if (age <= 59) {
+    return 'Adult (19 - 59)';
+  }
+  return 'Senior (60+)';
+}
+
+String _normalizeSkillLevelLabel(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty || text == '—') {
+    return 'Any';
+  }
+
+  const options = [
+    'Any',
+    'Beginner',
+    'Novice',
+    'Intermediate',
+    'Advanced',
+    'Pro/Master',
+  ];
+  for (final option in options) {
+    if (text.toLowerCase() == option.toLowerCase()) {
+      return option;
+    }
+  }
+  if (text.toLowerCase() == 'novice intermediate') {
+    return 'Intermediate';
+  }
+
+  final matches = RegExp(r'\d+')
+      .allMatches(text)
+      .map((m) => int.tryParse(m.group(0)!))
+      .whereType<int>()
+      .toList();
+  if (matches.isNotEmpty) {
+    final score = matches.last;
+    if (score <= 2) return 'Beginner';
+    if (score <= 4) return 'Novice';
+    if (score <= 6) return 'Intermediate';
+    if (score <= 8) return 'Advanced';
+    return 'Pro/Master';
+  }
+
+  return text;
+}
+
+int _skillRank(String normalizedLower) {
+  switch (normalizedLower) {
+    case 'beginner':
+      return 1;
+    case 'novice':
+      return 2;
+    case 'intermediate':
+      return 3;
+    case 'advanced':
+      return 4;
+    case 'pro/master':
+      return 5;
+  }
+  return 0;
+}
+
+String _titleSkill(String normalizedLower) {
+  switch (normalizedLower) {
+    case 'beginner':
+      return 'Beginner';
+    case 'novice':
+      return 'Novice';
+    case 'intermediate':
+      return 'Intermediate';
+    case 'advanced':
+      return 'Advanced';
+    case 'pro/master':
+      return 'Pro/Master';
+  }
+  return normalizedLower;
 }
 
 class _ChatMessage {

@@ -5,7 +5,8 @@ import '../../appwrite/appwrite_config.dart';
 import '../../appwrite/appwrite_service.dart';
 import '../../auth/current_user.dart';
 import '../../auth/session_persistence.dart';
-import '../widgets/sample_app_icon.dart';
+import '../widgets/auth_brand_placeholder.dart';
+import '../theme/app_theme.dart';
 import 'home/home_screen.dart';
 import 'reset_password_screen.dart';
 import 'signup/signup_screen.dart';
@@ -102,29 +103,23 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final green = AppTheme.brandGreen;
     return Scaffold(
+      backgroundColor: const Color(0xFFEEF7F2),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(18, 24, 18, 24),
+          padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 18),
+              const SizedBox(height: 26),
               Align(
                 alignment: Alignment.center,
                 child: Column(
-                  children: const [
-                    SampleAppIcon(),
-                    SizedBox(height: 16),
-                    Text(
-                      'Login',
-                      style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800),
-                    ),
-                    SizedBox(height: 6),
-                    Text(
-                      'Welcome back',
-                      style: TextStyle(color: Colors.black54),
-                    ),
+                  children: [
+                    const AuthBrandPlaceholder(size: 74),
+                    const SizedBox(height: 14),
+                    // Intentionally no app name here; user will add branding later.
                   ],
                 ),
               ),
@@ -132,14 +127,27 @@ class _LoginScreenState extends State<LoginScreen> {
               Form(
                 key: _formKey,
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    Text('Email', style: TextStyle(fontWeight: FontWeight.w700, color: green)),
+                    const SizedBox(height: 8),
                     TextFormField(
                       controller: _emailCtrl,
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Email',
-                        hintText: 'name@email.com',
+                      decoration: InputDecoration(
+                        hintText: 'Email',
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(color: green, width: 1.6),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(color: green, width: 1.9),
+                        ),
                       ),
                       validator: (v) {
                         final value = (v ?? '').trim();
@@ -149,13 +157,25 @@ class _LoginScreenState extends State<LoginScreen> {
                       },
                     ),
                     const SizedBox(height: 14),
+                    Text('Password', style: TextStyle(fontWeight: FontWeight.w700, color: green)),
+                    const SizedBox(height: 8),
                     TextFormField(
                       controller: _passwordCtrl,
                       obscureText: _obscure,
                       textInputAction: TextInputAction.done,
                       decoration: InputDecoration(
-                        labelText: 'Password',
-                        hintText: '••••••••',
+                        hintText: 'Password',
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: Color(0xFFE3E7EE)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(color: green, width: 1.9),
+                        ),
                         suffixIcon: IconButton(
                           onPressed: () => setState(() => _obscure = !_obscure),
                           icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
@@ -174,22 +194,28 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 10),
               Align(
-                alignment: Alignment.centerLeft,
+                alignment: Alignment.centerRight,
                 child: TextButton(
                   onPressed: _isRecovering ? null : _onForgotPassword,
-                  child: Text(_isRecovering ? 'Sending...' : 'Forgot Password?'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: green,
+                    textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  child: Text(_isRecovering ? 'Sending...' : 'Forgot password?'),
                 ),
               ),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).pushNamed(ResetPasswordScreen.routeName),
-                  child: const Text('I have reset code'),
-                ),
-              ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 12),
               FilledButton(
                 onPressed: _isLoading ? null : _onLogin,
+                style: FilledButton.styleFrom(
+                  backgroundColor: green,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(54),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                  elevation: 2,
+                  shadowColor: green.withValues(alpha: 0.35),
+                ),
                 child: _isLoading
                     ? const SizedBox(
                         width: 18,
@@ -201,12 +227,12 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 14),
               Row(
                 children: [
-                  Expanded(child: Divider(color: Colors.black.withValues(alpha: 0.10))),
+                  Expanded(child: Divider(color: green.withValues(alpha: 0.45), thickness: 1)),
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 10),
                     child: Text('or', style: TextStyle(color: Colors.black54)),
                   ),
-                  Expanded(child: Divider(color: Colors.black.withValues(alpha: 0.10))),
+                  Expanded(child: Divider(color: green.withValues(alpha: 0.45), thickness: 1)),
                 ],
               ),
               const SizedBox(height: 12),
@@ -217,9 +243,24 @@ class _LoginScreenState extends State<LoginScreen> {
                     const Text("Don’t have an account? "),
                     TextButton(
                       onPressed: () => Navigator.of(context).pushNamed(SignUpScreen.routeName),
+                      style: TextButton.styleFrom(
+                        foregroundColor: green,
+                        textStyle: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
                       child: const Text('Sign up'),
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 6),
+              Center(
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pushNamed(ResetPasswordScreen.routeName),
+                  style: TextButton.styleFrom(
+                    foregroundColor: green,
+                    textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  child: const Text('I have reset code'),
                 ),
               ),
             ],

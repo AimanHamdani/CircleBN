@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../models/signup_draft.dart';
 import '../login_screen.dart';
+import '../../theme/app_theme.dart';
 import 'about_you_screen.dart';
 
 class SignUpScreen extends StatefulWidget {
@@ -41,38 +42,57 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final green = AppTheme.brandGreen;
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).maybePop(),
-        ),
-      ),
+      backgroundColor: const Color(0xFFEFF7F3),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(18, 6, 18, 24),
+          padding: const EdgeInsets.fromLTRB(28, 30, 28, 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 8),
               const Text(
-                'Sign up',
-                style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800),
+                'Create account',
+                style: TextStyle(
+                  fontSize: 46 / 1.6,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.2,
+                  color: AppTheme.brandGreen,
+                ),
               ),
               const SizedBox(height: 6),
-              const Text('Create your account', style: TextStyle(color: Colors.black54)),
-              const SizedBox(height: 24),
+              const Text(
+                'Join the sports community',
+                style: TextStyle(
+                  color: Color(0xFF21A97A),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 26),
               Form(
                 key: _formKey,
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    Text('Email', style: TextStyle(fontWeight: FontWeight.w700, color: green)),
+                    const SizedBox(height: 8),
                     TextFormField(
                       controller: _emailCtrl,
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Email',
-                        hintText: 'name@email.com',
+                      decoration: InputDecoration(
+                        hintText: 'Email',
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: Color(0xFFD6D8D6)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(color: green, width: 1.8),
+                        ),
                       ),
                       validator: (v) {
                         final value = (v ?? '').trim();
@@ -82,13 +102,25 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       },
                     ),
                     const SizedBox(height: 14),
+                    Text('Password', style: TextStyle(fontWeight: FontWeight.w700, color: green)),
+                    const SizedBox(height: 8),
                     TextFormField(
                       controller: _passwordCtrl,
                       obscureText: _obscure,
                       textInputAction: TextInputAction.next,
                       decoration: InputDecoration(
-                        labelText: 'Password',
                         hintText: 'Create a password',
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: Color(0xFFD6D8D6)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(color: green, width: 1.8),
+                        ),
                         suffixIcon: IconButton(
                           onPressed: () => setState(() => _obscure = !_obscure),
                           icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
@@ -102,13 +134,25 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       },
                     ),
                     const SizedBox(height: 14),
+                    Text('Confirm Password', style: TextStyle(fontWeight: FontWeight.w700, color: green)),
+                    const SizedBox(height: 8),
                     TextFormField(
                       controller: _confirmCtrl,
                       obscureText: true,
                       textInputAction: TextInputAction.done,
-                      decoration: const InputDecoration(
-                        labelText: 'Confirm Password',
+                      decoration: InputDecoration(
                         hintText: 'Repeat your password',
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: Color(0xFFD6D8D6)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(color: green, width: 1.8),
+                        ),
                       ),
                       validator: (v) {
                         if ((v ?? '').isEmpty) return 'Confirm your password';
@@ -123,6 +167,13 @@ class _SignUpScreenState extends State<SignUpScreen> {
               const SizedBox(height: 18),
               FilledButton(
                 onPressed: _next,
+                style: FilledButton.styleFrom(
+                  backgroundColor: green,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(54),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                ),
                 child: const Text('Sign up'),
               ),
               const SizedBox(height: 14),
@@ -136,7 +187,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         LoginScreen.routeName,
                         (_) => false,
                       ),
-                      child: const Text('Login'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: green,
+                        textStyle: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      child: const Text('Log in'),
                     ),
                   ],
                 ),

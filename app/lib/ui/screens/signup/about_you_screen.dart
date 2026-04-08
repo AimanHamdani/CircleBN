@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../models/signup_draft.dart';
+import '../../theme/app_theme.dart';
 import 'choose_sports_screen.dart';
 
 class AboutYouScreen extends StatefulWidget {
@@ -68,75 +69,91 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
   @override
   Widget build(BuildContext context) {
     final base = _draftFromArgs(context);
+    final green = AppTheme.brandGreen;
 
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).maybePop(),
-        ),
-      ),
+      backgroundColor: const Color(0xFFEFF7F3),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(18, 6, 18, 24),
+          padding: const EdgeInsets.fromLTRB(28, 26, 28, 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'About you',
-                style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Fill in your personal details',
-                style: TextStyle(color: Colors.black54),
-              ),
-              const SizedBox(height: 10),
-              const Text(
+              Text(
                 'STEP 1 OF 3',
                 style: TextStyle(
                   fontSize: 12,
                   letterSpacing: 0.8,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.black54,
+                  fontWeight: FontWeight.w800,
+                  color: green,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'About you',
+                style: TextStyle(
+                  fontSize: 42 / 1.6,
+                  fontWeight: FontWeight.w900,
+                  color: green,
+                  letterSpacing: -0.2,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Fill in your details',
+                style: TextStyle(
+                  color: green,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 14),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: LinearProgressIndicator(
+                  minHeight: 5,
+                  value: 1 / 3,
+                  backgroundColor: const Color(0xFFBFDDD0),
+                  valueColor: AlwaysStoppedAnimation<Color>(green),
                 ),
               ),
               const SizedBox(height: 18),
               Form(
                 key: _formKey,
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    Text('Full Name', style: TextStyle(fontWeight: FontWeight.w700, color: green)),
+                    const SizedBox(height: 8),
                     TextFormField(
                       controller: _fullNameCtrl,
                       textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(labelText: 'Full Name', hintText: 'Your full name'),
+                      decoration: _inputDecoration(
+                        hintText: 'Your full name',
+                        green: green,
+                      ),
                       validator: (v) => (v ?? '').trim().isEmpty ? 'Full name is required' : null,
                     ),
                     const SizedBox(height: 14),
+                    Text('Username', style: TextStyle(fontWeight: FontWeight.w700, color: green)),
+                    const SizedBox(height: 8),
                     TextFormField(
                       controller: _usernameCtrl,
                       textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Username/Nickname (optional)',
+                      decoration: _inputDecoration(
                         hintText: '@username',
                       ),
                     ),
                     const SizedBox(height: 14),
-                    TextFormField(
-                      controller: _emergencyCtrl,
-                      textInputAction: TextInputAction.next,
-                      keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        labelText: 'Emergency Contact (optional)',
-                        hintText: '+673 XXXXXX',
-                      ),
-                    ),
-                    const SizedBox(height: 14),
+                    Text('Date of birth', style: TextStyle(fontWeight: FontWeight.w700, color: green)),
+                    const SizedBox(height: 8),
                     InkWell(
                       onTap: _pickDob,
                       borderRadius: BorderRadius.circular(14),
                       child: InputDecorator(
-                        decoration: const InputDecoration(labelText: 'Date of Birth'),
+                        decoration: _inputDecoration(
+                          hintText: '',
+                          green: green,
+                        ),
                         child: Row(
                           children: [
                             Expanded(
@@ -145,7 +162,7 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
                                 style: TextStyle(color: _dob == null ? Colors.black45 : Colors.black87),
                               ),
                             ),
-                            const Icon(Icons.calendar_today, size: 18),
+                            const Icon(Icons.keyboard_arrow_down, size: 18, color: Colors.black45),
                           ],
                         ),
                       ),
@@ -153,7 +170,10 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
                     const SizedBox(height: 14),
                     Align(
                       alignment: Alignment.centerLeft,
-                      child: Text('Gender', style: Theme.of(context).textTheme.labelLarge),
+                      child: Text(
+                        'Gender',
+                        style: TextStyle(fontWeight: FontWeight.w700, color: green),
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -176,11 +196,16 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
                       ],
                     ),
                     const SizedBox(height: 14),
+                    Text('Height (cm)', style: TextStyle(fontWeight: FontWeight.w700, color: green)),
+                    const SizedBox(height: 8),
                     TextFormField(
                       controller: _heightCtrl,
                       keyboardType: TextInputType.number,
                       textInputAction: TextInputAction.done,
-                      decoration: const InputDecoration(labelText: 'Height (cm)', hintText: 'e.g. 175'),
+                      decoration: _inputDecoration(
+                        hintText: 'e.g. 175',
+                        green: green,
+                      ),
                       validator: (v) {
                         final value = (v ?? '').trim();
                         if (value.isEmpty) return null;
@@ -195,18 +220,18 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFFF4E5),
+                        color: Colors.white,
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFFFD39E)),
+                        border: Border.all(color: const Color(0xFF63C8A7), width: 1.4),
                       ),
                       child: const Row(
                         children: [
-                          Icon(Icons.info_outline, size: 18, color: Color(0xFFB25B00)),
+                          Text('⚠️'),
                           SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              'Once you enter your information you cannot change it anymore (mock copy).',
-                              style: TextStyle(color: Color(0xFF7A3E00)),
+                              'Once submitted, this info cannot be changed.',
+                              style: TextStyle(color: Color(0xFF00644D), fontWeight: FontWeight.w700),
                             ),
                           ),
                         ],
@@ -218,13 +243,14 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
               const SizedBox(height: 18),
               FilledButton(
                 onPressed: () => _next(base),
-                child: const Text('Next'),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                base.email == null ? '' : 'Signing up as ${base.email}',
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 11, color: Colors.black38),
+                style: FilledButton.styleFrom(
+                  backgroundColor: green,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(54),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                ),
+                child: const Text('Next →'),
               ),
             ],
           ),
@@ -232,6 +258,26 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
       ),
     );
   }
+}
+
+InputDecoration _inputDecoration({
+  required String hintText,
+  Color green = AppTheme.brandGreen,
+}) {
+  return InputDecoration(
+    hintText: hintText,
+    filled: true,
+    fillColor: Colors.white,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: Color(0xFFD6D8D6)),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: BorderSide(color: green, width: 1.8),
+    ),
+  );
 }
 
 class _GenderChip extends StatelessWidget {
@@ -242,22 +288,26 @@ class _GenderChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final green = AppTheme.brandGreen;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
       child: Container(
-        height: 48,
+        height: 50,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: selected ? Theme.of(context).colorScheme.primary : Colors.white,
+          color: selected ? green : Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: selected ? Colors.transparent : const Color(0xFFE3E7EE)),
+          border: Border.all(
+            color: selected ? Colors.transparent : const Color(0xFF63C8A7),
+            width: selected ? 0 : 1.5,
+          ),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? Colors.white : Colors.black87,
-            fontWeight: FontWeight.w700,
+            color: selected ? Colors.white : green,
+            fontWeight: FontWeight.w800,
           ),
         ),
       ),

@@ -32,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final navAccent = _navAccentForTab(_tabIndex);
     // Tabs:
     // - index 0: Home
     // - index 1: Clubs (Circle)
@@ -48,35 +49,108 @@ class _HomeScreenState extends State<HomeScreen> {
               : const _PlaceholderTab(),
       bottomNavigationBar: SafeArea(
         top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: NavigationBar(
-              selectedIndex: _tabIndex,
-              onDestinationSelected: (i) {
-                if (i == 2) {
-                  _showCreateChoice(context);
-                  return;
-                }
-                if (i == 4) {
-                  Navigator.of(context).pushNamed(ProfileScreen.routeName);
-                  return;
-                }
-                setState(() => _tabIndex = i);
-              },
-              destinations: const [
-                NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
-                NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Circle'),
-                NavigationDestination(icon: Icon(Icons.add_circle_outline), selectedIcon: Icon(Icons.add_circle), label: ''),
-                NavigationDestination(icon: Icon(Icons.calendar_month_outlined), selectedIcon: Icon(Icons.calendar_month), label: 'Calendar'),
-                NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Profile'),
-              ],
-            ),
+        child: SizedBox(
+          height: 78,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                height: 64,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  border: Border(
+                    top: BorderSide(color: Color(0xFFD7E7E2), width: 1),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _BottomNavItem(
+                        icon: Icons.home_outlined,
+                        activeIcon: Icons.home,
+                        label: 'Home',
+                        selected: _tabIndex == 0,
+                        activeColor: navAccent,
+                        onTap: () => setState(() => _tabIndex = 0),
+                      ),
+                    ),
+                    Expanded(
+                      child: _BottomNavItem(
+                        icon: Icons.people_outline,
+                        activeIcon: Icons.people,
+                        label: 'Circle',
+                        selected: _tabIndex == 1,
+                        activeColor: navAccent,
+                        onTap: () => setState(() => _tabIndex = 1),
+                      ),
+                    ),
+                    const SizedBox(width: 64),
+                    Expanded(
+                      child: _BottomNavItem(
+                        icon: Icons.calendar_month_outlined,
+                        activeIcon: Icons.calendar_month,
+                        label: 'Calendar',
+                        selected: _tabIndex == 3,
+                        activeColor: navAccent,
+                        onTap: () => setState(() => _tabIndex = 3),
+                      ),
+                    ),
+                    Expanded(
+                      child: _BottomNavItem(
+                        icon: Icons.person_outline,
+                        activeIcon: Icons.person,
+                        label: 'Profile',
+                        selected: false,
+                        activeColor: navAccent,
+                        onTap: () => Navigator.of(context).pushNamed(ProfileScreen.routeName),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                top: -8,
+                child: Center(
+                  child: InkWell(
+                    onTap: () => _showCreateChoice(context),
+                    borderRadius: BorderRadius.circular(999),
+                    child: Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: navAccent,
+                        borderRadius: BorderRadius.circular(999),
+                        boxShadow: [
+                          BoxShadow(
+                            color: navAccent.withValues(alpha: 0.35),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(Icons.add, color: Colors.white, size: 26),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
+  }
+
+  Color _navAccentForTab(int tabIndex) {
+    switch (tabIndex) {
+      case 1:
+        return const Color(0xFF1FB8AD); // Clubs/Circle
+      case 3:
+        return const Color(0xFFF6A300); // Calendar
+      default:
+        return const Color(0xFF1F9D6E); // Home/default
+    }
   }
 
   void _showCreateChoice(BuildContext context) {
@@ -166,6 +240,47 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _BottomNavItem extends StatelessWidget {
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+  final bool selected;
+  final Color activeColor;
+  final VoidCallback onTap;
+
+  const _BottomNavItem({
+    required this.icon,
+    required this.activeIcon,
+    required this.label,
+    required this.selected,
+    required this.activeColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? activeColor : const Color(0xFF8D9692);
+    return InkWell(
+      onTap: onTap,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(selected ? activeIcon : icon, size: 20, color: color),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }

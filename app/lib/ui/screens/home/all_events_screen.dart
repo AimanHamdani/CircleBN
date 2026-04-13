@@ -7,6 +7,7 @@ import '../../../models/user_profile.dart';
 import 'event_detail_screen.dart';
 import 'notifications_screen.dart';
 import '../../widgets/event_thumbnail_header.dart';
+import '../../theme/app_theme.dart';
 
 class AllEventsScreen extends StatefulWidget {
   static const routeName = '/events';
@@ -99,91 +100,18 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
     final selected = _selectedDate;
     final weekMonday = _mondayOfWeekPage(_visibleWeekPage);
     final weekEnd = weekMonday.add(const Duration(days: 6));
-    const headerDividerColor = Color(0xFFE8EDEB);
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF0F4F3),
-      appBar: AppBar(
+    return Theme(
+      data: AppTheme.eventFlowTheme(Theme.of(context)),
+      child: Scaffold(
         backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        automaticallyImplyLeading: false,
-        leadingWidth: Navigator.of(context).canPop() ? 56 : 0,
-        leading: Navigator.of(context).canPop()
-            ? Padding(
-                padding: const EdgeInsets.only(left: 12),
-                child: Center(
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(14),
-                    onTap: () => Navigator.of(context).maybePop(),
-                    child: Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF0F4F3),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFE3E7EE)),
-                      ),
-                      child: const Icon(Icons.arrow_back),
-                    ),
-                  ),
-                ),
-              )
-            : const SizedBox.shrink(),
-        titleSpacing: 8,
-        toolbarHeight: 88,
-        title: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Home',
-                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, height: 1.0, color: Colors.black87),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
-                    'All Events',
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, height: 1.0, color: Colors.black87),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: InkWell(
-                onTap: () => Navigator.of(context).pushNamed(NotificationsScreen.routeName),
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF0F4F3),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFE3E7EE)),
-                  ),
-                  child: const Icon(Icons.notifications_none),
-                ),
-              ),
-            ),
-          ],
-        ),
-        bottom: const PreferredSize(
-          preferredSize: Size.fromHeight(1),
-          child: Divider(height: 1, thickness: 1, color: headerDividerColor),
-        ),
-      ),
-      body: FutureBuilder<List<Object?>>(
-        future: _screenDataFuture,
-        builder: (context, snap) {
+        body: FutureBuilder<List<Object?>>(
+          future: _screenDataFuture,
+          builder: (context, snap) {
           final allRaw = (snap.data != null ? snap.data![0] as List<Event> : const <Event>[]);
           final profile = (snap.data != null ? snap.data![1] as UserProfile : null);
           final prioritized = _prioritizeByPreferredSports(allRaw, profile?.preferredSports ?? const <String>{});
-          final all = prioritized.where(_isEventOnOrAfterToday).toList();
+          final all = prioritized.where(_isUpcomingOrOngoing).toList();
           // Sports from all loaded events so the menu stays useful even if the
           // visible week/day has no matches (DropdownButton/Picker still needs options).
           final sportOptions = prioritized
@@ -206,7 +134,13 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
           }
 
           return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              _AllEventsPurpleHeader(
+                canPop: Navigator.of(context).canPop(),
+                onBack: () => Navigator.of(context).maybePop(),
+                onOpenNotifications: () => Navigator.of(context).pushNamed(NotificationsScreen.routeName),
+              ),
               Material(
                 color: Colors.white,
                 child: Padding(
@@ -223,17 +157,23 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
                           width: 44,
                           height: 44,
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF0F4F3),
+                            color: AppTheme.eventPurple,
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: const Color(0xFFE3E7EE)),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppTheme.eventPurple.withValues(alpha: 0.35),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
                           ),
                           child: Stack(
                             clipBehavior: Clip.none,
                             children: [
-                              Center(
+                              const Center(
                                 child: Icon(
                                   Icons.tune,
-                                  color: Colors.black.withValues(alpha: 0.55),
+                                  color: Colors.white,
                                 ),
                               ),
                               if (_filterSport != null || _filterTimeBand != null)
@@ -310,6 +250,102 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
           );
         },
       ),
+      ),
+    );
+  }
+}
+
+class _AllEventsPurpleHeader extends StatelessWidget {
+  final bool canPop;
+  final VoidCallback onBack;
+  final VoidCallback onOpenNotifications;
+
+  const _AllEventsPurpleHeader({
+    required this.canPop,
+    required this.onBack,
+    required this.onOpenNotifications,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final top = MediaQuery.paddingOf(context).top;
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.only(left: 12, right: 18, top: top + 6, bottom: 18),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppTheme.eventPurpleDeep,
+            AppTheme.eventPurple,
+          ],
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (canPop)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: onBack,
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.22),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                  ),
+                  child: Icon(Icons.arrow_back, color: Colors.white.withValues(alpha: 0.95)),
+                ),
+              ),
+            ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Home',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.88),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    height: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'All Events',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.98),
+                    fontSize: 28,
+                    fontWeight: FontWeight.w900,
+                    height: 1.05,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          InkWell(
+            onTap: onOpenNotifications,
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.22),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+              ),
+              child: Icon(Icons.notifications_none, color: Colors.white.withValues(alpha: 0.95)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -335,9 +371,9 @@ class _WeekNavIconButton extends StatelessWidget {
         height: 44,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: const Color(0xFFF0F4F3),
+          color: AppTheme.eventPurpleLightBg,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE3E7EE)),
+          border: Border.all(color: AppTheme.eventPurple.withValues(alpha: 0.22)),
         ),
         child: Icon(
           icon,
@@ -408,6 +444,19 @@ class _AllEventCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final isFull = event.capacity > 0 && event.joined >= event.capacity;
+    final Color badgeBg;
+    final Color badgeFg;
+    final String badgeLabel;
+    if (isFull) {
+      badgeBg = const Color(0xFFFFF7ED);
+      badgeFg = const Color(0xFFEA580C);
+      badgeLabel = 'Full';
+    } else {
+      badgeBg = cs.primary.withValues(alpha: 0.14);
+      badgeFg = cs.primary;
+      badgeLabel = 'Open';
+    }
     return InkWell(
       onTap: onOpen,
       borderRadius: BorderRadius.circular(20),
@@ -453,13 +502,13 @@ class _AllEventCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
                     decoration: BoxDecoration(
-                      color: cs.primary.withValues(alpha: 0.14),
+                      color: badgeBg,
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text(
-                      'Open',
+                      badgeLabel,
                       style: TextStyle(
-                        color: cs.primary,
+                        color: badgeFg,
                         fontWeight: FontWeight.w800,
                         fontSize: 12,
                       ),
@@ -521,12 +570,11 @@ String _fmtTime(DateTime dt) {
 bool _isSameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
 
-/// Hide events whose local calendar day is before today.
-bool _isEventOnOrAfterToday(Event e) {
-  final today = _today();
-  final local = e.startAt.toLocal();
-  final eventDay = DateTime(local.year, local.month, local.day);
-  return !eventDay.isBefore(today);
+/// Match Calendar screen behavior: include events until they have fully ended.
+bool _isUpcomingOrOngoing(Event e) {
+  final now = DateTime.now();
+  final endAt = e.startAt.add(e.duration);
+  return endAt.isAfter(now);
 }
 
 /// Local time-of-day bands for filter chips (Morning / Afternoon / Night).
@@ -711,8 +759,8 @@ class _AllEventsFilterDialogState extends State<_AllEventsFilterDialog> {
   late String? _sport;
   late _AllEventsTimeBand? _timeBand;
 
-  static const _sheetBg = Color(0xFFEFF2F1);
-  static const _chipSelectedBg = Color(0xFFD8F0E5);
+  static const _sheetBg = Color(0xFFF5F3FF);
+  static const _chipSelectedBg = Color(0xFFEDE9FE);
 
   @override
   void initState() {

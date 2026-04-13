@@ -3,6 +3,41 @@ import 'package:flutter/material.dart';
 class AppTheme {
   static const Color brandGreen = Color(0xFF1F9D6E);
 
+  /// Vibrant purple for Home, All Events, and Event Detail (design mockups).
+  static const Color eventPurple = Color(0xFF8B5CF6);
+  static const Color eventPurpleDeep = Color(0xFF7C3AED);
+  static const Color eventPurpleLightBg = Color(0xFFF5F3FF);
+
+  /// Overrides the seed primary with purple while keeping typography / inputs.
+  static ThemeData eventFlowTheme(ThemeData base) {
+    final cs = ColorScheme.fromSeed(
+      seedColor: eventPurple,
+      brightness: Brightness.light,
+    );
+    return base.copyWith(
+      colorScheme: cs,
+      scaffoldBackgroundColor: Colors.white,
+      // [light] pins FilledButton to brandGreen; override so event screens stay purple.
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: cs.primary,
+          foregroundColor: cs.onPrimary,
+          minimumSize: const Size.fromHeight(52),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          textStyle: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w600),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: cs.primary,
+          textStyle: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
+  }
+
   static ThemeData light() {
     final colorScheme = ColorScheme.fromSeed(seedColor: brandGreen);
     final base = ThemeData(useMaterial3: true, colorScheme: colorScheme);

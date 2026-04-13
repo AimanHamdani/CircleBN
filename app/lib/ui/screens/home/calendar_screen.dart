@@ -3,10 +3,25 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../auth/current_user.dart';
+import '../../../data/club_member_repository.dart';
+import '../../../data/club_repository.dart';
 import '../../../data/event_repository.dart';
+import '../../../models/club.dart';
 import '../../../models/event.dart';
 import '../../widgets/event_thumbnail_header.dart';
 import 'event_detail_screen.dart';
+
+class _CalendarPayload {
+  final List<Event> events;
+  final List<ClubMember> memberships;
+  final List<Club> clubs;
+
+  const _CalendarPayload({
+    required this.events,
+    required this.memberships,
+    required this.clubs,
+  });
+}
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
@@ -16,22 +31,104 @@ class CalendarScreen extends StatefulWidget {
 }
 
 class _CalendarScreenState extends State<CalendarScreen> {
-  late Future<List<Event>> _eventsFuture;
+  late Future<_CalendarPayload> _payloadFuture;
 
   DateTime _visibleMonth = _monthStart(DateTime.now());
   DateTime? _selectedDate;
 
+  /// When true, only events with [Event.clubId] in [_selectedClubIds] (intersected with joined clubs).
+  bool _clubFilterEnabled = false;
+
+  /// Subset of joined clubs to include; when empty while [_clubFilterEnabled], treated as no clubs selected.
+  final Set<String> _selectedClubIds = {};
+
   @override
   void initState() {
     super.initState();
-    _eventsFuture = eventRepository().listEvents();
+    _payloadFuture = _loadCalendarPayload();
     _selectedDate = DateTime.now();
+  }
+
+  Future<_CalendarPayload> _loadCalendarPayload() async {
+    final events = await eventRepository().listEvents();
+    final me = currentUserId.trim();
+    final memberships = me.isEmpty
+        ? const <ClubMember>[]
+        : await clubMemberRepository().listMembershipsForUser(userId: me);
+    final clubs = await clubRepository().listClubs();
+    return _CalendarPayload(
+      events: events,
+      memberships: memberships,
+      clubs: clubs,
+    );
+  }
+
+  void _refreshPayload() {
+    setState(() {
+      _payloadFuture = _loadCalendarPayload();
+    });
+  }
+
+  static Set<String> _joinedOrCreatedClubIds({
+    required List<ClubMember> memberships,
+    required List<Club> clubs,
+    required String currentUserId,
+  }) {
+    final out = <String>{};
+    for (final m in memberships) {
+      final id = m.clubId.trim();
+      if (id.isNotEmpty) {
+        out.add(id);
+      }
+    }
+    final me = currentUserId.trim();
+    if (me.isNotEmpty) {
+      for (final c in clubs) {
+        final creatorId = (c.creatorId ?? '').trim();
+        if (creatorId.isNotEmpty && creatorId == me) {
+          out.add(c.id);
+        }
+      }
+    }
+    return out;
+  }
+
+  static List<Club> _joinedClubsList(List<Club> clubs, Set<String> joinedIds) {
+    final list = clubs.where((c) => joinedIds.contains(c.id)).toList();
+    list.sort((a, b) => a.name.compareTo(b.name));
+    return list;
+  }
+
+  /// Events that are not fully over yet, optionally limited to club-hosted events for joined clubs.
+  List<Event> _filteredVisibleEvents(
+    List<Event> all,
+    Set<String> joinedClubIds,
+  ) {
+    final now = DateTime.now();
+    final me = currentUserId.trim();
+    var list = all
+        .where((e) => e.startAt.add(e.duration).isAfter(now))
+        .toList();
+    if (_clubFilterEnabled) {
+      if (_selectedClubIds.isEmpty) {
+        return list.where((e) => (e.creatorId ?? '').trim() == me).toList();
+      }
+      final allowed = _selectedClubIds.intersection(joinedClubIds);
+      list = list.where((e) {
+        final isCreatedByMe = (e.creatorId ?? '').trim() == me;
+        if (isCreatedByMe) {
+          return true;
+        }
+        final cid = e.clubId?.trim() ?? '';
+        return cid.isNotEmpty && allowed.contains(cid);
+      }).toList();
+    }
+    return list;
   }
 
   @override
   Widget build(BuildContext context) {
     const accentOrange = Color(0xFFF6A300);
-    final cs = Theme.of(context).colorScheme;
     final monthLabel = _monthYearLabel(_visibleMonth);
 
     return Scaffold(
@@ -55,8 +152,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-                child: FutureBuilder<List<Event>>(
-                  future: _eventsFuture,
+                child: FutureBuilder<_CalendarPayload>(
+                  future: _payloadFuture,
                   builder: (context, snap) {
                     if (snap.connectionState != ConnectionState.done) {
                       return const Center(child: CircularProgressIndicator());
@@ -68,15 +165,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           children: [
                             Text(
                               'Could not load events.',
-                              style: TextStyle(color: Colors.black.withValues(alpha: 0.65)),
+                              style: TextStyle(
+                                color: Colors.black.withValues(alpha: 0.65),
+                              ),
                             ),
                             const SizedBox(height: 10),
                             FilledButton(
-                              onPressed: () {
-                                setState(() {
-                                  _eventsFuture = eventRepository().listEvents();
-                                });
-                              },
+                              onPressed: _refreshPayload,
                               child: const Text('Retry'),
                             ),
                           ],
@@ -84,19 +179,116 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       );
                     }
 
-                    final events = snap.data ?? const <Event>[];
-                    final eventDays = _myEventDayKeys(events);
-                    final upcomingMine = _upcomingForMe(events);
+                    final payload = snap.data!;
+                    final joinedIds = _joinedOrCreatedClubIds(
+                      memberships: payload.memberships,
+                      clubs: payload.clubs,
+                      currentUserId: currentUserId,
+                    );
+                    final joinedClubs = _joinedClubsList(
+                      payload.clubs,
+                      joinedIds,
+                    );
+                    final visibleEvents = _filteredVisibleEvents(
+                      payload.events,
+                      joinedIds,
+                    );
+                    final eventCountsByDay = _eventCountsByDay(visibleEvents);
+                    final selected = _selectedDate ?? DateTime.now();
+                    final eventsOnSelectedDay = _eventsOnCalendarDay(
+                      visibleEvents,
+                      selected,
+                    );
 
                     return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        SegmentedButton<bool>(
+                          style: SegmentedButton.styleFrom(
+                            selectedBackgroundColor: accentOrange.withValues(
+                              alpha: 0.22,
+                            ),
+                            foregroundColor: Colors.black87,
+                          ),
+                          segments: const [
+                            ButtonSegment<bool>(
+                              value: false,
+                              label: Text('All events'),
+                              icon: Icon(Icons.event_outlined, size: 18),
+                            ),
+                            ButtonSegment<bool>(
+                              value: true,
+                              label: Text('My clubs'),
+                              icon: Icon(Icons.groups_outlined, size: 18),
+                            ),
+                          ],
+                          selected: {_clubFilterEnabled},
+                          onSelectionChanged: (Set<bool> next) {
+                            final v = next.first;
+                            setState(() {
+                              _clubFilterEnabled = v;
+                              if (v && joinedIds.isNotEmpty) {
+                                _selectedClubIds
+                                  ..clear()
+                                  ..addAll(joinedIds);
+                              }
+                            });
+                          },
+                        ),
+                        if (_clubFilterEnabled) ...[
+                          const SizedBox(height: 8),
+                          if (joinedClubs.isEmpty)
+                            Text(
+                              'Join a club from Circle to filter by club-hosted events.',
+                              style: TextStyle(
+                                color: Colors.black.withValues(alpha: 0.55),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            )
+                          else
+                            SizedBox(
+                              height: 40,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: joinedClubs.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(width: 8),
+                                itemBuilder: (context, i) {
+                                  final c = joinedClubs[i];
+                                  final sel = _selectedClubIds.contains(c.id);
+                                  return FilterChip(
+                                    label: Text(
+                                      c.name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    selected: sel,
+                                    onSelected: (on) {
+                                      setState(() {
+                                        if (on) {
+                                          _selectedClubIds.add(c.id);
+                                        } else {
+                                          _selectedClubIds.remove(c.id);
+                                        }
+                                      });
+                                    },
+                                  );
+                                },
+                              ),
+                            ),
+                        ],
+                        const SizedBox(height: 10),
                         Expanded(
                           flex: 6,
                           child: Container(
                             decoration: BoxDecoration(
                               color: const Color(0xFFFEFEFC),
                               borderRadius: BorderRadius.circular(18),
-                              border: Border.all(color: const Color(0xFFE9C261), width: 1.2),
+                              border: Border.all(
+                                color: const Color(0xFFE9C261),
+                                width: 1.2,
+                              ),
                             ),
                             padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                             child: Column(
@@ -112,15 +304,24 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     Expanded(
                                       child: Center(
                                         child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 8,
+                                          ),
                                           decoration: BoxDecoration(
                                             color: const Color(0xFFFFF5DB),
-                                            borderRadius: BorderRadius.circular(12),
-                                            border: Border.all(color: const Color(0xFFE8C36A)),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                            border: Border.all(
+                                              color: const Color(0xFFE8C36A),
+                                            ),
                                           ),
                                           child: Text(
                                             monthLabel,
-                                            style: const TextStyle(fontWeight: FontWeight.w900),
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w900,
+                                            ),
                                           ),
                                         ),
                                       ),
@@ -141,8 +342,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                   child: _MonthGrid(
                                     monthStart: _visibleMonth,
                                     selectedDate: _selectedDate,
-                                    eventDayKeys: eventDays,
-                                    onSelectDate: (d) => setState(() => _selectedDate = d),
+                                    eventCountsByDay: eventCountsByDay,
+                                    onSelectDate: (d) =>
+                                        setState(() => _selectedDate = d),
                                     accent: accentOrange,
                                   ),
                                 ),
@@ -153,37 +355,47 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         const SizedBox(height: 14),
                         Row(
                           children: [
-                            const Text(
-                              'Upcoming Sport Event',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                            Expanded(
+                              child: Text(
+                                'Events · ${_dayHeadingLabel(selected)}',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
                             ),
-                            const Spacer(),
                           ],
                         ),
                         const SizedBox(height: 10),
                         Expanded(
                           flex: 5,
-                          child: upcomingMine.isEmpty
+                          child: eventsOnSelectedDay.isEmpty
                               ? Center(
                                   child: Text(
-                                    'No upcoming events yet.',
-                                    style: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
+                                    'No events on this day.',
+                                    style: TextStyle(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.55,
+                                      ),
+                                    ),
                                   ),
                                 )
                               : ListView.separated(
-                                  itemCount: upcomingMine.length,
-                                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                                  itemCount: eventsOnSelectedDay.length,
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(height: 12),
                                   itemBuilder: (context, i) {
-                                    final e = upcomingMine[i];
+                                    final e = eventsOnSelectedDay[i];
                                     final badge = _badgeForMe(e);
                                     return _UpcomingEventCard(
                                       event: e,
                                       badgeText: badge,
-                                    accent: accentOrange,
-                                      onTap: () => Navigator.of(context).pushNamed(
-                                        EventDetailScreen.routeName,
-                                        arguments: e,
-                                      ),
+                                      accent: accentOrange,
+                                      onTap: () =>
+                                          Navigator.of(context).pushNamed(
+                                            EventDetailScreen.routeName,
+                                            arguments: e,
+                                          ),
                                     );
                                   },
                                 ),
@@ -202,13 +414,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   void _shiftMonth(int delta) {
     setState(() {
-      _visibleMonth = _monthStart(DateTime(_visibleMonth.year, _visibleMonth.month + delta, 1));
+      _visibleMonth = _monthStart(
+        DateTime(_visibleMonth.year, _visibleMonth.month + delta, 1),
+      );
     });
   }
 
   static DateTime _monthStart(DateTime d) => DateTime(d.year, d.month, 1);
 
-  static String _monthYearLabel(DateTime d) => '${_monthName(d.month)} ${d.year}';
+  static String _monthYearLabel(DateTime d) =>
+      '${_monthName(d.month)} ${d.year}';
 
   static String _monthName(int m) {
     const names = [
@@ -228,55 +443,50 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return names[(m - 1).clamp(0, 11)];
   }
 
-  static String _dayKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  static String _dayKey(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  /// Calendar bucket in the device’s local zone (date-only; avoids DST edge quirks).
+  /// Keep the stored wall-clock components as entered (do not timezone-shift).
+  /// This matches Home/Event Detail behavior and avoids 3 PM -> 11 PM drifts.
+  static DateTime _displayWallClock(DateTime dt) =>
+      DateTime(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
+
+  /// Calendar bucket in wall-clock date (date-only).
   static String _calendarDayKey(DateTime instant) {
-    final l = instant.toLocal();
-    return _dayKey(DateTime(l.year, l.month, l.day));
+    final d = _displayWallClock(instant);
+    return _dayKey(DateTime(d.year, d.month, d.day));
   }
 
-  static bool _isMyEvent(Event e, String me) {
-    if (me.isEmpty) {
-      return false;
-    }
-    final isCreator = (e.creatorId ?? '').trim() == me;
-    return isCreator || e.joinedByMe;
-  }
-
-  static Set<String> _myEventDayKeys(List<Event> events) {
-    final me = currentUserId.trim();
-    final now = DateTime.now();
-    final out = <String>{};
+  static Map<String, int> _eventCountsByDay(List<Event> events) {
+    final out = <String, int>{};
     for (final e in events) {
-      if (!_isMyEvent(e, me)) {
-        continue;
-      }
-      // Match list below: only upcoming — past / history days stay unmarked.
-      if (e.startAt.isBefore(now)) {
-        continue;
-      }
-      out.add(_calendarDayKey(e.startAt));
+      final k = _calendarDayKey(e.startAt);
+      out[k] = (out[k] ?? 0) + 1;
     }
     return out;
   }
 
-  static List<Event> _upcomingForMe(List<Event> events) {
-    final me = currentUserId.trim();
-    final now = DateTime.now();
-    final filtered = events.where((e) {
-      if (e.startAt.isBefore(now)) {
-        return false;
-      }
-      return _isMyEvent(e, me);
-    }).toList();
-    filtered.sort((a, b) => a.startAt.compareTo(b.startAt));
-    return filtered;
+  static List<Event> _eventsOnCalendarDay(List<Event> events, DateTime day) {
+    final key = _calendarDayKey(day);
+    final list = events
+        .where((e) => _calendarDayKey(e.startAt) == key)
+        .toList();
+    list.sort((a, b) => a.startAt.compareTo(b.startAt));
+    return list;
+  }
+
+  static String _dayHeadingLabel(DateTime d) {
+    final l = d.toLocal();
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final wd = weekdays[(l.weekday - 1).clamp(0, 6)];
+    return '$wd ${_monthName(l.month)} ${l.day}, ${l.year}';
   }
 
   static String _badgeForMe(Event e) {
     final me = currentUserId.trim();
-    final isCreator = (e.creatorId ?? '').trim().isNotEmpty && (e.creatorId ?? '').trim() == me;
+    final isCreator =
+        (e.creatorId ?? '').trim().isNotEmpty &&
+        (e.creatorId ?? '').trim() == me;
     if (isCreator) {
       return 'Created';
     }
@@ -348,14 +558,14 @@ class _WeekdayHeader extends StatelessWidget {
 class _MonthGrid extends StatelessWidget {
   final DateTime monthStart;
   final DateTime? selectedDate;
-  final Set<String> eventDayKeys;
+  final Map<String, int> eventCountsByDay;
   final ValueChanged<DateTime> onSelectDate;
   final Color accent;
 
   const _MonthGrid({
     required this.monthStart,
     required this.selectedDate,
-    required this.eventDayKeys,
+    required this.eventCountsByDay,
     required this.onSelectDate,
     required this.accent,
   });
@@ -364,7 +574,9 @@ class _MonthGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final firstOfMonth = DateTime(monthStart.year, monthStart.month, 1);
     final firstWeekdaySunday0 = firstOfMonth.weekday % 7; // Sunday=0
-    final gridStart = firstOfMonth.subtract(Duration(days: firstWeekdaySunday0));
+    final gridStart = firstOfMonth.subtract(
+      Duration(days: firstWeekdaySunday0),
+    );
     final days = List.generate(42, (i) => gridStart.add(Duration(days: i)));
 
     // Rows used `AspectRatio(1)` inside `Row` → each row height became ~row width, which
@@ -377,10 +589,7 @@ class _MonthGrid extends StatelessWidget {
           return const SizedBox.shrink();
         }
         const rowGap = 4.0;
-        final side = math.min(
-          maxW / 7,
-          (maxH - 5 * rowGap) / 6,
-        );
+        final side = math.min(maxW / 7, (maxH - 5 * rowGap) / 6);
 
         return Column(
           mainAxisAlignment: MainAxisAlignment.start,
@@ -414,19 +623,21 @@ class _MonthGrid extends StatelessWidget {
   Widget _dayCell(DateTime d, double cellSize) {
     final isInMonth = d.month == monthStart.month;
     final key = _CalendarScreenState._calendarDayKey(d);
-    final hasEvent = eventDayKeys.contains(key);
-    final selectedKey =
-        selectedDate == null ? null : _CalendarScreenState._calendarDayKey(selectedDate!);
+    final eventCount = eventCountsByDay[key] ?? 0;
+    final selectedKey = selectedDate == null
+        ? null
+        : _CalendarScreenState._calendarDayKey(selectedDate!);
     final isSelected = selectedKey == key;
-    final baseText = isInMonth ? Colors.black : Colors.black.withValues(alpha: 0.35);
+    final baseText = isInMonth
+        ? Colors.black
+        : Colors.black.withValues(alpha: 0.35);
 
     final bg = isSelected
         ? Colors.black.withValues(alpha: 0.92)
-        : hasEvent
-            ? accent.withValues(alpha: 0.16)
-            : Colors.transparent;
+        : Colors.transparent;
 
     final textColor = isSelected ? Colors.white : baseText;
+    final markerColor = isSelected ? Colors.white : accent;
     final dotBottom = math.max(4.0, cellSize * 0.12);
 
     return Padding(
@@ -442,28 +653,88 @@ class _MonthGrid extends StatelessWidget {
               Center(
                 child: Text(
                   '${d.day}',
-                  style: TextStyle(fontWeight: FontWeight.w900, color: textColor),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: textColor,
+                  ),
                 ),
               ),
-              if (hasEvent && !isSelected)
+              if (eventCount > 0)
                 Positioned(
                   bottom: dotBottom,
                   left: 0,
                   right: 0,
                   child: Center(
-                    child: Container(
-                      width: 4,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: accent,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
+                    child: _DayEventMarkers(
+                      count: eventCount,
+                      cellSize: cellSize,
+                      color: markerColor,
                     ),
                   ),
                 ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 1–3 events: that many dots. More than 3: three dots plus "+N" where N is events beyond 3
+/// (e.g. 4 → "+1", 6 → "+3").
+class _DayEventMarkers extends StatelessWidget {
+  final int count;
+  final double cellSize;
+  final Color color;
+
+  const _DayEventMarkers({
+    required this.count,
+    required this.cellSize,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (count <= 0) {
+      return const SizedBox.shrink();
+    }
+    final dotSize = math.max(3.0, cellSize * 0.075).clamp(3.0, 5.0);
+    const gap = 2.0;
+    final fontSize = math.max(7.5, cellSize * 0.16).clamp(7.5, 11.0);
+
+    final dots = count <= 3 ? count : 3;
+    final overflow = count > 3 ? count - 3 : 0;
+
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          for (var i = 0; i < dots; i++) ...[
+            if (i > 0) const SizedBox(width: gap),
+            Container(
+              width: dotSize,
+              height: dotSize,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ],
+          if (overflow > 0) ...[
+            const SizedBox(width: gap),
+            Text(
+              '+$overflow',
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w900,
+                color: color,
+                height: 1,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -486,7 +757,6 @@ class _UpcomingEventCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
         side: const BorderSide(color: Color(0xFFE8C36A)),
@@ -527,7 +797,10 @@ class _UpcomingEventCard extends StatelessWidget {
                   ),
                   if (badgeText.trim().isNotEmpty)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: accent.withValues(alpha: 0.14),
                         borderRadius: BorderRadius.circular(999),
@@ -551,9 +824,7 @@ class _UpcomingEventCard extends StatelessWidget {
   }
 
   static String _eventSubtitle(Event e) {
-    // Match calendar grid: keys use local calendar date. If [startAt] is UTC,
-    // using .day/.month on it can be the *previous* UTC day vs local (off-by-one).
-    final d = e.startAt.toLocal();
+    final d = _CalendarScreenState._displayWallClock(e.startAt);
     final dow = _dowLabel(d.weekday);
     final m = _CalendarScreenState._monthName(d.month);
     final day = d.day.toString();
@@ -575,4 +846,3 @@ class _UpcomingEventCard extends StatelessWidget {
     return '$h12:$m ${isPm ? 'PM' : 'AM'}';
   }
 }
-

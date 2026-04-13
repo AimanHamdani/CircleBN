@@ -54,6 +54,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
+        final sheetMaxHeight = MediaQuery.sizeOf(ctx).height * 0.5;
         return StatefulBuilder(
           builder: (ctx, setLocal) {
             return Container(
@@ -61,7 +62,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 color: Colors.white,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
               ),
-              padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+              padding: EdgeInsets.fromLTRB(
+                18,
+                14,
+                18,
+                18 + MediaQuery.viewInsetsOf(ctx).bottom,
+              ),
               child: SafeArea(
                 top: false,
                 child: Column(
@@ -89,7 +95,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       style: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
                     ),
                     const SizedBox(height: 14),
-                    Flexible(
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxHeight: sheetMaxHeight),
                       child: SingleChildScrollView(
                         child: Wrap(
                           spacing: 8,
@@ -140,9 +147,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
       },
     );
 
-    if (updated == null) return;
-    await profileRepository().saveMyProfile(profile.copyWith(preferredSports: updated));
-    if (mounted) _reload();
+    if (updated == null) {
+      return;
+    }
+    try {
+      await profileRepository().saveMyProfile(profile.copyWith(preferredSports: updated));
+      if (mounted) {
+        _reload();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Could not save sports. Ensure Appwrite has a string array attribute '
+              'preferredSports on the profiles collection.\n$e',
+            ),
+          ),
+        );
+      }
+    }
   }
 
   @override

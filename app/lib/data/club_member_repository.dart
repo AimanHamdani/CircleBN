@@ -177,6 +177,55 @@ class ClubMemberRepository {
     }).where((m) => m.userId.trim().isNotEmpty).toList();
   }
 
+  /// All club memberships for a user (for calendars, “my clubs” filters, etc.).
+  Future<List<ClubMember>> listMembershipsForUser({
+    required String userId,
+    int limit = 500,
+  }) async {
+    if (!_isConfigured || userId.trim().isEmpty) {
+      return const <ClubMember>[];
+    }
+
+    List<ClubMember> mapDocs(dynamic docList) {
+      return docList.documents.map<ClubMember>((d) {
+        final data = Map<String, dynamic>.from(d.data);
+        final memberClubId = _clubIdFromData(data);
+        final memberUserId = _userIdFromData(data);
+        final role = _roleFromData(data);
+        return ClubMember(
+          clubId: memberClubId,
+          userId: memberUserId,
+          role: role,
+          joinedAt: _parseJoinedAt(data['joinedAt'] ?? data['joined_at'] ?? data['joinedat']),
+        );
+      }).where((m) => m.clubId.trim().isNotEmpty && m.userId.trim().isNotEmpty).toList();
+    }
+
+    try {
+      final docs = await AppwriteService.listDocuments(
+        collectionId: AppwriteConfig.clubMembersCollectionId,
+        queries: [
+          Query.equal('userId', userId),
+          Query.limit(limit),
+        ],
+      );
+      return mapDocs(docs);
+    } catch (_) {
+      try {
+        final docs = await AppwriteService.listDocuments(
+          collectionId: AppwriteConfig.clubMembersCollectionId,
+          queries: [
+            Query.equal('userid', userId),
+            Query.limit(limit),
+          ],
+        );
+        return mapDocs(docs);
+      } catch (_) {
+        return const <ClubMember>[];
+      }
+    }
+  }
+
   Future<bool> isAdmin({
     required String clubId,
     required String userId,
@@ -237,6 +286,59 @@ class ClubMemberRepository {
         },
       );
     }
+  }
+
+  Future<void> leaveClub({
+    required String clubId,
+    required String userId,
+  }) async {
+    if (!_isConfigured || clubId.trim().isEmpty || userId.trim().isEmpty) {
+      return;
+    }
+
+    final docId = _docId(clubId, userId);
+    try {
+      await AppwriteService.deleteDocument(
+        collectionId: AppwriteConfig.clubMembersCollectionId,
+        documentId: docId,
+      );
+      return;
+    } on AppwriteException catch (e) {
+      if (e.code != 404) {
+        rethrow;
+      }
+      // Fall through to query fallback for legacy/non-deterministic IDs.
+    }
+
+    Future<String?> findDocId({required bool lowercaseKeys}) async {
+      try {
+        final docs = await AppwriteService.listDocuments(
+          collectionId: AppwriteConfig.clubMembersCollectionId,
+          queries: [
+            Query.equal(lowercaseKeys ? 'clubid' : 'clubId', clubId),
+            Query.equal(lowercaseKeys ? 'userid' : 'userId', userId),
+            Query.limit(1),
+          ],
+        );
+        if (docs.documents.isEmpty) {
+          return null;
+        }
+        return docs.documents.first.$id;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final found = await findDocId(lowercaseKeys: false) ??
+        await findDocId(lowercaseKeys: true);
+    if (found == null) {
+      return;
+    }
+
+    await AppwriteService.deleteDocument(
+      collectionId: AppwriteConfig.clubMembersCollectionId,
+      documentId: found,
+    );
   }
 
   Future<void> deleteMembersForClub(String clubId) async {

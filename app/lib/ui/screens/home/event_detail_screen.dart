@@ -15,6 +15,7 @@ import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
 import 'create_event_screen.dart';
+import '../../theme/app_theme.dart';
 
 class EventDetailArgs {
   final Event event;
@@ -143,83 +144,88 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     final args = _argsFromRoute(context);
     final e = _eventOverride ?? args.event;
     _syncLocalEventState(e);
-    final cs = Theme.of(context).colorScheme;
     final canSendChat = args.chatEnabledUntil == null || DateTime.now().isBefore(args.chatEnabledUntil!);
     final messages = _sampleMessagesFor(e.id);
     final isRegisteredByMe = _isRegisteredByMe ?? e.joinedByMe;
     final joinedCount = (_joinedCount ?? e.joined).clamp(0, e.capacity > 0 ? e.capacity : 999999);
     final participants = _participants ?? _participantsFromProfiles(_buildParticipantProfilesFromEvent(e));
 
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            Stack(
-              children: [
-                Container(
-                  height: 220,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        cs.primary.withValues(alpha: 0.25),
-                        const Color(0xFFFFFFFF),
-                      ],
+    final isEventFull = e.capacity > 0 && joinedCount >= e.capacity;
+    return Theme(
+      data: AppTheme.eventFlowTheme(Theme.of(context)),
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Stack(
+                children: [
+                  Container(
+                    height: 220,
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(0xFFEDE9FE),
+                          Color(0xFFF5F3FF),
+                        ],
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    clipBehavior: Clip.antiAlias,
+                    child: e.thumbnailFileId != null && e.thumbnailFileId!.isNotEmpty
+                        ? FutureBuilder(
+                            future: AppwriteService.getFileViewBytes(
+                              bucketId: AppwriteConfig.eventImagesBucketId,
+                              fileId: e.thumbnailFileId!,
+                            ),
+                            builder: (context, snap) {
+                              if (snap.hasData) {
+                                return Image.memory(
+                                  snap.data!,
+                                  fit: BoxFit.cover,
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                );
+                              }
+                              return Icon(Icons.image_outlined, color: Colors.black.withValues(alpha: 0.35), size: 56);
+                            },
+                          )
+                        : Icon(Icons.image_outlined, color: Colors.black.withValues(alpha: 0.35), size: 56),
+                  ),
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    child: _RoundIconButton(
+                      icon: Icons.arrow_back,
+                      onTap: () => Navigator.of(context).maybePop(),
                     ),
                   ),
-                  alignment: Alignment.center,
-                  clipBehavior: Clip.antiAlias,
-                  child: e.thumbnailFileId != null && e.thumbnailFileId!.isNotEmpty
-                      ? FutureBuilder(
-                          future: AppwriteService.getFileViewBytes(
-                            bucketId: AppwriteConfig.eventImagesBucketId,
-                            fileId: e.thumbnailFileId!,
-                          ),
-                          builder: (context, snap) {
-                            if (snap.hasData) {
-                              return Image.memory(
-                                snap.data!,
-                                fit: BoxFit.cover,
-                                width: double.infinity,
-                                height: double.infinity,
-                              );
-                            }
-                            return Icon(Icons.image_outlined, color: Colors.black.withValues(alpha: 0.35), size: 56);
-                          },
-                        )
-                      : Icon(Icons.image_outlined, color: Colors.black.withValues(alpha: 0.35), size: 56),
-                ),
-                Positioned(
-                  top: 12,
-                  left: 12,
-                  child: _RoundIconButton(
-                    icon: Icons.arrow_back,
-                    onTap: () => Navigator.of(context).maybePop(),
-                  ),
-                ),
-                if (e.creatorId != null && e.creatorId == currentUserId)
                   Positioned(
                     top: 12,
                     right: 12,
                     child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (args.allowCreatorActions)
+                        _HeroStatusBadge(isFull: isEventFull),
+                        if (e.creatorId != null && e.creatorId == currentUserId && args.allowCreatorActions) ...[
+                          const SizedBox(width: 8),
                           _RoundIconButton(
                             icon: Icons.edit_outlined,
                             onTap: () => _onEditEvent(e),
                           ),
-                        if (args.allowCreatorActions) const SizedBox(width: 8),
-                        if (args.allowCreatorActions)
+                          const SizedBox(width: 8),
                           _RoundIconButton(
                             icon: _isDeleting ? Icons.hourglass_top : Icons.delete_outline,
                             onTap: _isDeleting ? () {} : () => _confirmDeleteEvent(e),
                           ),
+                        ],
                       ],
                     ),
                   ),
-              ],
-            ),
+                ],
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
               child: _TabHeader(
@@ -264,6 +270,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                 )
               : null)
           : (_tab == _EventDetailTab.chat ? _chatComposerBar(context, canSendChat: canSendChat) : null),
+      ),
     );
   }
 
@@ -275,7 +282,6 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     required VoidCallback onTap,
   }) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-    final cs = Theme.of(context).colorScheme;
     final isFull = capacity > 0 && joinedCount >= capacity;
     final label = isRegistered ? 'Cancel Registration' : (isFull ? 'Event Full' : 'Register');
     final counterText = capacity > 0 ? '$joinedCount / $capacity joined' : '$joinedCount joined';
@@ -301,7 +307,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             FilledButton(
               onPressed: (!isRegistered && isFull) ? null : onTap,
               style: FilledButton.styleFrom(
-                backgroundColor: isRegistered ? Colors.white : cs.primary,
+                backgroundColor: isRegistered ? Colors.white : AppTheme.eventPurple,
                 foregroundColor: isRegistered ? Colors.black87 : Colors.white,
                 side: isRegistered ? const BorderSide(color: Color(0xFFE3E7EE)) : null,
               ),
@@ -969,7 +975,11 @@ class _DetailsTab extends StatelessWidget {
         children: [
           Text(
             event.title,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+              color: AppTheme.eventPurple,
+            ),
           ),
           const SizedBox(height: 10),
           Column(
@@ -989,12 +999,19 @@ class _DetailsTab extends StatelessWidget {
           const SizedBox(height: 14),
           Row(
             children: [
-              Expanded(child: _MetricTile(title: 'SPORT', value: event.sport)),
+              Expanded(
+                child: _MetricTile(
+                  title: 'SPORT',
+                  value: event.sport,
+                  accentBorder: AppTheme.eventPurple,
+                ),
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: _MetricTile(
                   title: 'SKILL LEVEL',
                   value: _normalizeSkillLevelLabel(event.skillLevel),
+                  accentBorder: Color(0xFF22C55E),
                 ),
               ),
             ],
@@ -1002,25 +1019,61 @@ class _DetailsTab extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: [
-              Expanded(child: _MetricTile(title: 'JOINED', value: '${event.joined} / ${event.capacity}')),
+              Expanded(
+                child: _MetricTile(
+                  title: 'JOINED',
+                  value: '${event.joined} / ${event.capacity}',
+                  accentBorder: Color(0xFF94A3B8),
+                ),
+              ),
               const SizedBox(width: 10),
-              Expanded(child: _MetricTile(title: 'ENTRY FEE', value: event.entryFeeLabel)),
+              Expanded(
+                child: _MetricTile(
+                  title: 'ENTRY FEE',
+                  value: event.entryFeeLabel,
+                  accentBorder: Color(0xFF14B8A6),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 10),
           Row(
             children: [
-              const Expanded(child: _MetricTile(title: 'CATEGORY', value: 'Casual')),
+              const Expanded(
+                child: _MetricTile(
+                  title: 'CATEGORY',
+                  value: 'Casual',
+                  accentBorder: Color(0xFFF97316),
+                ),
+              ),
               const SizedBox(width: 10),
-              const Expanded(child: _MetricTile(title: 'PRIVACY', value: 'Public')),
+              const Expanded(
+                child: _MetricTile(
+                  title: 'PRIVACY',
+                  value: 'Public',
+                  accentBorder: Color(0xFF94A3B8),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 10),
           Row(
             children: [
-              Expanded(child: _MetricTile(title: 'GENDER', value: genderLabel)),
+              Expanded(
+                child: _MetricTile(
+                  title: 'GENDER',
+                  value: genderLabel,
+                  accentBorder: Color(0xFF94A3B8),
+                ),
+              ),
               const SizedBox(width: 10),
-              Expanded(child: _MetricTile(title: 'AGE GROUP', value: ageGroupLabel)),
+              Expanded(
+                child: _MetricTile(
+                  title: 'AGE GROUP',
+                  value: ageGroupLabel,
+                  accentBorder: Color(0xFF94A3B8),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -1285,7 +1338,12 @@ class _InfoRow extends StatelessWidget {
 class _MetricTile extends StatelessWidget {
   final String title;
   final String value;
-  const _MetricTile({required this.title, required this.value});
+  final Color accentBorder;
+  const _MetricTile({
+    required this.title,
+    required this.value,
+    this.accentBorder = const Color(0xFF94A3B8),
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1294,7 +1352,7 @@ class _MetricTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE3E7EE)),
+        border: Border.all(color: accentBorder, width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1303,6 +1361,30 @@ class _MetricTile extends StatelessWidget {
           const SizedBox(height: 4),
           Text(value, style: const TextStyle(fontWeight: FontWeight.w900)),
         ],
+      ),
+    );
+  }
+}
+
+class _HeroStatusBadge extends StatelessWidget {
+  final bool isFull;
+  const _HeroStatusBadge({required this.isFull});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = isFull ? 'Full' : 'Open';
+    final fg = isFull ? const Color(0xFFEA580C) : AppTheme.eventPurple;
+    final bg = isFull ? const Color(0xFFFFF7ED) : AppTheme.eventPurpleLightBg;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: fg.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(color: fg, fontWeight: FontWeight.w900, fontSize: 13),
       ),
     );
   }

@@ -36,6 +36,12 @@ class AppwriteConfig {
     'APPWRITE_PROMOTE_CLUB_ADMIN_FUNCTION_ID',
     defaultValue: 'promote_club_admin',
   );
+
+  /// Optional. If set, [CreateEventScreen] calls this before saving when `clubId` is set or changed.
+  static const validateEventClubHostFunctionId = String.fromEnvironment(
+    'APPWRITE_VALIDATE_EVENT_CLUB_HOST_FUNCTION_ID',
+    defaultValue: '69dc8eaf0020ba2a4801',
+  );
   static const storageBucketId = '69bbaadc0033918d8bba';
   static const profileImagesBucketId = storageBucketId;
   static const eventImagesBucketId = storageBucketId;

@@ -58,6 +58,7 @@ class _ClubInfoPayload {
   final int adminsCount;
   final bool isCurrentUserMember;
   final bool isCurrentUserAdmin;
+  final String? creatorLabel;
 
   const _ClubInfoPayload({
     required this.club,
@@ -68,6 +69,7 @@ class _ClubInfoPayload {
     required this.adminsCount,
     required this.isCurrentUserMember,
     required this.isCurrentUserAdmin,
+    required this.creatorLabel,
   });
 }
 
@@ -135,6 +137,10 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
     final memberUserIds = members.map((m) => m.userId).toList(growable: false);
     final memberProfiles = await profileRepository().getProfilesByIds(memberUserIds);
     final profileById = {for (final p in memberProfiles) p.userId: p};
+    final creatorProfile = creatorId == null || creatorId.isEmpty ? null : profileById[creatorId];
+    final creatorLabel = creatorProfile == null
+        ? (creatorId == null || creatorId.isEmpty ? null : creatorId)
+        : _creatorDisplayLabel(creatorProfile);
 
     final memberItems = members.map((m) {
       final profile = profileById[m.userId] ?? UserProfile.empty(m.userId);
@@ -156,7 +162,20 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
       adminsCount: memberItems.where((m) => m.isAdmin).length,
       isCurrentUserMember: isCurrentUserMember,
       isCurrentUserAdmin: isCurrentUserAdmin,
+      creatorLabel: creatorLabel,
     );
+  }
+
+  String _creatorDisplayLabel(UserProfile profile) {
+    final username = profile.username.trim();
+    if (username.isNotEmpty && username.toLowerCase() != 'username') {
+      return '@$username';
+    }
+    final real = profile.realName.trim();
+    if (real.isNotEmpty && real.toLowerCase() != 'name') {
+      return real;
+    }
+    return profile.userId;
   }
 
   @override
@@ -247,6 +266,58 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
       ),
     );
     return res == true;
+  }
+
+  Future<bool> _confirmLeaveClub(Club club) async {
+    final res = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Leave club'),
+        content: Text('Are you sure you want to leave “${club.name}”?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Leave'),
+          ),
+        ],
+      ),
+    );
+    return res == true;
+  }
+
+  Future<void> _leaveClub(Club club) async {
+    if (!await _confirmLeaveClub(club)) {
+      return;
+    }
+
+    try {
+      await clubMemberRepository().leaveClub(
+        clubId: club.id,
+        userId: currentUserId,
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to leave club.')),
+      );
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _payloadFuture = _load(refreshClub: false);
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Left club.')),
+    );
   }
 
   Future<void> _deleteEventsForClub(String clubId) async {
@@ -690,6 +761,24 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                                           );
                                                         },
                                                       ),
+                                                    if (p.isCurrentUserMember)
+                                                      ListTile(
+                                                        leading: const Icon(
+                                                          Icons.logout_rounded,
+                                                          color: Colors.redAccent,
+                                                        ),
+                                                        title: const Text(
+                                                          'Leave club',
+                                                          style: TextStyle(
+                                                            fontWeight: FontWeight.w800,
+                                                            color: Colors.redAccent,
+                                                          ),
+                                                        ),
+                                                        onTap: () async {
+                                                          Navigator.pop(sheetCtx);
+                                                          await _leaveClub(club);
+                                                        },
+                                                      ),
                                                   ],
                                                 ),
                                               ),
@@ -760,6 +849,17 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                       ),
                                     ],
                                   ),
+                                  if (p.creatorLabel != null && p.creatorLabel!.trim().isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Created by ${p.creatorLabel}',
+                                      style: TextStyle(
+                                        color: Colors.black.withValues(alpha: 0.58),
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),

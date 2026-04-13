@@ -8,6 +8,7 @@ import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
 import '../../../auth/current_user.dart';
+import '../../theme/app_theme.dart';
 
 import 'event_detail_screen.dart';
 import '../../widgets/event_thumbnail_header.dart';
@@ -41,37 +42,49 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
-    return Scaffold(
-      backgroundColor: const Color(0xFFF0F4F3),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leadingWidth: 56,
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 12),
-          child: Center(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: () => Navigator.of(context).maybePop(),
-              child: Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF0F4F3),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFE3E7EE)),
+    final activityTheme = AppTheme.eventFlowTheme(Theme.of(context));
+    return Theme(
+      data: activityTheme,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF4F1FF),
+        appBar: AppBar(
+          backgroundColor: AppTheme.eventPurpleDeep,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          leadingWidth: 56,
+          leading: Padding(
+            padding: const EdgeInsets.only(left: 12),
+            child: Center(
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () => Navigator.of(context).maybePop(),
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                  ),
+                  child: Icon(
+                    Icons.arrow_back,
+                    color: Colors.white.withValues(alpha: 0.95),
+                  ),
                 ),
-                child: const Icon(Icons.arrow_back),
               ),
             ),
           ),
+          title: Text(
+            _headerTitleForTab(_tab),
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              color: Colors.white.withValues(alpha: 0.98),
+            ),
+          ),
+          centerTitle: false,
         ),
-        title: Text(_headerTitleForTab(_tab), style: const TextStyle(fontWeight: FontWeight.w900)),
-        centerTitle: false,
-      ),
-      body: FutureBuilder<List<Object?>>(
+        body: FutureBuilder<List<Object?>>(
         future: Future.wait<Object?>([
           eventRepository().listEvents(),
           profileRepository().getMyProfile(),
@@ -157,6 +170,7 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
             ],
           );
         },
+        ),
       ),
     );
   }

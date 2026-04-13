@@ -18,6 +18,7 @@ import 'clubs_screen.dart';
 import 'calendar_screen.dart';
 import 'notifications_screen.dart';
 import '../../widgets/event_thumbnail_header.dart';
+import '../../theme/app_theme.dart';
 
 class HomeScreen extends StatefulWidget {
   static const routeName = '/home';
@@ -149,7 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 3:
         return const Color(0xFFF6A300); // Calendar
       default:
-        return const Color(0xFF1F9D6E); // Home/default
+        return AppTheme.eventPurple; // Home
     }
   }
 
@@ -328,112 +329,163 @@ class _HomeBody extends StatefulWidget {
 }
 
 class _HomeBodyState extends State<_HomeBody> {
-  late Future<UserProfile> _profileFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _profileFuture = profileRepository().getMyProfile();
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF0F4F3),
-      appBar: AppBar(
+    return Theme(
+      data: AppTheme.eventFlowTheme(Theme.of(context)),
+      child: Scaffold(
         backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        automaticallyImplyLeading: false,
-        toolbarHeight: 76,
-        titleSpacing: 18,
-        title: Row(
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(
-              child: FutureBuilder<UserProfile>(
-                future: _profileFuture,
-                builder: (context, snap) {
-                  final username = (snap.data?.username.trim().isNotEmpty ?? false)
-                      ? snap.data!.username.trim()
-                      : 'User';
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.only(
+                left: 18,
+                right: 18,
+                top: MediaQuery.paddingOf(context).top + 8,
+                bottom: 20,
+              ),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    AppTheme.eventPurpleDeep,
+                    AppTheme.eventPurple,
+                  ],
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Good morning,',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.85),
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Home 👋',
+                          style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                            height: 1.05,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        'Good morning,',
-                        style: TextStyle(
-                          color: Colors.black.withValues(alpha: 0.45),
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.22),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.local_fire_department, color: Colors.white.withValues(alpha: 0.95), size: 20),
+                            const SizedBox(width: 6),
+                            Text(
+                              '5',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.95),
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        username,
-                        style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.black87),
+                      const SizedBox(width: 8),
+                      InkWell(
+                        onTap: () => Navigator.of(context).pushNamed(NotificationsScreen.routeName),
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.22),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                          ),
+                          child: Icon(Icons.notifications_none, color: Colors.white.withValues(alpha: 0.95)),
+                        ),
                       ),
                     ],
-                  );
-                },
+                  ),
+                ],
               ),
             ),
-            InkWell(
-              onTap: () => Navigator.of(context).pushNamed(NotificationsScreen.routeName),
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF0F4F3),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFE3E7EE)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  height: 76,
+                  width: double.infinity,
+                  color: const Color(0xFFF1F3F5),
+                  alignment: Alignment.center,
+                  child: Icon(
+                    Icons.campaign_outlined,
+                    size: 28,
+                    color: Colors.black.withValues(alpha: 0.22),
+                  ),
                 ),
-                child: const Icon(Icons.notifications_none),
               ),
             ),
-          ],
-        ),
-        bottom: const PreferredSize(
-          preferredSize: Size.fromHeight(1),
-          child: Divider(height: 1, thickness: 1, color: Color(0xFFE8EDEB)),
-        ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 120),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Expanded(
-                  child: Text('Your Activity', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 120),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text('Your Activity', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            Navigator.of(context).pushNamed(ActivityOverviewScreen.routeName);
+                          },
+                          child: const Text('Show all'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(height: 168, child: _ActivityList()),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text('All Events', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pushNamed(AllEventsScreen.routeName),
+                          child: const Text('Show all'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    _HomeEventsSection(),
+                  ],
                 ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pushNamed(ActivityOverviewScreen.routeName);
-                  },
-                  child: const Text('Show all'),
-                ),
-              ],
+              ),
             ),
-            const SizedBox(height: 10),
-            SizedBox(height: 168, child: _ActivityList()),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text('All Events', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pushNamed(AllEventsScreen.routeName),
-                  child: const Text('Show all'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            _HomeEventsSection(),
           ],
         ),
       ),
@@ -582,6 +634,24 @@ class _TodayEventCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final isFull = event.capacity > 0 && event.joined >= event.capacity;
+    final joinedMe = event.joinedByMe;
+    final Color badgeBg;
+    final Color badgeFg;
+    final String badgeLabel;
+    if (joinedMe) {
+      badgeBg = AppTheme.eventPurpleLightBg;
+      badgeFg = AppTheme.eventPurple;
+      badgeLabel = 'Joined';
+    } else if (isFull) {
+      badgeBg = const Color(0xFFFFF7ED);
+      badgeFg = const Color(0xFFEA580C);
+      badgeLabel = 'Full';
+    } else {
+      badgeBg = cs.primary.withValues(alpha: 0.12);
+      badgeFg = cs.primary;
+      badgeLabel = 'Open';
+    }
     return InkWell(
       onTap: onOpen,
       borderRadius: BorderRadius.circular(18),
@@ -616,13 +686,13 @@ class _TodayEventCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
-                      color: cs.primary.withValues(alpha: 0.12),
+                      color: badgeBg,
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text(
-                      'Open',
+                      badgeLabel,
                       style: TextStyle(
-                        color: cs.primary,
+                        color: badgeFg,
                         fontWeight: FontWeight.w800,
                       ),
                     ),

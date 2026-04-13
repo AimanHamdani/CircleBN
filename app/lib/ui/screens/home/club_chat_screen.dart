@@ -67,7 +67,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     final online = _mockOnline(club);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F4F3),
+      backgroundColor: const Color(0xFFF7F8FA),
       appBar: AppBar(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,

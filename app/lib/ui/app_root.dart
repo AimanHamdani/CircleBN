@@ -17,6 +17,7 @@ import 'screens/home/streak_screen.dart';
 import 'screens/profile/edit_profile_screen.dart';
 import 'screens/profile/change_password_screen.dart';
 import 'screens/profile/profile_screen.dart';
+import 'screens/profile/user_profile_view_screen.dart';
 import 'screens/reset_password_screen.dart';
 import 'screens/signup/signup_screen.dart';
 import 'screens/signup/about_you_screen.dart';
@@ -51,6 +52,7 @@ class AppRoot extends StatelessWidget {
         NotificationsScreen.routeName: (_) => const NotificationsScreen(),
         StreakScreen.routeName: (_) => const StreakScreen(),
         ProfileScreen.routeName: (_) => const ProfileScreen(),
+        UserProfileViewScreen.routeName: (_) => const UserProfileViewScreen(),
         EditProfileScreen.routeName: (_) => const EditProfileScreen(),
         ChangePasswordScreen.routeName: (_) => const ChangePasswordScreen(),
         ResetPasswordScreen.routeName: (_) => const ResetPasswordScreen(),

@@ -34,7 +34,9 @@ class ProfileRepository {
       );
       return profile.copyWith(
         email: accountEmail.isNotEmpty ? accountEmail : null,
-        realName: profile.realName == 'Name' && accountName.isNotEmpty ? accountName : null,
+        realName: profile.realName == 'Name' && accountName.isNotEmpty
+            ? accountName
+            : null,
       );
     } catch (_) {
       return UserProfile.empty(userId).copyWith(
@@ -70,7 +72,10 @@ class ProfileRepository {
   }
 
   Future<List<UserProfile>> getProfilesByIds(List<String> userIds) async {
-    final uniqueIds = userIds.where((e) => e.trim().isNotEmpty).toSet().toList();
+    final uniqueIds = userIds
+        .where((e) => e.trim().isNotEmpty)
+        .toSet()
+        .toList();
     if (uniqueIds.isEmpty) {
       return const [];
     }
@@ -101,7 +106,18 @@ class ProfileRepository {
 
     return profiles;
   }
+
+  Future<UserProfile> getProfileById(String userId) async {
+    final normalized = userId.trim();
+    if (normalized.isEmpty) {
+      return UserProfile.empty('');
+    }
+    final profiles = await getProfilesByIds([normalized]);
+    if (profiles.isEmpty) {
+      return UserProfile.empty(normalized);
+    }
+    return profiles.first;
+  }
 }
 
 ProfileRepository profileRepository() => ProfileRepository();
-

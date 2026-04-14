@@ -188,18 +188,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _goBack();
       },
       child: Scaffold(
-        backgroundColor: const Color(0xFFF0F4F3),
+        backgroundColor: const Color(0xFFF4F6F8),
         body: FutureBuilder<UserProfile>(
           future: _future,
           builder: (context, snap) {
             final profile = snap.data;
-            final username = profile?.username ?? 'Username';
             final realName = profile?.realName.trim().isNotEmpty == true
                 ? profile!.realName.trim()
                 : 'Name';
-            final bio = profile?.bio.trim().isNotEmpty == true
-                ? profile!.bio.trim()
-                : 'No Description';
             final age = profile?.age != null ? '${profile!.age}' : '—';
             final gender = profile?.gender.trim().isNotEmpty == true
                 ? profile!.gender.trim()
@@ -218,14 +214,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ? '${profile!.heightCm} cm'
                 : '—';
             final notificationsEnabled = profile?.notificationsEnabled ?? true;
+            final sportsPreview =
+                (profile?.preferredSports ?? const <String>{}).toList()..sort();
+            final sportsLabel = sportsPreview.isEmpty
+                ? 'Football · Badminton · Running'
+                : sportsPreview.take(3).join(' · ');
 
             return SafeArea(
               child: Column(
                 children: [
                   Container(
                     width: double.infinity,
-                    color: const Color(0xFF14856B),
-                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 22),
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFF2E976F), Color(0xFF5C62EA)],
+                      ),
+                    ),
+                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
                     child: Column(
                       children: [
                         Row(
@@ -252,21 +259,68 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         _ProfileAvatarBox(fileId: profile?.avatarFileId),
                         const SizedBox(height: 14),
                         Text(
-                          username,
+                          realName,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 36 / 1.6,
-                            fontWeight: FontWeight.w800,
+                            fontSize: 40 / 1.6,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
                         Text(
-                          'Bio · $bio',
+                          sportsLabel,
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.88),
                             fontWeight: FontWeight.w500,
                           ),
                         ),
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 12),
+                        const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _TopChip(
+                              icon: Icons.local_fire_department,
+                              text: '5 streak',
+                            ),
+                            SizedBox(width: 8),
+                            _TopChip(
+                              icon: Icons.workspace_premium,
+                              text: '8 badges',
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Container(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.22),
+                            ),
+                          ),
+                          child: const Row(
+                            children: [
+                              Expanded(
+                                child: _HeroStatCell(
+                                  value: '24',
+                                  label: 'Events',
+                                ),
+                              ),
+                              Expanded(
+                                child: _HeroStatCell(
+                                  value: '3',
+                                  label: 'Clubs',
+                                ),
+                              ),
+                              Expanded(
+                                child: _HeroStatCell(
+                                  value: '142',
+                                  label: 'Friends',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -386,7 +440,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           const SizedBox(height: 14),
                           _CardSection(
-                            title: 'OTHERS',
+                            title: 'SETTINGS',
                             child: Column(
                               children: [
                                 Row(
@@ -505,6 +559,70 @@ class _ProfileScreenState extends State<ProfileScreen> {
           },
         ),
       ),
+    );
+  }
+}
+
+class _TopChip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _TopChip({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.22),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: const Color(0xFFFEC84B)),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeroStatCell extends StatelessWidget {
+  final String value;
+  final String label;
+
+  const _HeroStatCell({required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 34 / 1.6,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.85),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }

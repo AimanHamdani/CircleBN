@@ -13,6 +13,7 @@ import 'screens/home/event_detail_screen.dart';
 import 'screens/home/map_picker_screen.dart';
 import 'screens/home/activity_overview_screen.dart';
 import 'screens/home/notifications_screen.dart';
+import 'screens/home/streak_screen.dart';
 import 'screens/profile/edit_profile_screen.dart';
 import 'screens/profile/change_password_screen.dart';
 import 'screens/profile/profile_screen.dart';
@@ -48,6 +49,7 @@ class AppRoot extends StatelessWidget {
         MapPickerScreen.routeName: (_) => const MapPickerScreen(),
         ActivityOverviewScreen.routeName: (_) => const ActivityOverviewScreen(),
         NotificationsScreen.routeName: (_) => const NotificationsScreen(),
+        StreakScreen.routeName: (_) => const StreakScreen(),
         ProfileScreen.routeName: (_) => const ProfileScreen(),
         EditProfileScreen.routeName: (_) => const EditProfileScreen(),
         ChangePasswordScreen.routeName: (_) => const ChangePasswordScreen(),
@@ -56,4 +58,3 @@ class AppRoot extends StatelessWidget {
     );
   }
 }
-

@@ -113,18 +113,26 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    const pageBackground = Color(0xFFEDEFF8);
+    const headerBlue = Color(0xFF5E62E8);
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F4F3),
+      backgroundColor: pageBackground,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: headerBlue,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.of(context).maybePop(),
         ),
-        title: const Text('Notifications', style: TextStyle(fontWeight: FontWeight.w900)),
+        title: const Text(
+          'Notifications',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
         actions: [
           TextButton(
             onPressed: () async {
@@ -136,12 +144,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 _readIds.addAll(items.map((e) => e.id));
               });
             },
-            child: const Text('Mark all read'),
+            child: const Text(
+              'Mark all read',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+            ),
           ),
         ],
         bottom: const PreferredSize(
-          preferredSize: Size.fromHeight(1),
-          child: Divider(height: 1, thickness: 1, color: Color(0xFFE0E8E4)),
+          preferredSize: Size.fromHeight(0),
+          child: SizedBox.shrink(),
         ),
       ),
       body: FutureBuilder<List<_AppNotificationItem>>(
@@ -217,15 +228,20 @@ class _NotificationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isSoon = item.type == _AppNotificationType.startingSoon;
+    final iconBackground = isSoon ? const Color(0xFFDFF0E7) : const Color(0xFFF1F2F7);
+    final iconColor = isSoon ? const Color(0xFF4A8D64) : const Color(0xFFB05A76);
+    final borderColor = unread ? const Color(0xFF6B6FF0) : const Color(0xFFD0D2DA);
+    final cardColor = unread ? Colors.white : const Color(0xFFF6F6F9);
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(18),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isSoon ? const Color(0xFFD9EDE6) : Colors.white,
+          color: cardColor,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFA9D5C8)),
+          border: Border.all(color: borderColor, width: unread ? 2 : 1),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -234,12 +250,12 @@ class _NotificationTile extends StatelessWidget {
               width: 42,
               height: 42,
               decoration: BoxDecoration(
-                color: isSoon ? const Color(0xFF3EA174) : const Color(0xFFEFEFEF),
+                color: iconBackground,
                 borderRadius: BorderRadius.circular(13),
               ),
               child: Icon(
                 isSoon ? Icons.schedule : Icons.close,
-                color: isSoon ? Colors.white : Colors.redAccent,
+                color: iconColor,
               ),
             ),
             const SizedBox(width: 12),
@@ -249,7 +265,7 @@ class _NotificationTile extends StatelessWidget {
                 children: [
                   Text(item.title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20 - 3)),
                   const SizedBox(height: 2),
-                  Text(item.message, style: TextStyle(color: Colors.black.withValues(alpha: 0.62), fontSize: 13.5)),
+                  Text(item.message, style: TextStyle(color: Colors.black.withValues(alpha: 0.68), fontSize: 13.5)),
                   const SizedBox(height: 6),
                   Text(_relativeTime(item.createdAt), style: const TextStyle(color: Colors.black38, fontSize: 12)),
                 ],
@@ -260,7 +276,7 @@ class _NotificationTile extends StatelessWidget {
                 width: 9,
                 height: 9,
                 margin: const EdgeInsets.only(top: 6),
-                decoration: const BoxDecoration(color: Color(0xFF3EA174), shape: BoxShape.circle),
+                decoration: const BoxDecoration(color: Color(0xFF6B6FF0), shape: BoxShape.circle),
               ),
           ],
         ),

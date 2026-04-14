@@ -17,6 +17,7 @@ import 'activity_overview_screen.dart';
 import 'clubs_screen.dart';
 import 'calendar_screen.dart';
 import 'notifications_screen.dart';
+import 'streak_screen.dart';
 import '../../widgets/event_thumbnail_header.dart';
 import '../../theme/app_theme.dart';
 
@@ -44,10 +45,10 @@ class _HomeScreenState extends State<HomeScreen> {
       body: _tabIndex == 0
           ? const _HomeBody()
           : _tabIndex == 1
-              ? const ClubsScreen()
-              : _tabIndex == 3
-                  ? const CalendarScreen()
-              : const _PlaceholderTab(),
+          ? const ClubsScreen()
+          : _tabIndex == 3
+          ? const CalendarScreen()
+          : const _PlaceholderTab(),
       bottomNavigationBar: SafeArea(
         top: false,
         child: SizedBox(
@@ -103,7 +104,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         label: 'Profile',
                         selected: false,
                         activeColor: navAccent,
-                        onTap: () => Navigator.of(context).pushNamed(ProfileScreen.routeName),
+                        onTap: () => Navigator.of(
+                          context,
+                        ).pushNamed(ProfileScreen.routeName),
                       ),
                     ),
                   ],
@@ -131,7 +134,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ],
                       ),
-                      child: const Icon(Icons.add, color: Colors.white, size: 26),
+                      child: const Icon(
+                        Icons.add,
+                        color: Colors.white,
+                        size: 26,
+                      ),
                     ),
                   ),
                 ),
@@ -188,29 +195,43 @@ class _HomeScreenState extends State<HomeScreen> {
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primary.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Icon(Icons.event, color: Theme.of(context).colorScheme.primary),
+                  child: Icon(
+                    Icons.event,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                 ),
-                title: const Text('Event', style: TextStyle(fontWeight: FontWeight.w700)),
+                title: const Text(
+                  'Event',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
                 subtitle: const Text('Create a new event'),
                 onTap: () {
                   Navigator.pop(ctx);
-                  Navigator.of(context).pushNamed(CreateEventScreen.routeName).then((result) {
+                  Navigator.of(
+                    context,
+                  ).pushNamed(CreateEventScreen.routeName).then((result) {
                     if (!mounted) {
                       return;
                     }
-                    if (result == 'created' || result == 'updated' || result == true) {
+                    if (result == 'created' ||
+                        result == 'updated' ||
+                        result == true) {
                       setState(() => _tabIndex = 0);
-                      final text = result == 'updated' ? 'Event updated.' : 'Event created.';
+                      final text = result == 'updated'
+                          ? 'Event updated.'
+                          : 'Event created.';
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         if (!mounted) {
                           return;
                         }
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(text)),
-                        );
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text(text)));
                       });
                     }
                   });
@@ -225,13 +246,21 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: Colors.grey.shade200,
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Icon(Icons.people_outline, color: Colors.grey.shade600),
+                  child: Icon(
+                    Icons.people_outline,
+                    color: Colors.grey.shade600,
+                  ),
                 ),
-                title: const Text('Club', style: TextStyle(fontWeight: FontWeight.w700)),
+                title: const Text(
+                  'Club',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
                 subtitle: const Text('Create a new club'),
                 onTap: () {
                   Navigator.pop(ctx);
-                  Navigator.of(context).pushNamed(CreateClubScreen.routeName).then((created) {
+                  Navigator.of(
+                    context,
+                  ).pushNamed(CreateClubScreen.routeName).then((created) {
                     if (created == true && mounted) {
                       setState(() => _tabIndex = 0);
                     }
@@ -307,10 +336,9 @@ class _PlaceholderTab extends StatelessWidget {
                 await SessionPersistence.clear();
                 CurrentUser.reset();
                 if (!context.mounted) return;
-                Navigator.of(context).pushNamedAndRemoveUntil(
-                  LoginScreen.routeName,
-                  (_) => false,
-                );
+                Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil(LoginScreen.routeName, (_) => false);
               },
               child: const Text('Log out'),
             ),
@@ -350,10 +378,7 @@ class _HomeBodyState extends State<_HomeBody> {
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [
-                    AppTheme.eventPurpleDeep,
-                    AppTheme.eventPurple,
-                  ],
+                  colors: [AppTheme.eventPurpleDeep, AppTheme.eventPurple],
                 ),
               ),
               child: Row(
@@ -388,31 +413,48 @@ class _HomeBodyState extends State<_HomeBody> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.22),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.local_fire_department, color: Colors.white.withValues(alpha: 0.95), size: 20),
-                            const SizedBox(width: 6),
-                            Text(
-                              '5',
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.95),
-                                fontWeight: FontWeight.w900,
-                                fontSize: 15,
-                              ),
+                      InkWell(
+                        onTap: () => Navigator.of(
+                          context,
+                        ).pushNamed(StreakScreen.routeName),
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.22),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.35),
                             ),
-                          ],
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.local_fire_department,
+                                color: Colors.white.withValues(alpha: 0.95),
+                                size: 20,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '5',
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.95),
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
                       InkWell(
-                        onTap: () => Navigator.of(context).pushNamed(NotificationsScreen.routeName),
+                        onTap: () => Navigator.of(
+                          context,
+                        ).pushNamed(NotificationsScreen.routeName),
                         borderRadius: BorderRadius.circular(14),
                         child: Container(
                           width: 44,
@@ -420,9 +462,14 @@ class _HomeBodyState extends State<_HomeBody> {
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.22),
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.35),
+                            ),
                           ),
-                          child: Icon(Icons.notifications_none, color: Colors.white.withValues(alpha: 0.95)),
+                          child: Icon(
+                            Icons.notifications_none,
+                            color: Colors.white.withValues(alpha: 0.95),
+                          ),
                         ),
                       ),
                     ],
@@ -456,11 +503,19 @@ class _HomeBodyState extends State<_HomeBody> {
                     Row(
                       children: [
                         const Expanded(
-                          child: Text('Your Activity', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                          child: Text(
+                            'Your Activity',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                         ),
                         TextButton(
                           onPressed: () {
-                            Navigator.of(context).pushNamed(ActivityOverviewScreen.routeName);
+                            Navigator.of(
+                              context,
+                            ).pushNamed(ActivityOverviewScreen.routeName);
                           },
                           child: const Text('Show all'),
                         ),
@@ -472,10 +527,18 @@ class _HomeBodyState extends State<_HomeBody> {
                     Row(
                       children: [
                         const Expanded(
-                          child: Text('All Events', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                          child: Text(
+                            'All Events',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                         ),
                         TextButton(
-                          onPressed: () => Navigator.of(context).pushNamed(AllEventsScreen.routeName),
+                          onPressed: () => Navigator.of(
+                            context,
+                          ).pushNamed(AllEventsScreen.routeName),
                           child: const Text('Show all'),
                         ),
                       ],
@@ -502,20 +565,23 @@ class _ActivityList extends StatelessWidget {
         profileRepository().getMyProfile(),
       ]),
       builder: (context, snap) {
-        final events = (snap.data != null ? snap.data![0] as List<Event> : const <Event>[]);
-        final profile = (snap.data != null ? snap.data![1] as UserProfile : null);
+        final events = (snap.data != null
+            ? snap.data![0] as List<Event>
+            : const <Event>[]);
+        final profile = (snap.data != null
+            ? snap.data![1] as UserProfile
+            : null);
         final preferred = profile?.preferredSports ?? const <String>{};
         final prioritized = _prioritizeByPreferredSports(events, preferred);
         final now = DateTime.now();
-        final joinedEvents = prioritized
-            .where((e) {
-              if (!(e.joinedByMe || (e.creatorId != null && e.creatorId == currentUserId))) {
-                return false;
-              }
-              final endAt = e.startAt.add(e.duration);
-              return endAt.isAfter(now);
-            })
-            .toList();
+        final joinedEvents = prioritized.where((e) {
+          if (!(e.joinedByMe ||
+              (e.creatorId != null && e.creatorId == currentUserId))) {
+            return false;
+          }
+          final endAt = e.startAt.add(e.duration);
+          return endAt.isAfter(now);
+        }).toList();
 
         if (snap.connectionState != ConnectionState.done && events.isEmpty) {
           return const Center(child: CircularProgressIndicator());
@@ -547,7 +613,7 @@ class _ActivityList extends StatelessWidget {
                       ),
                     ),
                     if (i != joinedEvents.length - 1) const SizedBox(width: 12),
-                  ]
+                  ],
                 ],
         );
       },
@@ -564,18 +630,27 @@ class _HomeEventsSection extends StatelessWidget {
         profileRepository().getMyProfile(),
       ]),
       builder: (context, snap) {
-        final events = (snap.data != null ? snap.data![0] as List<Event> : const <Event>[]);
-        final profile = (snap.data != null ? snap.data![1] as UserProfile : null);
+        final events = (snap.data != null
+            ? snap.data![0] as List<Event>
+            : const <Event>[]);
+        final profile = (snap.data != null
+            ? snap.data![1] as UserProfile
+            : null);
         final preferred = profile?.preferredSports ?? const <String>{};
         final prioritized = _prioritizeByPreferredSports(events, preferred);
         final today = _today();
-        final todaysEvents = prioritized.where((e) => _isSameDay(e.startAt, today)).toList();
-        final upcomingEvents = prioritized
-            .where((e) => e.startAt.isAfter(today))
-            .toList()
-          ..sort((a, b) => a.startAt.compareTo(b.startAt));
-        final shownEvents = todaysEvents.isNotEmpty ? todaysEvents : upcomingEvents.take(3).toList();
-        final eventsLabel = todaysEvents.isNotEmpty ? "Today's Events" : 'Upcoming Events';
+        final todaysEvents = prioritized
+            .where((e) => _isSameDay(e.startAt, today))
+            .toList();
+        final upcomingEvents =
+            prioritized.where((e) => e.startAt.isAfter(today)).toList()
+              ..sort((a, b) => a.startAt.compareTo(b.startAt));
+        final shownEvents = todaysEvents.isNotEmpty
+            ? todaysEvents
+            : upcomingEvents.take(3).toList();
+        final eventsLabel = todaysEvents.isNotEmpty
+            ? "Today's Events"
+            : 'Upcoming Events';
 
         if (snap.connectionState != ConnectionState.done && events.isEmpty) {
           return const Padding(
@@ -612,7 +687,10 @@ class _HomeEventsSection extends StatelessWidget {
                       event: shownEvents[i],
                       onOpen: () => Navigator.of(context).pushNamed(
                         EventDetailScreen.routeName,
-                        arguments: EventDetailArgs(event: shownEvents[i], showRegisterButton: true),
+                        arguments: EventDetailArgs(
+                          event: shownEvents[i],
+                          showRegisterButton: true,
+                        ),
                       ),
                     ),
                     if (i != shownEvents.length - 1) const SizedBox(height: 12),
@@ -674,17 +752,26 @@ class _TodayEventCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(event.title, style: const TextStyle(fontWeight: FontWeight.w900)),
+                        Text(
+                          event.title,
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
                         const SizedBox(height: 2),
                         Text(
                           '${event.location} • ${_fmtTime(event.startAt)}',
-                          style: const TextStyle(color: Colors.black54, fontSize: 12),
+                          style: const TextStyle(
+                            color: Colors.black54,
+                            fontSize: 12,
+                          ),
                         ),
                       ],
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: badgeBg,
                       borderRadius: BorderRadius.circular(999),
@@ -737,9 +824,15 @@ class _TodayEmptyCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('No events today', style: TextStyle(fontWeight: FontWeight.w900)),
+                Text(
+                  'No events today',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
                 SizedBox(height: 2),
-                Text('Tap “Show all” to browse upcoming events.', style: TextStyle(color: Colors.black54, fontSize: 12)),
+                Text(
+                  'Tap “Show all” to browse upcoming events.',
+                  style: TextStyle(color: Colors.black54, fontSize: 12),
+                ),
               ],
             ),
           ),
@@ -754,7 +847,8 @@ DateTime _today() {
   return DateTime(now.year, now.month, now.day);
 }
 
-bool _isSameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+bool _isSameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
 
 class _ActivityCard extends StatelessWidget {
   final String title;
@@ -800,7 +894,10 @@ class _ActivityCard extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -850,7 +947,10 @@ IconData _sportIcon(String sport) {
   return Icons.sports;
 }
 
-List<Event> _prioritizeByPreferredSports(List<Event> events, Set<String> preferredSports) {
+List<Event> _prioritizeByPreferredSports(
+  List<Event> events,
+  Set<String> preferredSports,
+) {
   if (preferredSports.isEmpty) {
     return events;
   }
@@ -874,4 +974,3 @@ bool _sportMatchesPreferred(String sport, Set<String> preferred) {
   }
   return false;
 }
-

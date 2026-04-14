@@ -8,6 +8,7 @@ import '../../../data/profile_repository.dart';
 import '../../../data/sample_clubs.dart';
 import '../../../models/user_profile.dart';
 import '../home/home_screen.dart';
+import '../home/streak_screen.dart';
 import '../login_screen.dart';
 import 'edit_profile_screen.dart';
 import 'change_password_screen.dart';
@@ -41,10 +42,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       Navigator.of(context).pop();
       return;
     }
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      HomeScreen.routeName,
-      (_) => false,
-    );
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil(HomeScreen.routeName, (_) => false);
   }
 
   Future<void> _editPreferredSports(UserProfile profile) async {
@@ -86,13 +86,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       alignment: Alignment.centerLeft,
                       child: Text(
                         'Sports Recommendation',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       'Events in these sports will be shown first.',
-                      style: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
+                      style: TextStyle(
+                        color: Colors.black.withValues(alpha: 0.55),
+                      ),
                     ),
                     const SizedBox(height: 14),
                     ConstrainedBox(
@@ -151,7 +156,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
     try {
-      await profileRepository().saveMyProfile(profile.copyWith(preferredSports: updated));
+      await profileRepository().saveMyProfile(
+        profile.copyWith(preferredSports: updated),
+      );
       if (mounted) {
         _reload();
       }
@@ -183,231 +190,319 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Scaffold(
         backgroundColor: const Color(0xFFF0F4F3),
         body: FutureBuilder<UserProfile>(
-        future: _future,
-        builder: (context, snap) {
-          final profile = snap.data;
-          final username = profile?.username ?? 'Username';
-          final realName = profile?.realName.trim().isNotEmpty == true ? profile!.realName.trim() : 'Name';
-          final bio = profile?.bio.trim().isNotEmpty == true ? profile!.bio.trim() : 'No Description';
-          final age = profile?.age != null ? '${profile!.age}' : '—';
-          final gender = profile?.gender.trim().isNotEmpty == true ? profile!.gender.trim() : '—';
-          final skillLevel = profile?.skillLevel.trim().isNotEmpty == true ? profile!.skillLevel.trim() : '—';
-          final email = profile?.email.trim().isNotEmpty == true ? profile!.email.trim() : '—';
-          final emergency = profile?.emergencyContact.trim().isNotEmpty == true ? profile!.emergencyContact.trim() : '—';
-          final height = profile?.heightCm != null ? '${profile!.heightCm} cm' : '—';
-          final notificationsEnabled = profile?.notificationsEnabled ?? true;
+          future: _future,
+          builder: (context, snap) {
+            final profile = snap.data;
+            final username = profile?.username ?? 'Username';
+            final realName = profile?.realName.trim().isNotEmpty == true
+                ? profile!.realName.trim()
+                : 'Name';
+            final bio = profile?.bio.trim().isNotEmpty == true
+                ? profile!.bio.trim()
+                : 'No Description';
+            final age = profile?.age != null ? '${profile!.age}' : '—';
+            final gender = profile?.gender.trim().isNotEmpty == true
+                ? profile!.gender.trim()
+                : '—';
+            final skillLevel = profile?.skillLevel.trim().isNotEmpty == true
+                ? profile!.skillLevel.trim()
+                : '—';
+            final email = profile?.email.trim().isNotEmpty == true
+                ? profile!.email.trim()
+                : '—';
+            final emergency =
+                profile?.emergencyContact.trim().isNotEmpty == true
+                ? profile!.emergencyContact.trim()
+                : '—';
+            final height = profile?.heightCm != null
+                ? '${profile!.heightCm} cm'
+                : '—';
+            final notificationsEnabled = profile?.notificationsEnabled ?? true;
 
-          return SafeArea(
-            child: Column(
-              children: [
-                Container(
-                  width: double.infinity,
-                  color: const Color(0xFF14856B),
-                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 22),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          InkWell(
-                            onTap: _goBack,
-                            borderRadius: BorderRadius.circular(14),
-                            child: Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.18),
-                                borderRadius: BorderRadius.circular(12),
+            return SafeArea(
+              child: Column(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    color: const Color(0xFF14856B),
+                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 22),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            InkWell(
+                              onTap: _goBack,
+                              borderRadius: BorderRadius.circular(14),
+                              child: Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.18),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(
+                                  Icons.arrow_back,
+                                  color: Colors.white,
+                                ),
                               ),
-                              child: const Icon(Icons.arrow_back, color: Colors.white),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _ProfileAvatarBox(fileId: profile?.avatarFileId),
+                        const SizedBox(height: 14),
+                        Text(
+                          username,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 36 / 1.6,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          'Bio · $bio',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.88),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+                      child: Column(
+                        children: [
+                          if (snap.connectionState != ConnectionState.done &&
+                              profile == null)
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: 12),
+                              child: LinearProgressIndicator(minHeight: 2),
+                            ),
+                          _CardSection(
+                            title: 'PERSONAL INFO',
+                            child: Column(
+                              children: [
+                                _InfoRow(label: 'Name', value: realName),
+                                _InfoRow(label: 'Height', value: height),
+                                _InfoRow(label: 'Age', value: age),
+                                _InfoRow(label: 'Gender', value: gender),
+                                _InfoRow(
+                                  label: 'Skill Level',
+                                  value: skillLevel,
+                                ),
+                                _InfoRow(
+                                  label: 'Email',
+                                  value: email,
+                                  valueColor: const Color(0xFF138E6F),
+                                ),
+                                _InfoRow(label: 'Emergency', value: emergency),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          _CardSection(
+                            title: 'SKILL LEVEL',
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  skillLevel,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Used for event join restrictions.',
+                                  style: TextStyle(
+                                    color: Colors.black.withValues(alpha: 0.55),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          _CardSection(
+                            title: 'SPORTS RECOMMENDATION',
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (profile == null ||
+                                    profile.preferredSports.isEmpty)
+                                  Text(
+                                    'No sports selected yet.',
+                                    style: TextStyle(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.55,
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      for (final sport
+                                          in profile.preferredSports)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 6,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: cs.primary.withValues(
+                                              alpha: 0.12,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            sport,
+                                            style: TextStyle(
+                                              color: cs.primary,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                const SizedBox(height: 12),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton(
+                                    onPressed: profile == null
+                                        ? null
+                                        : () => _editPreferredSports(profile),
+                                    child: const Text('Add / Remove Sports'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          _CardSection(
+                            title: 'OTHERS',
+                            child: Column(
+                              children: [
+                                Row(
+                                  children: [
+                                    const Expanded(
+                                      child: Text(
+                                        'Notification',
+                                        style: TextStyle(fontSize: 18),
+                                      ),
+                                    ),
+                                    Switch(
+                                      value: notificationsEnabled,
+                                      activeColor: Colors.white,
+                                      activeTrackColor: cs.primary,
+                                      onChanged: (v) async {
+                                        if (profile == null) return;
+                                        await profileRepository().saveMyProfile(
+                                          profile.copyWith(
+                                            notificationsEnabled: v,
+                                          ),
+                                        );
+                                        if (mounted) _reload();
+                                      },
+                                    ),
+                                  ],
+                                ),
+                                const Divider(height: 1),
+                                _MenuRow(
+                                  label: 'Daily Streak',
+                                  onTap: () {
+                                    Navigator.of(
+                                      context,
+                                    ).pushNamed(StreakScreen.routeName);
+                                  },
+                                ),
+                                const Divider(height: 1),
+                                _MenuRow(
+                                  label: 'Edit Profile',
+                                  onTap: () async {
+                                    await Navigator.of(context).pushNamed(
+                                      EditProfileScreen.routeName,
+                                      arguments: profile,
+                                    );
+                                    if (mounted) {
+                                      _reload();
+                                    }
+                                  },
+                                ),
+                                const Divider(height: 1),
+                                _MenuRow(
+                                  label: 'Change Password',
+                                  onTap: () {
+                                    Navigator.of(
+                                      context,
+                                    ).pushNamed(ChangePasswordScreen.routeName);
+                                  },
+                                ),
+                                const Divider(height: 1),
+                                _MenuRow(
+                                  label: 'Log Out',
+                                  onTap: () async {
+                                    try {
+                                      // Use deleteSessions() to also remove client-side cookies/session storage.
+                                      // This prevents the "log out then can't log back in" issue.
+                                      await AppwriteService.account
+                                          .deleteSessions();
+                                    } on AppwriteException catch (e) {
+                                      if (!mounted) return;
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            e.message ?? 'Failed to log out.',
+                                          ),
+                                        ),
+                                      );
+                                    } catch (_) {
+                                      if (!mounted) return;
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Failed to log out.'),
+                                        ),
+                                      );
+                                    } finally {
+                                      await SessionPersistence.clear();
+                                      CurrentUser.reset();
+                                    }
+                                    if (!mounted) return;
+                                    Navigator.of(
+                                      context,
+                                    ).pushNamedAndRemoveUntil(
+                                      LoginScreen.routeName,
+                                      (_) => false,
+                                    );
+                                  },
+                                ),
+                                const Divider(height: 1),
+                                const _MenuRow(
+                                  label: 'Delete Account',
+                                  isDanger: true,
+                                  showChevron: false,
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 16),
-                      _ProfileAvatarBox(fileId: profile?.avatarFileId),
-                      const SizedBox(height: 14),
-                      Text(
-                        username,
-                        style: const TextStyle(color: Colors.white, fontSize: 36 / 1.6, fontWeight: FontWeight.w800),
-                      ),
-                      Text(
-                        'Bio · $bio',
-                        style: TextStyle(color: Colors.white.withValues(alpha: 0.88), fontWeight: FontWeight.w500),
-                      ),
-                      const SizedBox(height: 6),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-                    child: Column(
-                      children: [
-                        if (snap.connectionState != ConnectionState.done && profile == null)
-                          const Padding(
-                            padding: EdgeInsets.only(bottom: 12),
-                            child: LinearProgressIndicator(minHeight: 2),
-                          ),
-                        _CardSection(
-                          title: 'PERSONAL INFO',
-                          child: Column(
-                            children: [
-                              _InfoRow(label: 'Name', value: realName),
-                              _InfoRow(label: 'Height', value: height),
-                              _InfoRow(label: 'Age', value: age),
-                              _InfoRow(label: 'Gender', value: gender),
-                              _InfoRow(label: 'Skill Level', value: skillLevel),
-                              _InfoRow(label: 'Email', value: email, valueColor: const Color(0xFF138E6F)),
-                              _InfoRow(label: 'Emergency', value: emergency),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        _CardSection(
-                          title: 'SKILL LEVEL',
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                skillLevel,
-                                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'Used for event join restrictions.',
-                                style: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        _CardSection(
-                          title: 'SPORTS RECOMMENDATION',
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (profile == null || profile.preferredSports.isEmpty)
-                                Text(
-                                  'No sports selected yet.',
-                                  style: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
-                                )
-                              else
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    for (final sport in profile.preferredSports)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: cs.primary.withValues(alpha: 0.12),
-                                          borderRadius: BorderRadius.circular(999),
-                                        ),
-                                        child: Text(
-                                          sport,
-                                          style: TextStyle(
-                                            color: cs.primary,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              const SizedBox(height: 12),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton(
-                                  onPressed: profile == null ? null : () => _editPreferredSports(profile),
-                                  child: const Text('Add / Remove Sports'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        _CardSection(
-                          title: 'OTHERS',
-                          child: Column(
-                            children: [
-                              Row(
-                                children: [
-                                  const Expanded(child: Text('Notification', style: TextStyle(fontSize: 18))),
-                                  Switch(
-                                    value: notificationsEnabled,
-                                    activeColor: Colors.white,
-                                    activeTrackColor: cs.primary,
-                                    onChanged: (v) async {
-                                      if (profile == null) return;
-                                      await profileRepository().saveMyProfile(profile.copyWith(notificationsEnabled: v));
-                                      if (mounted) _reload();
-                                    },
-                                  ),
-                                ],
-                              ),
-                              const Divider(height: 1),
-                              _MenuRow(
-                                label: 'Edit Profile',
-                                onTap: () async {
-                                  await Navigator.of(context).pushNamed(
-                                    EditProfileScreen.routeName,
-                                    arguments: profile,
-                                  );
-                                  if (mounted) {
-                                    _reload();
-                                  }
-                                },
-                              ),
-                              const Divider(height: 1),
-                              _MenuRow(
-                                label: 'Change Password',
-                                onTap: () {
-                                  Navigator.of(context).pushNamed(
-                                    ChangePasswordScreen.routeName,
-                                  );
-                                },
-                              ),
-                              const Divider(height: 1),
-                              _MenuRow(
-                                label: 'Log Out',
-                                onTap: () async {
-                                  try {
-                                    // Use deleteSessions() to also remove client-side cookies/session storage.
-                                    // This prevents the "log out then can't log back in" issue.
-                                    await AppwriteService.account.deleteSessions();
-                                  } on AppwriteException catch (e) {
-                                    if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text(e.message ?? 'Failed to log out.')),
-                                    );
-                                  } catch (_) {
-                                    if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Failed to log out.')),
-                                    );
-                                  } finally {
-                                    await SessionPersistence.clear();
-                                    CurrentUser.reset();
-                                  }
-                                  if (!mounted) return;
-                                  Navigator.of(context).pushNamedAndRemoveUntil(
-                                    LoginScreen.routeName,
-                                    (_) => false,
-                                  );
-                                },
-                              ),
-                              const Divider(height: 1),
-                              const _MenuRow(label: 'Delete Account', isDanger: true, showChevron: false),
-                            ],
-                          ),
-                        ),
-                      ],
                     ),
                   ),
-                ),
-              ],
-            ),
-          );
-        },
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
@@ -460,7 +555,12 @@ class _InfoRow extends StatelessWidget {
       children: [
         Row(
           children: [
-            Expanded(child: Text(label, style: const TextStyle(color: Color(0xFF5F6C78), fontSize: 16))),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(color: Color(0xFF5F6C78), fontSize: 16),
+              ),
+            ),
             Text(
               value,
               style: TextStyle(
@@ -491,7 +591,13 @@ class _SkillRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
-          SizedBox(width: 82, child: Text(label, style: const TextStyle(color: Color(0xFF4F5E69), fontSize: 16))),
+          SizedBox(
+            width: 82,
+            child: Text(
+              label,
+              style: const TextStyle(color: Color(0xFF4F5E69), fontSize: 16),
+            ),
+          ),
           Expanded(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(99),
@@ -504,7 +610,13 @@ class _SkillRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          Text('$value', style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF1D8267))),
+          Text(
+            '$value',
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF1D8267),
+            ),
+          ),
         ],
       ),
     );
@@ -541,7 +653,8 @@ class _MenuRow extends StatelessWidget {
                 ),
               ),
             ),
-            if (showChevron) const Icon(Icons.chevron_right, color: Color(0xFFBCC7CC)),
+            if (showChevron)
+              const Icon(Icons.chevron_right, color: Color(0xFFBCC7CC)),
           ],
         ),
       ),
@@ -573,15 +686,13 @@ class _ProfileAvatarBox extends StatelessWidget {
               ),
               builder: (context, snap) {
                 if (snap.hasData) {
-                  return Image.memory(
-                    snap.data!,
-                    fit: BoxFit.cover,
-                  );
+                  return Image.memory(snap.data!, fit: BoxFit.cover);
                 }
-                return const Center(child: Text('🏃', style: TextStyle(fontSize: 40)));
+                return const Center(
+                  child: Text('🏃', style: TextStyle(fontSize: 40)),
+                );
               },
             ),
     );
   }
 }
-

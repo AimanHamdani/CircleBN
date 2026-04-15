@@ -45,6 +45,10 @@ dependencies:
   latlong2: ^0.9.1
   url_launcher: ^6.3.2
   shared_preferences: ^2.3.2
+  qr_flutter: ^4.1.0
+  pdf: ^3.10.0
+  printing: ^5.11.0
+  mobile_scanner: ^3.5.0
 
 dev_dependencies:
   flutter_test:

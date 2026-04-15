@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
@@ -7,6 +8,7 @@ import '../../../data/event_registration_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
+import '../../../services/ticket_service.dart';
 import '../../../auth/current_user.dart';
 import '../../theme/app_theme.dart';
 
@@ -400,6 +402,92 @@ class _ActivityTabBody extends StatelessWidget {
     return (hours ?? 12).clamp(0, 240);
   }
 
+  String _fmtTemplateDate(DateTime dt) {
+    const months = <String>[
+      'JANUARY',
+      'FEBRUARY',
+      'MARCH',
+      'APRIL',
+      'MAY',
+      'JUNE',
+      'JULY',
+      'AUGUST',
+      'SEPTEMBER',
+      'OCTOBER',
+      'NOVEMBER',
+      'DECEMBER',
+    ];
+
+    return '${_ordinalDay(dt.day)} ${months[dt.month - 1]} ${dt.year}';
+  }
+
+  String _ordinalDay(int day) {
+    if (day >= 11 && day <= 13) {
+      return '${day}th';
+    }
+
+    switch (day % 10) {
+      case 1:
+        return '${day}st';
+      case 2:
+        return '${day}nd';
+      case 3:
+        return '${day}rd';
+      default:
+        return '${day}th';
+    }
+  }
+
+  Widget _buildTemplateField({required String label, required String value}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            color: Color(0xFF666666),
+            letterSpacing: 0.2,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Colors.black,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTemplateTearLine() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final count = (constraints.maxWidth / 12).floor().clamp(16, 42);
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List<Widget>.generate(
+            count,
+            (index) => Container(
+              width: 8,
+              height: 2,
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.8),
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final list = tab == _ActivityTab.ticket
@@ -474,13 +562,32 @@ class _ActivityTabBody extends StatelessWidget {
               );
             },
             child: tab == _ActivityTab.ticket
-                ? Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                ? FutureBuilder<int>(
+                    future: TicketService.generateTicketId(
+                      eventId: e.id,
+                      userId: currentUserId,
+                    ),
+                    builder: (context, ticketSnap) {
+                      final ticketId = ticketSnap.hasData
+                          ? ticketSnap.data
+                          : null;
+                      final ticketCode = ticketId != null
+                          ? ticketId.toString().padLeft(5, '0')
+                          : '-----';
+                      final qrData =
+                          ticketId?.toString() ?? '${e.id}_$currentUserId';
+                      final eventDate = _fmtTemplateDate(e.startAt);
+                      final eventTime = _fmtTime(e.startAt);
+                      final location = e.location.trim().isEmpty
+                          ? 'TBA'
+                          : e.location;
+
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+<<<<<<< HEAD
                             Expanded(
                               child: Text(
                                 e.title,
@@ -502,9 +609,215 @@ class _ActivityTabBody extends StatelessWidget {
                                       ? 'Cancelling...'
                                       : 'Cancel',
                                 ),
+=======
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.black,
+                                borderRadius: BorderRadius.circular(24),
                               ),
+                              padding: const EdgeInsets.all(10),
+                              child: Column(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(18),
+                                    child: Container(
+                                      color: const Color(0xFFF2F2F2),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          Container(
+                                            height: 44,
+                                            color: const Color(0xFF00701F),
+                                            alignment: Alignment.center,
+                                            child: const Text(
+                                              'CIRCLE.BN',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 18,
+                                                letterSpacing: 1,
+                                              ),
+                                            ),
+                                          ),
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 14,
+                                              vertical: 26,
+                                            ),
+                                            child: Text(
+                                              e.title.toUpperCase(),
+                                              textAlign: TextAlign.center,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: Colors.black,
+                                                fontSize: 32,
+                                                height: 1,
+                                                letterSpacing: 0.4,
+                                                fontWeight: FontWeight.w400,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 4,
+                                    ),
+                                    child: _buildTemplateTearLine(),
+                                  ),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(18),
+                                    child: Container(
+                                      width: double.infinity,
+                                      color: const Color(0xFFF2F2F2),
+                                      padding: const EdgeInsets.fromLTRB(
+                                        16,
+                                        18,
+                                        16,
+                                        18,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Expanded(
+                                                child: _buildTemplateField(
+                                                  label: 'NAME',
+                                                  value: fullName,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: _buildTemplateField(
+                                                  label: 'DATE',
+                                                  value: eventDate,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 16),
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Expanded(
+                                                child: _buildTemplateField(
+                                                  label: 'TICKET ID',
+                                                  value: ticketCode,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: _buildTemplateField(
+                                                  label: 'TIME',
+                                                  value: eventTime,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 16),
+                                          Center(
+                                            child: Container(
+                                              color: Colors.white,
+                                              padding: const EdgeInsets.all(8),
+                                              child: QrImageView(
+                                                data: qrData,
+                                                version: QrVersions.auto,
+                                                size: 190,
+                                                backgroundColor: Colors.white,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 10),
+                                          Container(
+                                            height: 2,
+                                            color: Colors.black,
+                                          ),
+                                          const SizedBox(height: 8),
+                                          const Text(
+                                            'Present this QR code at the entrance',
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.black,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 14),
+                                          const Text(
+                                            'LOCATION',
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Color(0xFF666666),
+                                              letterSpacing: 0.2,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            location.toUpperCase(),
+                                            textAlign: TextAlign.center,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 20,
+                                              color: Colors.black,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              canCancelNow
+                                  ? 'Cancellation allowed until ${_fmtTime(cancellationCutoff)}'
+                                  : 'Cancellation freeze started (${e.cancellationFreeze})',
+                              style: TextStyle(
+                                color: canCancelNow
+                                    ? Colors.black54
+                                    : Colors.red.shade300,
+                                fontSize: 12,
+>>>>>>> 5bd59b6 (Ticket UI and scanner updates)
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                if (canCancelNow)
+                                  TextButton(
+                                    onPressed: isCancellingEvent(e.id)
+                                        ? null
+                                        : () => onCancelTicket(e),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: Colors.red.shade400,
+                                    ),
+                                    child: Text(
+                                      isCancellingEvent(e.id)
+                                          ? 'Cancelling...'
+                                          : 'Cancel',
+                                    ),
+                                  ),
+                                const Spacer(),
+                                OutlinedButton(
+                                  onPressed: () => onSendTicketMock(e),
+                                  child: const Text('Send Email/PDF →'),
+                                ),
+                              ],
+                            ),
                           ],
                         ),
+<<<<<<< HEAD
                         const SizedBox(height: 6),
                         Text(
                           'Name: $fullName',
@@ -567,6 +880,10 @@ class _ActivityTabBody extends StatelessWidget {
                         ),
                       ],
                     ),
+=======
+                      );
+                    },
+>>>>>>> 5bd59b6 (Ticket UI and scanner updates)
                   )
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,

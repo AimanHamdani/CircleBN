@@ -10,6 +10,7 @@ import 'screens/home/create_club_screen.dart';
 import 'screens/home/club_chat_screen.dart';
 import 'screens/home/club_info_screen.dart';
 import 'screens/home/event_detail_screen.dart';
+import 'screens/home/event_scoring_screen.dart';
 import 'screens/home/map_picker_screen.dart';
 import 'screens/home/activity_overview_screen.dart';
 import 'screens/home/notifications_screen.dart';
@@ -35,6 +36,30 @@ class AppRoot extends StatelessWidget {
       title: 'CircleBN',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
+      builder: (context, child) {
+        if (child == null) {
+          return const SizedBox.shrink();
+        }
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final viewportWidth = constraints.maxWidth;
+            final maxWidth = viewportWidth >= 1600
+                ? 1440.0
+                : viewportWidth >= 1200
+                ? viewportWidth * 0.94
+                : viewportWidth >= 900
+                ? viewportWidth * 0.97
+                : viewportWidth;
+            return Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxWidth),
+                child: child,
+              ),
+            );
+          },
+        );
+      },
       home: const AuthGateScreen(),
       routes: {
         LoginScreen.routeName: (_) => const LoginScreen(),
@@ -49,6 +74,7 @@ class AppRoot extends StatelessWidget {
         ClubChatScreen.routeName: (_) => const ClubChatScreen(),
         ClubInfoScreen.routeName: (_) => const ClubInfoScreen(),
         EventDetailScreen.routeName: (_) => const EventDetailScreen(),
+        EventScoringScreen.routeName: (_) => const EventScoringScreen(),
         MapPickerScreen.routeName: (_) => const MapPickerScreen(),
         ActivityOverviewScreen.routeName: (_) => const ActivityOverviewScreen(),
         NotificationsScreen.routeName: (_) => const NotificationsScreen(),

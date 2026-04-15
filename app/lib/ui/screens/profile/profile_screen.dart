@@ -33,6 +33,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late Future<Set<String>> _displayBadgeIdsFuture;
   late Future<List<Object?>> _pageFuture;
   static List<Object?>? _cachedPageData;
+  bool _showAllSportsSkills = false;
 
   @override
   void initState() {
@@ -64,6 +65,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     ]);
     _cachedPageData = data;
     return data;
+  }
+
+  int _pointsNeededForTier(int tierLevel) {
+    const thresholds = <int>[10, 15, 20, 25, 35, 45, 60, 80, 100];
+    if (tierLevel >= 10) {
+      return thresholds.last;
+    }
+    return thresholds[(tierLevel - 1).clamp(0, thresholds.length - 1)];
   }
 
   void _goBack() {
@@ -309,15 +318,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 8,
+                          runSpacing: 8,
                           children: [
                             _TopChip(
                               icon: Icons.local_fire_department,
                               value: achievements.currentStreak,
                               suffix: 'streak',
                             ),
-                            const SizedBox(width: 8),
                             _TopChip(
                               icon: Icons.workspace_premium,
                               value: achievements.unlockedBadges.length,
@@ -406,20 +416,113 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  skillLevel,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 16,
-                                  ),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        _showAllSportsSkills
+                                            ? 'All Sports'
+                                            : 'Played Sports',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ),
+                                    TextButton(
+                                      onPressed: () {
+                                        setState(() {
+                                          _showAllSportsSkills =
+                                              !_showAllSportsSkills;
+                                        });
+                                      },
+                                      child: Text(
+                                        _showAllSportsSkills
+                                            ? 'Show played only'
+                                            : 'Show all sports',
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(height: 6),
+                                const SizedBox(height: 4),
                                 Text(
-                                  'Used for event join restrictions.',
+                                  _showAllSportsSkills
+                                      ? 'Showing all sports. Unplayed sports are marked as Haven\'t played.'
+                                      : 'Showing sports with activity only.',
                                   style: TextStyle(
                                     color: Colors.black.withValues(alpha: 0.55),
                                   ),
                                 ),
+                                const SizedBox(height: 10),
+                                ...(() {
+                                  final allSports = SampleData.sports;
+                                  final playedSports = profile
+                                      .sportSkills
+                                      .entries
+                                      .where((entry) {
+                                        final sportName = entry.key.trim();
+                                        final sportSkill = entry.value;
+                                        if (sportName.isEmpty) {
+                                          return false;
+                                        }
+                                        return sportSkill.matchesPlayed > 0;
+                                      })
+                                      .map((entry) => entry.key.trim())
+                                      .toSet();
+                                  final visibleSports = _showAllSportsSkills
+                                      ? allSports
+                                      : allSports
+                                            .where(playedSports.contains)
+                                            .toList();
+                                  if (visibleSports.isEmpty) {
+                                    return <Widget>[
+                                      Text(
+                                        'No sports played yet.',
+                                        style: TextStyle(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.55,
+                                          ),
+                                        ),
+                                      ),
+                                    ];
+                                  }
+                                  return [
+                                    for (
+                                      int i = 0;
+                                      i < visibleSports.length;
+                                      i++
+                                    ) ...[
+                                      () {
+                                        final sportName = visibleSports[i];
+                                        final sportSkill =
+                                            profile.sportSkills[sportName] ??
+                                            const SportSkillProgress();
+                                        final hasPlayed =
+                                            sportSkill.matchesPlayed > 0;
+                                        final pointsNeeded =
+                                            _pointsNeededForTier(
+                                              sportSkill.tierLevel,
+                                            );
+                                        final progress = pointsNeeded <= 0
+                                            ? 0.0
+                                            : (sportSkill.tierProgress /
+                                                      pointsNeeded)
+                                                  .clamp(0.0, 1.0);
+                                        return _SportSkillRow(
+                                          sport: sportName,
+                                          hasPlayed: hasPlayed,
+                                          levelLabel:
+                                              'Lvl ${sportSkill.tierLevel}',
+                                          pointsLabel:
+                                              '${sportSkill.tierProgress}/$pointsNeeded pts',
+                                          progress: progress,
+                                        );
+                                      }(),
+                                      if (i != visibleSports.length - 1)
+                                        const SizedBox(height: 12),
+                                    ],
+                                  ];
+                                })(),
                               ],
                             ),
                           ),
@@ -762,6 +865,112 @@ class _UnlockedBadgePill extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _SportSkillRow extends StatelessWidget {
+  final String sport;
+  final bool hasPlayed;
+  final String levelLabel;
+  final String pointsLabel;
+  final double progress;
+
+  const _SportSkillRow({
+    required this.sport,
+    required this.hasPlayed,
+    required this.levelLabel,
+    required this.pointsLabel,
+    required this.progress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = _accentForSport(sport);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                sport,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+            if (hasPlayed) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  levelLabel,
+                  style: TextStyle(
+                    color: accent,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                pointsLabel,
+                style: TextStyle(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+              ),
+            ] else
+              Text(
+                'Haven\'t played',
+                style: TextStyle(
+                  color: Colors.black.withValues(alpha: 0.55),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            minHeight: 6,
+            value: hasPlayed ? progress.clamp(0.0, 1.0) : 0,
+            backgroundColor: const Color(0xFFE1E5E8),
+            valueColor: AlwaysStoppedAnimation<Color>(accent),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Color _accentForSport(String sport) {
+    final key = sport.trim().toLowerCase();
+    if (key.contains('football')) {
+      return const Color(0xFF0F8E66);
+    }
+    if (key.contains('basketball')) {
+      return const Color(0xFFE56A00);
+    }
+    if (key.contains('badminton') || key.contains('tennis')) {
+      return const Color(0xFF5C62EA);
+    }
+    if (key.contains('volleyball')) {
+      return const Color(0xFF0F9D92);
+    }
+    if (key.contains('running') || key.contains('cycling')) {
+      return const Color(0xFF6E7E8E);
+    }
+    return const Color(0xFF2E976F);
   }
 }
 

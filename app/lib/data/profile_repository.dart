@@ -32,12 +32,14 @@ class ProfileRepository {
         Map<String, dynamic>.from(doc.data),
         userId: userId,
       );
-      return profile.copyWith(
+      final hydratedProfile = profile.copyWith(
         email: accountEmail.isNotEmpty ? accountEmail : null,
         realName: profile.realName == 'Name' && accountName.isNotEmpty
             ? accountName
             : null,
       );
+      _tryMigrateSportSkillsField(hydratedProfile);
+      return hydratedProfile;
     } catch (_) {
       return UserProfile.empty(userId).copyWith(
         email: accountEmail,
@@ -62,7 +64,26 @@ class ProfileRepository {
     final doc = await AppwriteService.createOrUpdateDocument(
       collectionId: AppwriteConfig.profilesCollectionId,
       documentId: profile.userId,
-      data: profile.toMap(),
+      data: profile.copyWith(sportSkillsNeedsMigration: false).toMap(),
+    );
+
+    return UserProfile.fromMap(
+      Map<String, dynamic>.from(doc.data),
+      userId: profile.userId,
+    );
+  }
+
+  Future<UserProfile> saveProfileByUserId(UserProfile profile) async {
+    if (!AppwriteService.isConfigured ||
+        AppwriteConfig.databaseId.isEmpty ||
+        AppwriteConfig.profilesCollectionId.isEmpty) {
+      return profile;
+    }
+
+    final doc = await AppwriteService.createOrUpdateDocument(
+      collectionId: AppwriteConfig.profilesCollectionId,
+      documentId: profile.userId,
+      data: profile.copyWith(sportSkillsNeedsMigration: false).toMap(),
     );
 
     return UserProfile.fromMap(
@@ -99,6 +120,7 @@ class ProfileRepository {
             userId: userId,
           ),
         );
+        _tryMigrateSportSkillsField(profiles.last);
       } catch (_) {
         profiles.add(UserProfile.empty(userId));
       }
@@ -117,6 +139,24 @@ class ProfileRepository {
       return UserProfile.empty(normalized);
     }
     return profiles.first;
+  }
+
+  Future<void> _tryMigrateSportSkillsField(UserProfile profile) async {
+    if (!profile.sportSkillsNeedsMigration) {
+      return;
+    }
+    if (!AppwriteService.isConfigured ||
+        AppwriteConfig.databaseId.isEmpty ||
+        AppwriteConfig.profilesCollectionId.isEmpty) {
+      return;
+    }
+    try {
+      await AppwriteService.createOrUpdateDocument(
+        collectionId: AppwriteConfig.profilesCollectionId,
+        documentId: profile.userId,
+        data: profile.copyWith(sportSkillsNeedsMigration: false).toMap(),
+      );
+    } catch (_) {}
   }
 }
 

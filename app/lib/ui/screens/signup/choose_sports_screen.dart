@@ -29,10 +29,7 @@ class _ChooseSportsScreenState extends State<ChooseSportsScreen> {
     final next = _draft.copyWith(sports: _selected);
     Navigator.of(context).pushNamed(
       RecommendedClubsScreen.routeName,
-      arguments: RecommendedClubsArgs(
-        draft: next,
-        skippedSports: skipped,
-      ),
+      arguments: RecommendedClubsArgs(draft: next, skippedSports: skipped),
     );
   }
 
@@ -40,6 +37,8 @@ class _ChooseSportsScreenState extends State<ChooseSportsScreen> {
   Widget build(BuildContext context) {
     final green = AppTheme.brandGreen;
     final canProceed = _selected.isNotEmpty;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final horizontalPadding = screenWidth < 380 ? 16.0 : 28.0;
     return Scaffold(
       backgroundColor: const Color(0xFFEFF7F3),
       appBar: AppBar(
@@ -60,7 +59,10 @@ class _ChooseSportsScreenState extends State<ChooseSportsScreen> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF63C8A7), width: 1.2),
+                  border: Border.all(
+                    color: const Color(0xFF63C8A7),
+                    width: 1.2,
+                  ),
                 ),
                 child: Icon(Icons.arrow_back, size: 18, color: green),
               ),
@@ -91,15 +93,17 @@ class _ChooseSportsScreenState extends State<ChooseSportsScreen> {
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
-          child: Container(
-            height: 1,
-            color: const Color(0xFF9FD7C1),
-          ),
+          child: Container(height: 1, color: const Color(0xFF9FD7C1)),
         ),
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(28, 16, 28, 20),
+          padding: EdgeInsets.fromLTRB(
+            horizontalPadding,
+            16,
+            horizontalPadding,
+            20,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -155,7 +159,10 @@ class _ChooseSportsScreenState extends State<ChooseSportsScreen> {
                       }),
                       borderRadius: BorderRadius.circular(14),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 13,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(14),
@@ -182,14 +189,20 @@ class _ChooseSportsScreenState extends State<ChooseSportsScreen> {
                                 color: selected ? green : Colors.transparent,
                               ),
                               child: selected
-                                  ? const Icon(Icons.check, size: 14, color: Colors.white)
+                                  ? const Icon(
+                                      Icons.check,
+                                      size: 14,
+                                      color: Colors.white,
+                                    )
                                   : null,
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
                                 sport,
-                                style: const TextStyle(fontWeight: FontWeight.w700),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ],
@@ -206,8 +219,13 @@ class _ChooseSportsScreenState extends State<ChooseSportsScreen> {
                   backgroundColor: green,
                   foregroundColor: Colors.white,
                   minimumSize: const Size.fromHeight(54),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  textStyle: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
                   elevation: 2,
                 ),
                 child: const Text('Next →'),
@@ -219,4 +237,3 @@ class _ChooseSportsScreenState extends State<ChooseSportsScreen> {
     );
   }
 }
-

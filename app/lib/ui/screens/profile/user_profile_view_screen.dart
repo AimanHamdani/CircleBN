@@ -57,6 +57,8 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
   Widget build(BuildContext context) {
     const topGradientA = Color(0xFF2C9C7E);
     const topGradientB = Color(0xFF5C62EA);
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final horizontalPadding = screenWidth < 380 ? 14.0 : 18.0;
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6F8),
       body: LayoutBuilder(
@@ -85,7 +87,12 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                   children: [
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
+                      padding: EdgeInsets.fromLTRB(
+                        horizontalPadding,
+                        14,
+                        horizontalPadding,
+                        24,
+                      ),
                       decoration: const BoxDecoration(
                         gradient: LinearGradient(
                           begin: Alignment.topLeft,
@@ -134,7 +141,26 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 40),
+                                  SizedBox(
+                                    width: 40,
+                                    height: 40,
+                                    child: IgnorePointer(
+                                      child: Opacity(
+                                        opacity: 0,
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                          ),
+                                          child: const Icon(
+                                            Icons.arrow_back,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
                                 ],
                               ),
                               const SizedBox(height: 14),
@@ -142,6 +168,8 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                               const SizedBox(height: 10),
                               Text(
                                 name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w900,
@@ -151,6 +179,8 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                               const SizedBox(height: 2),
                               Text(
                                 subtitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   color: Colors.white.withValues(alpha: 0.9),
                                   fontWeight: FontWeight.w600,
@@ -212,7 +242,12 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                     ),
                     Expanded(
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
+                        padding: EdgeInsets.fromLTRB(
+                          horizontalPadding,
+                          16,
+                          horizontalPadding,
+                          20,
+                        ),
                         child: Center(
                           child: ConstrainedBox(
                             constraints: BoxConstraints(
@@ -454,28 +489,57 @@ class _InfoCard extends StatelessWidget {
           for (int i = 0; i < rows.length; i++) ...[
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      rows[i].label,
-                      style: const TextStyle(
-                        color: Color(0xFF556070),
-                        fontSize: 16,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final stackVertically = constraints.maxWidth < 360;
+                  if (stackVertically) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          rows[i].label,
+                          style: const TextStyle(
+                            color: Color(0xFF556070),
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          rows[i].value,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          rows[i].label,
+                          style: const TextStyle(
+                            color: Color(0xFF556070),
+                            fontSize: 16,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      rows[i].value,
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16,
+                      Expanded(
+                        child: Text(
+                          rows[i].value,
+                          textAlign: TextAlign.right,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                ],
+                    ],
+                  );
+                },
               ),
             ),
             if (i != rows.length - 1) const Divider(height: 1),

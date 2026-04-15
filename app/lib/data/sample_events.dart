@@ -16,6 +16,23 @@ class SampleEvents {
   // 5 upcoming sample events (today + future only).
   static final List<Event> all = <Event>[
     Event(
+      id: 'score_test_match',
+      title: 'Score Test Match',
+      sport: 'Volleyball',
+      startAt: DateTime.now().subtract(const Duration(minutes: 30)),
+      duration: const Duration(hours: 2),
+      location: 'Test Court',
+      joined: 4,
+      capacity: 12,
+      skillLevel: 'Any',
+      entryFeeLabel: 'Free',
+      description:
+          'Mock event for score-entry testing. Use this event to validate team setup, points, and assists.',
+      joinedByMe: true,
+      creatorId: _creatorId,
+      thumbnailFileId: null,
+    ),
+    Event(
       id: 'morning_run',
       title: 'Morning Run',
       sport: 'Running / Jogging',

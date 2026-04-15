@@ -100,7 +100,24 @@ class _StreakScreenState extends State<StreakScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 38),
+                          SizedBox(
+                            width: 40,
+                            height: 40,
+                            child: IgnorePointer(
+                              child: Opacity(
+                                opacity: 0,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(
+                                    Icons.arrow_back,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 16),

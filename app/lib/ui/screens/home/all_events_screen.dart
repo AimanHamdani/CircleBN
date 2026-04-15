@@ -21,6 +21,7 @@ enum _AllEventsTimeBand { morning, afternoon, night }
 
 class _AllEventsScreenState extends State<AllEventsScreen> {
   DateTime? _selectedDate;
+
   /// 0 = calendar week that contains today (Mon–Sun). Increase to show future weeks.
   int _visibleWeekPage = 0;
 
@@ -67,7 +68,10 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
     }
   }
 
-  Future<void> _showAllEventsFilterDialog(BuildContext context, List<String> sportOptions) async {
+  Future<void> _showAllEventsFilterDialog(
+    BuildContext context,
+    List<String> sportOptions,
+  ) async {
     final result = await showDialog<_AllEventsFilterDialogResult>(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.45),
@@ -108,148 +112,194 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
         body: FutureBuilder<List<Object?>>(
           future: _screenDataFuture,
           builder: (context, snap) {
-          final allRaw = (snap.data != null ? snap.data![0] as List<Event> : const <Event>[]);
-          final profile = (snap.data != null ? snap.data![1] as UserProfile : null);
-          final prioritized = _prioritizeByPreferredSports(allRaw, profile?.preferredSports ?? const <String>{});
-          final all = prioritized.where(_isUpcomingOrOngoing).toList();
-          // Sports from all loaded events so the menu stays useful even if the
-          // visible week/day has no matches (DropdownButton/Picker still needs options).
-          final sportOptions = prioritized
-              .map((e) => e.sport.trim())
-              .where((s) => s.isNotEmpty)
-              .toSet()
-              .toList()
-            ..sort();
-          var events = selected == null
-              ? all
-              : all.where((e) => _isSameDay(e.startAt.toLocal(), selected)).toList();
-          if (_filterSport != null) {
-            final s = _filterSport!.toLowerCase();
-            events = events.where((e) => e.sport.toLowerCase() == s).toList();
-          }
-          if (_filterTimeBand != null) {
-            events = events
-                .where((e) => _eventMatchesTimeBand(e.startAt.toLocal(), _filterTimeBand!))
-                .toList();
-          }
+            final allRaw = (snap.data != null
+                ? snap.data![0] as List<Event>
+                : const <Event>[]);
+            final profile = (snap.data != null
+                ? snap.data![1] as UserProfile
+                : null);
+            final prioritized = _prioritizeByPreferredSports(
+              allRaw,
+              profile?.preferredSports ?? const <String>{},
+            );
+            final all = prioritized.where(_isUpcomingOrOngoing).toList();
+            // Sports from all loaded events so the menu stays useful even if the
+            // visible week/day has no matches (DropdownButton/Picker still needs options).
+            final sportOptions =
+                prioritized
+                    .map((e) => e.sport.trim())
+                    .where((s) => s.isNotEmpty)
+                    .toSet()
+                    .toList()
+                  ..sort();
+            var events = selected == null
+                ? all
+                : all
+                      .where((e) => _isSameDay(e.startAt.toLocal(), selected))
+                      .toList();
+            if (_filterSport != null) {
+              final s = _filterSport!.toLowerCase();
+              events = events.where((e) => e.sport.toLowerCase() == s).toList();
+            }
+            if (_filterTimeBand != null) {
+              events = events
+                  .where(
+                    (e) => _eventMatchesTimeBand(
+                      e.startAt.toLocal(),
+                      _filterTimeBand!,
+                    ),
+                  )
+                  .toList();
+            }
 
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _AllEventsPurpleHeader(
-                canPop: Navigator.of(context).canPop(),
-                onBack: () => Navigator.of(context).maybePop(),
-                onOpenNotifications: () => Navigator.of(context).pushNamed(NotificationsScreen.routeName),
-              ),
-              Material(
-                color: Colors.white,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      InkWell(
-                        onTap: () async {
-                          await _showAllEventsFilterDialog(context, sportOptions);
-                        },
-                        borderRadius: BorderRadius.circular(14),
-                        child: Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: AppTheme.eventPurple,
-                            borderRadius: BorderRadius.circular(14),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppTheme.eventPurple.withValues(alpha: 0.35),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              const Center(
-                                child: Icon(
-                                  Icons.tune,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              if (_filterSport != null || _filterTimeBand != null)
-                                Positioned(
-                                  right: 6,
-                                  top: 6,
-                                  child: Container(
-                                    width: 8,
-                                    height: 8,
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context).colorScheme.primary,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(color: Colors.white, width: 1.5),
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _AllEventsPurpleHeader(
+                  canPop: Navigator.of(context).canPop(),
+                  onBack: () => Navigator.of(context).maybePop(),
+                  onOpenNotifications: () => Navigator.of(
+                    context,
+                  ).pushNamed(NotificationsScreen.routeName),
+                ),
+                Material(
+                  color: Colors.white,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minWidth: constraints.maxWidth,
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            InkWell(
+                              onTap: () async {
+                                await _showAllEventsFilterDialog(
+                                  context,
+                                  sportOptions,
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(14),
+                              child: Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.eventPurple,
+                                  borderRadius: BorderRadius.circular(14),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppTheme.eventPurple.withValues(
+                                        alpha: 0.35,
+                                      ),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
                                     ),
-                                  ),
+                                  ],
                                 ),
-                            ],
-                          ),
+                                child: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    const Center(
+                                      child: Icon(
+                                        Icons.tune,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    if (_filterSport != null ||
+                                        _filterTimeBand != null)
+                                      Positioned(
+                                        right: 6,
+                                        top: 6,
+                                        child: Container(
+                                          width: 8,
+                                          height: 8,
+                                          decoration: BoxDecoration(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: Colors.white,
+                                              width: 1.5,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            _WeekNavIconButton(
+                              icon: Icons.chevron_left,
+                              enabled: _visibleWeekPage > 0,
+                              onTap: () =>
+                                  _setVisibleWeekPage(_visibleWeekPage - 1),
+                            ),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              width: constraints.maxWidth > 640 ? 520 : 420,
+                              child: _WeekDateStrip(
+                                weekStart: weekMonday,
+                                weekEnd: weekEnd,
+                                selectedDate: selected,
+                                onSelectDay: (d) =>
+                                    setState(() => _selectedDate = d),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _WeekNavIconButton(
+                              icon: Icons.chevron_right,
+                              enabled: true,
+                              onTap: () =>
+                                  _setVisibleWeekPage(_visibleWeekPage + 1),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      _WeekNavIconButton(
-                        icon: Icons.chevron_left,
-                        enabled: _visibleWeekPage > 0,
-                        onTap: () => _setVisibleWeekPage(_visibleWeekPage - 1),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _WeekDateStrip(
-                          weekStart: weekMonday,
-                          weekEnd: weekEnd,
-                          selectedDate: selected,
-                          onSelectDay: (d) => setState(() => _selectedDate = d),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      _WeekNavIconButton(
-                        icon: Icons.chevron_right,
-                        enabled: true,
-                        onTap: () => _setVisibleWeekPage(_visibleWeekPage + 1),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-              Expanded(
-                child: snap.connectionState != ConnectionState.done && all.isEmpty
-                    ? const Center(child: CircularProgressIndicator())
-                    : events.isEmpty
-                        ? _EmptyDayState(selectedDate: selected)
-                        : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
-                            itemCount: events.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 14),
-                            itemBuilder: (context, idx) {
-                              final e = events[idx];
-                              return _AllEventCard(
-                                event: e,
-                                onOpen: () async {
-                                  await Navigator.of(context).pushNamed(
-                                    EventDetailScreen.routeName,
-                                    arguments: EventDetailArgs(event: e, showRegisterButton: true),
-                                  );
-                                  if (!mounted) {
-                                    return;
-                                  }
-                                  setState(_refreshData);
-                                },
-                              );
-                            },
-                          ),
-              ),
-            ],
-          );
-        },
-      ),
+                Expanded(
+                  child:
+                      snap.connectionState != ConnectionState.done &&
+                          all.isEmpty
+                      ? const Center(child: CircularProgressIndicator())
+                      : events.isEmpty
+                      ? _EmptyDayState(selectedDate: selected)
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+                          itemCount: events.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 14),
+                          itemBuilder: (context, idx) {
+                            final e = events[idx];
+                            return _AllEventCard(
+                              event: e,
+                              onOpen: () async {
+                                await Navigator.of(context).pushNamed(
+                                  EventDetailScreen.routeName,
+                                  arguments: EventDetailArgs(
+                                    event: e,
+                                    showRegisterButton: true,
+                                  ),
+                                );
+                                if (!mounted) {
+                                  return;
+                                }
+                                setState(_refreshData);
+                              },
+                            );
+                          },
+                        ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -276,10 +326,7 @@ class _AllEventsPurpleHeader extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            AppTheme.eventPurpleDeep,
-            AppTheme.eventPurple,
-          ],
+          colors: [AppTheme.eventPurpleDeep, AppTheme.eventPurple],
         ),
       ),
       child: Row(
@@ -297,9 +344,14 @@ class _AllEventsPurpleHeader extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.22),
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.35),
+                    ),
                   ),
-                  child: Icon(Icons.arrow_back, color: Colors.white.withValues(alpha: 0.95)),
+                  child: Icon(
+                    Icons.arrow_back,
+                    color: Colors.white.withValues(alpha: 0.95),
+                  ),
                 ),
               ),
             ),
@@ -341,7 +393,10 @@ class _AllEventsPurpleHeader extends StatelessWidget {
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
               ),
-              child: Icon(Icons.notifications_none, color: Colors.white.withValues(alpha: 0.95)),
+              child: Icon(
+                Icons.notifications_none,
+                color: Colors.white.withValues(alpha: 0.95),
+              ),
             ),
           ),
         ],
@@ -373,12 +428,11 @@ class _WeekNavIconButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppTheme.eventPurpleLightBg,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppTheme.eventPurple.withValues(alpha: 0.22)),
+          border: Border.all(
+            color: AppTheme.eventPurple.withValues(alpha: 0.22),
+          ),
         ),
-        child: Icon(
-          icon,
-          color: enabled ? Colors.black87 : Colors.black26,
-        ),
+        child: Icon(icon, color: enabled ? Colors.black87 : Colors.black26),
       ),
     );
   }
@@ -417,19 +471,24 @@ class _WeekDateStrip extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (var i = 0; i < days.length; i++) ...[
-              if (i > 0) const SizedBox(width: 8),
-              _DateChip(
-                label: '${days[i].day}',
-                sub: _weekdayShort(days[i]),
-                selected: selectedDate != null && _isSameDay(days[i], selectedDate!),
-                onTap: () => onSelectDay(days[i]),
-              ),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < days.length; i++) ...[
+                if (i > 0) const SizedBox(width: 8),
+                _DateChip(
+                  label: '${days[i].day}',
+                  sub: _weekdayShort(days[i]),
+                  selected:
+                      selectedDate != null &&
+                      _isSameDay(days[i], selectedDate!),
+                  onTap: () => onSelectDay(days[i]),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ],
     );
@@ -481,7 +540,11 @@ class _AllEventCard extends StatelessWidget {
                       children: [
                         Text(
                           event.title,
-                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17, height: 1.1),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 17,
+                            height: 1.1,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -500,7 +563,10 @@ class _AllEventCard extends StatelessWidget {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 11,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: badgeBg,
                       borderRadius: BorderRadius.circular(999),
@@ -529,7 +595,12 @@ class _DateChip extends StatelessWidget {
   final String sub;
   final bool selected;
   final VoidCallback onTap;
-  const _DateChip({required this.label, required this.sub, required this.selected, required this.onTap});
+  const _DateChip({
+    required this.label,
+    required this.sub,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -544,13 +615,21 @@ class _DateChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: selected ? Colors.transparent : const Color(0xFFE3E7EE)),
+          border: Border.all(
+            color: selected ? Colors.transparent : const Color(0xFFE3E7EE),
+          ),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(label, style: TextStyle(color: fg, fontWeight: FontWeight.w900)),
-            Text(sub, style: TextStyle(color: fg.withValues(alpha: 0.90), fontSize: 12)),
+            Text(
+              label,
+              style: TextStyle(color: fg, fontWeight: FontWeight.w900),
+            ),
+            Text(
+              sub,
+              style: TextStyle(color: fg.withValues(alpha: 0.90), fontSize: 12),
+            ),
           ],
         ),
       ),
@@ -650,7 +729,9 @@ class _EmptyDayState extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = Theme.of(context).colorScheme;
     final dt = selectedDate;
-    final title = dt == null ? 'No events available' : 'No events available on this day';
+    final title = dt == null
+        ? 'No events available'
+        : 'No events available on this day';
     final subtitle = dt == null
         ? 'Try another date.'
         : '${_weekdayShort(dt)} • ${dt.day} ${_monthShort(dt.month)}';
@@ -681,13 +762,19 @@ class _EmptyDayState extends StatelessWidget {
               Text(
                 title,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 16,
+                ),
               ),
               const SizedBox(height: 6),
               Text(
                 subtitle,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  color: Colors.black54,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 12),
               Text(
@@ -703,7 +790,10 @@ class _EmptyDayState extends StatelessWidget {
   }
 }
 
-List<Event> _prioritizeByPreferredSports(List<Event> events, Set<String> preferredSports) {
+List<Event> _prioritizeByPreferredSports(
+  List<Event> events,
+  Set<String> preferredSports,
+) {
   if (preferredSports.isEmpty) {
     return events;
   }
@@ -797,12 +887,17 @@ class _AllEventsFilterDialogState extends State<_AllEventsFilterDialog> {
                   labelText: 'Sport',
                   filled: true,
                   fillColor: Colors.white,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
                     borderSide: const BorderSide(color: Color(0xFFE3E7EE)),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 0,
+                  ),
                 ),
                 child: PopupMenuButton<String?>(
                   padding: EdgeInsets.zero,
@@ -823,7 +918,10 @@ class _AllEventsFilterDialogState extends State<_AllEventsFilterDialog> {
                     ),
                   ],
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 12,
+                    ),
                     child: Row(
                       children: [
                         Expanded(
@@ -833,14 +931,20 @@ class _AllEventsFilterDialogState extends State<_AllEventsFilterDialog> {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        Icon(Icons.keyboard_arrow_down_rounded, color: Colors.black.withValues(alpha: 0.45)),
+                        Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          color: Colors.black.withValues(alpha: 0.45),
+                        ),
                       ],
                     ),
                   ),
                 ),
               ),
               const SizedBox(height: 20),
-              const Text('Time', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+              const Text(
+                'Time',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+              ),
               const SizedBox(height: 10),
               Row(
                 children: [
@@ -850,8 +954,9 @@ class _AllEventsFilterDialogState extends State<_AllEventsFilterDialog> {
                       selected: _timeBand == _AllEventsTimeBand.morning,
                       selectedColor: _chipSelectedBg,
                       onTap: () => setState(() {
-                        _timeBand =
-                            _timeBand == _AllEventsTimeBand.morning ? null : _AllEventsTimeBand.morning;
+                        _timeBand = _timeBand == _AllEventsTimeBand.morning
+                            ? null
+                            : _AllEventsTimeBand.morning;
                       }),
                     ),
                   ),
@@ -875,8 +980,9 @@ class _AllEventsFilterDialogState extends State<_AllEventsFilterDialog> {
                       selected: _timeBand == _AllEventsTimeBand.night,
                       selectedColor: _chipSelectedBg,
                       onTap: () => setState(() {
-                        _timeBand =
-                            _timeBand == _AllEventsTimeBand.night ? null : _AllEventsTimeBand.night;
+                        _timeBand = _timeBand == _AllEventsTimeBand.night
+                            ? null
+                            : _AllEventsTimeBand.night;
                       }),
                     ),
                   ),
@@ -886,8 +992,15 @@ class _AllEventsFilterDialogState extends State<_AllEventsFilterDialog> {
               Row(
                 children: [
                   TextButton(
-                    onPressed: () => Navigator.of(context).pop(const _AllEventsFilterDialogResult(clearOnly: true)),
-                    child: Text('Clear', style: TextStyle(color: Colors.black.withValues(alpha: 0.55))),
+                    onPressed: () => Navigator.of(
+                      context,
+                    ).pop(const _AllEventsFilterDialogResult(clearOnly: true)),
+                    child: Text(
+                      'Clear',
+                      style: TextStyle(
+                        color: Colors.black.withValues(alpha: 0.55),
+                      ),
+                    ),
                   ),
                   const Spacer(),
                   TextButton(
@@ -898,15 +1011,23 @@ class _AllEventsFilterDialogState extends State<_AllEventsFilterDialog> {
                   FilledButton(
                     onPressed: () {
                       Navigator.of(context).pop(
-                        _AllEventsFilterDialogResult(sport: _sport, timeBand: _timeBand),
+                        _AllEventsFilterDialogResult(
+                          sport: _sport,
+                          timeBand: _timeBand,
+                        ),
                       );
                     },
                     style: FilledButton.styleFrom(
                       backgroundColor: cs.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       minimumSize: Size.zero,
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 12,
+                      ),
                     ),
                     child: const Text('Apply'),
                   ),
@@ -963,4 +1084,3 @@ class _FilterTimeChip extends StatelessWidget {
     );
   }
 }
-

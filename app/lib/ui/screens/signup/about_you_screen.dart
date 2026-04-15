@@ -54,16 +54,19 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
     final height = int.tryParse(_heightCtrl.text.trim());
     final next = base.copyWith(
       fullName: _fullNameCtrl.text.trim(),
-      username: _usernameCtrl.text.trim().isEmpty ? null : _usernameCtrl.text.trim(),
+      username: _usernameCtrl.text.trim().isEmpty
+          ? null
+          : _usernameCtrl.text.trim(),
       dateOfBirth: _dob,
       gender: _gender,
       heightCm: height,
-      emergencyContact: _emergencyCtrl.text.trim().isEmpty ? null : _emergencyCtrl.text.trim(),
+      emergencyContact: _emergencyCtrl.text.trim().isEmpty
+          ? null
+          : _emergencyCtrl.text.trim(),
     );
-    Navigator.of(context).pushNamed(
-      ChooseSportsScreen.routeName,
-      arguments: next,
-    );
+    Navigator.of(
+      context,
+    ).pushNamed(ChooseSportsScreen.routeName, arguments: next);
   }
 
   @override
@@ -101,10 +104,7 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
               const SizedBox(height: 4),
               Text(
                 'Fill in your details',
-                style: TextStyle(
-                  color: green,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: TextStyle(color: green, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 14),
               ClipRRect(
@@ -122,7 +122,13 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('Full Name', style: TextStyle(fontWeight: FontWeight.w700, color: green)),
+                    Text(
+                      'Full Name',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: green,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     TextFormField(
                       controller: _fullNameCtrl,
@@ -131,20 +137,32 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
                         hintText: 'Your full name',
                         green: green,
                       ),
-                      validator: (v) => (v ?? '').trim().isEmpty ? 'Full name is required' : null,
+                      validator: (v) => (v ?? '').trim().isEmpty
+                          ? 'Full name is required'
+                          : null,
                     ),
                     const SizedBox(height: 14),
-                    Text('Username', style: TextStyle(fontWeight: FontWeight.w700, color: green)),
+                    Text(
+                      'Username',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: green,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     TextFormField(
                       controller: _usernameCtrl,
                       textInputAction: TextInputAction.next,
-                      decoration: _inputDecoration(
-                        hintText: '@username',
-                      ),
+                      decoration: _inputDecoration(hintText: '@username'),
                     ),
                     const SizedBox(height: 14),
-                    Text('Date of birth', style: TextStyle(fontWeight: FontWeight.w700, color: green)),
+                    Text(
+                      'Date of birth',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: green,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     InkWell(
                       onTap: _pickDob,
@@ -158,11 +176,21 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
                           children: [
                             Expanded(
                               child: Text(
-                                _dob == null ? 'DD / MM / YYYY' : '${_dob!.day.toString().padLeft(2, '0')} / ${_dob!.month.toString().padLeft(2, '0')} / ${_dob!.year}',
-                                style: TextStyle(color: _dob == null ? Colors.black45 : Colors.black87),
+                                _dob == null
+                                    ? 'DD / MM / YYYY'
+                                    : '${_dob!.day.toString().padLeft(2, '0')} / ${_dob!.month.toString().padLeft(2, '0')} / ${_dob!.year}',
+                                style: TextStyle(
+                                  color: _dob == null
+                                      ? Colors.black45
+                                      : Colors.black87,
+                                ),
                               ),
                             ),
-                            const Icon(Icons.keyboard_arrow_down, size: 18, color: Colors.black45),
+                            const Icon(
+                              Icons.keyboard_arrow_down,
+                              size: 18,
+                              color: Colors.black45,
+                            ),
                           ],
                         ),
                       ),
@@ -172,31 +200,61 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
                       alignment: Alignment.centerLeft,
                       child: Text(
                         'Gender',
-                        style: TextStyle(fontWeight: FontWeight.w700, color: green),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: green,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _GenderChip(
-                            label: 'Male',
-                            selected: _gender == 'Male',
-                            onTap: () => setState(() => _gender = 'Male'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _GenderChip(
-                            label: 'Female',
-                            selected: _gender == 'Female',
-                            onTap: () => setState(() => _gender = 'Female'),
-                          ),
-                        ),
-                      ],
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        if (constraints.maxWidth < 340) {
+                          return Column(
+                            children: [
+                              _GenderChip(
+                                label: 'Male',
+                                selected: _gender == 'Male',
+                                onTap: () => setState(() => _gender = 'Male'),
+                              ),
+                              const SizedBox(height: 10),
+                              _GenderChip(
+                                label: 'Female',
+                                selected: _gender == 'Female',
+                                onTap: () => setState(() => _gender = 'Female'),
+                              ),
+                            ],
+                          );
+                        }
+                        return Row(
+                          children: [
+                            Expanded(
+                              child: _GenderChip(
+                                label: 'Male',
+                                selected: _gender == 'Male',
+                                onTap: () => setState(() => _gender = 'Male'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _GenderChip(
+                                label: 'Female',
+                                selected: _gender == 'Female',
+                                onTap: () => setState(() => _gender = 'Female'),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                     const SizedBox(height: 14),
-                    Text('Height (cm)', style: TextStyle(fontWeight: FontWeight.w700, color: green)),
+                    Text(
+                      'Height (cm)',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: green,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     TextFormField(
                       controller: _heightCtrl,
@@ -211,7 +269,8 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
                         if (value.isEmpty) return null;
                         final n = int.tryParse(value);
                         if (n == null) return 'Enter a number';
-                        if (n < 50 || n > 260) return 'Enter a realistic height';
+                        if (n < 50 || n > 260)
+                          return 'Enter a realistic height';
                         return null;
                       },
                       onFieldSubmitted: (_) => _next(base),
@@ -222,7 +281,10 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFF63C8A7), width: 1.4),
+                        border: Border.all(
+                          color: const Color(0xFF63C8A7),
+                          width: 1.4,
+                        ),
                       ),
                       child: const Row(
                         children: [
@@ -231,7 +293,10 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
                           Expanded(
                             child: Text(
                               'Once submitted, this info cannot be changed.',
-                              style: TextStyle(color: Color(0xFF00644D), fontWeight: FontWeight.w700),
+                              style: TextStyle(
+                                color: Color(0xFF00644D),
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                         ],
@@ -247,8 +312,13 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
                   backgroundColor: green,
                   foregroundColor: Colors.white,
                   minimumSize: const Size.fromHeight(54),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  textStyle: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
                 ),
                 child: const Text('Next →'),
               ),
@@ -284,7 +354,11 @@ class _GenderChip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  const _GenderChip({required this.label, required this.selected, required this.onTap});
+  const _GenderChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -314,4 +388,3 @@ class _GenderChip extends StatelessWidget {
     );
   }
 }
-

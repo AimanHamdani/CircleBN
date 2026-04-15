@@ -16,7 +16,10 @@ import '../home/home_screen.dart';
 class RecommendedClubsArgs {
   final SignUpDraft draft;
   final bool skippedSports;
-  const RecommendedClubsArgs({required this.draft, required this.skippedSports});
+  const RecommendedClubsArgs({
+    required this.draft,
+    required this.skippedSports,
+  });
 }
 
 class RecommendedClubsScreen extends StatefulWidget {
@@ -39,7 +42,9 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final raw = ModalRoute.of(context)?.settings.arguments;
-    _args = raw is RecommendedClubsArgs ? raw : const RecommendedClubsArgs(draft: SignUpDraft(), skippedSports: true);
+    _args = raw is RecommendedClubsArgs
+        ? raw
+        : const RecommendedClubsArgs(draft: SignUpDraft(), skippedSports: true);
     _selectedClubIds = {..._args.draft.clubIds};
   }
 
@@ -70,12 +75,16 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
     final password = finalDraft.password ?? '';
     final userName = finalDraft.fullName?.trim().isNotEmpty == true
         ? finalDraft.fullName!.trim()
-        : (finalDraft.username?.trim().isNotEmpty == true ? finalDraft.username!.trim() : 'User');
+        : (finalDraft.username?.trim().isNotEmpty == true
+              ? finalDraft.username!.trim()
+              : 'User');
 
     if (email.isEmpty || password.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Missing email/password from signup flow.')),
+        const SnackBar(
+          content: Text('Missing email/password from signup flow.'),
+        ),
       );
       return;
     }
@@ -97,10 +106,8 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
       }
 
       try {
-        final session = await AppwriteService.account.createEmailPasswordSession(
-          email: email,
-          password: password,
-        );
+        final session = await AppwriteService.account
+            .createEmailPasswordSession(email: email, password: password);
         await SessionPersistence.save(session.$id);
       } on AppwriteException catch (e) {
         // If already logged in, session creation can fail; continue.
@@ -120,8 +127,12 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
 
       final profile = UserProfile(
         userId: currentUserId,
-        username: finalDraft.username?.trim().isNotEmpty == true ? finalDraft.username!.trim() : userName,
-        realName: finalDraft.fullName?.trim().isNotEmpty == true ? finalDraft.fullName!.trim() : userName,
+        username: finalDraft.username?.trim().isNotEmpty == true
+            ? finalDraft.username!.trim()
+            : userName,
+        realName: finalDraft.fullName?.trim().isNotEmpty == true
+            ? finalDraft.fullName!.trim()
+            : userName,
         email: email,
         age: _calcAge(finalDraft.dateOfBirth),
         gender: finalDraft.gender ?? 'Male',
@@ -147,20 +158,26 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Account created, but profile save failed. Check profiles schema/permissions.'),
+            content: Text(
+              'Account created, but profile save failed. Check profiles schema/permissions.',
+            ),
           ),
         );
       }
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sign up completed.')),
-      );
-      Navigator.of(context).pushNamedAndRemoveUntil(HomeScreen.routeName, (_) => false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Sign up completed.')));
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil(HomeScreen.routeName, (_) => false);
     } on AppwriteException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to sign up: ${e.message ?? 'unknown error'}')),
+        SnackBar(
+          content: Text('Failed to sign up: ${e.message ?? 'unknown error'}'),
+        ),
       );
     } catch (_) {
       if (!mounted) return;
@@ -175,6 +192,8 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
   @override
   Widget build(BuildContext context) {
     final green = AppTheme.brandGreen;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final horizontalPadding = screenWidth < 380 ? 16.0 : 28.0;
     final header = _args.skippedSports || _args.draft.sports.isEmpty
         ? 'Recommended Clubs'
         : 'Recommended Clubs for ${_args.draft.sports.join(', ')}';
@@ -199,7 +218,10 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF63C8A7), width: 1.2),
+                  border: Border.all(
+                    color: const Color(0xFF63C8A7),
+                    width: 1.2,
+                  ),
                 ),
                 child: Icon(Icons.arrow_back, size: 18, color: green),
               ),
@@ -235,15 +257,17 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
-          child: Container(
-            height: 1,
-            color: const Color(0xFF9FD7C1),
-          ),
+          child: Container(height: 1, color: const Color(0xFF9FD7C1)),
         ),
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(28, 12, 28, 20),
+          padding: EdgeInsets.fromLTRB(
+            horizontalPadding,
+            12,
+            horizontalPadding,
+            20,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -254,8 +278,8 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
                   fontWeight: FontWeight.w700,
                   color: Colors.black.withValues(alpha: 0.70),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+                maxLines: screenWidth < 380 ? 2 : 1,
+                overflow: TextOverflow.fade,
               ),
               const SizedBox(height: 10),
               Expanded(
@@ -265,9 +289,13 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
                     if (snap.connectionState != ConnectionState.done) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    final clubs = _filterRecommended(snap.data ?? const <Club>[]);
+                    final clubs = _filterRecommended(
+                      snap.data ?? const <Club>[],
+                    );
                     if (clubs.isEmpty) {
-                      return const Center(child: Text('No clubs match your sports yet.'));
+                      return const Center(
+                        child: Text('No clubs match your sports yet.'),
+                      );
                     }
                     return ListView.separated(
                       itemCount: clubs.length,
@@ -285,7 +313,10 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
                           }),
                           borderRadius: BorderRadius.circular(14),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 13,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(14),
@@ -309,25 +340,37 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
                                           : const Color(0xFFB8C0CC),
                                       width: 2,
                                     ),
-                                    color: selected ? green : Colors.transparent,
+                                    color: selected
+                                        ? green
+                                        : Colors.transparent,
                                   ),
                                   child: selected
-                                      ? const Icon(Icons.check, size: 14, color: Colors.white)
+                                      ? const Icon(
+                                          Icons.check,
+                                          size: 14,
+                                          color: Colors.white,
+                                        )
                                       : null,
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         club.name,
-                                        style: const TextStyle(fontWeight: FontWeight.w800),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
                                         _clubListSubtitle(club),
-                                        style: const TextStyle(color: Colors.black54, fontSize: 12),
+                                        style: const TextStyle(
+                                          color: Colors.black54,
+                                          fontSize: 12,
+                                        ),
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -350,15 +393,23 @@ class _RecommendedClubsScreenState extends State<RecommendedClubsScreen> {
                   backgroundColor: green,
                   foregroundColor: Colors.white,
                   minimumSize: const Size.fromHeight(54),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  textStyle: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
                   elevation: 2,
                 ),
                 child: _isSubmitting
                     ? const SizedBox(
                         width: 18,
                         height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
                       )
                     : const Text('Done'),
               ),
@@ -374,10 +425,10 @@ int? _calcAge(DateTime? dob) {
   if (dob == null) return null;
   final now = DateTime.now();
   var age = now.year - dob.year;
-  final hadBirthday = now.month > dob.month || (now.month == dob.month && now.day >= dob.day);
+  final hadBirthday =
+      now.month > dob.month || (now.month == dob.month && now.day >= dob.day);
   if (!hadBirthday) {
     age -= 1;
   }
   return age;
 }
-

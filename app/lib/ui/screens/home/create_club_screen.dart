@@ -458,23 +458,50 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () =>
-                              Navigator.of(ctx).pop(_selectedSports),
-                          child: const Text('Cancel'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: () => Navigator.of(ctx).pop(selected),
-                          child: const Text('Save'),
-                        ),
-                      ),
-                    ],
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      if (constraints.maxWidth < 320) {
+                        return Column(
+                          children: [
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton(
+                                onPressed: () =>
+                                    Navigator.of(ctx).pop(_selectedSports),
+                                child: const Text('Cancel'),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton(
+                                onPressed: () =>
+                                    Navigator.of(ctx).pop(selected),
+                                child: const Text('Save'),
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () =>
+                                  Navigator.of(ctx).pop(_selectedSports),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () => Navigator.of(ctx).pop(selected),
+                              child: const Text('Save'),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ],
               ),
@@ -679,12 +706,18 @@ class _PickerRow extends StatelessWidget {
               ),
             ),
             Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  value,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.primary,
-                    fontWeight: FontWeight.w800,
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 150),
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -741,7 +774,10 @@ class _MemberLimitRowState extends State<_MemberLimitRow> {
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 8),
-        Row(
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 10,
+          runSpacing: 8,
           children: [
             IconButton.filledTonal(
               onPressed: widget.memberLimit <= 0
@@ -751,8 +787,8 @@ class _MemberLimitRowState extends State<_MemberLimitRow> {
                     ),
               icon: const Icon(Icons.remove),
             ),
-            const SizedBox(width: 10),
-            Expanded(
+            SizedBox(
+              width: 120,
               child: TextFormField(
                 controller: _ctrl,
                 keyboardType: TextInputType.number,
@@ -771,7 +807,6 @@ class _MemberLimitRowState extends State<_MemberLimitRow> {
                 },
               ),
             ),
-            const SizedBox(width: 10),
             IconButton.filledTonal(
               onPressed: () =>
                   widget.onChanged((widget.memberLimit + 1).clamp(0, 100000)),

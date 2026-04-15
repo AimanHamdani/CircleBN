@@ -348,6 +348,15 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     return const MapEntry<int, String>(4, 'Suggested setup: 3-5 participants.');
   }
 
+  bool _isLargeEventSport(String? sport) {
+    final normalized = (sport ?? '').trim().toLowerCase();
+    return normalized.contains('marathon');
+  }
+
+  int _maxParticipantsForSport(String? sport) {
+    return _isLargeEventSport(sport) ? 1000 : 100;
+  }
+
   String? _durationLabelFromDuration(Duration d) {
     final totalMin = d.inMinutes;
     if (totalMin <= 60) return '1 Hour';
@@ -415,50 +424,98 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _TapPickerField(
-                              label: 'Sport',
-                              value: _sport ?? 'Sport',
-                              onTap: () => _showOptionPicker<String>(
-                                title: 'Sport',
-                                options: SampleData.sports,
-                                onSelected: (v) => setState(() {
-                                  _sport = v;
-                                  final suggestion =
-                                      _participantSuggestionForSport(v);
-                                  if (suggestion != null) {
-                                    _participantsCtrl.text = suggestion.key
-                                        .toString();
-                                    _participantSuggestionHint =
-                                        suggestion.value;
-                                  } else {
-                                    _participantSuggestionHint = null;
-                                  }
-                                }),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final stackVertical = constraints.maxWidth < 520;
+                          if (stackVertical) {
+                            return Column(
+                              children: [
+                                _TapPickerField(
+                                  label: 'Sport',
+                                  value: _sport ?? 'Sport',
+                                  onTap: () => _showOptionPicker<String>(
+                                    title: 'Sport',
+                                    options: SampleData.sports,
+                                    onSelected: (v) => setState(() {
+                                      _sport = v;
+                                      final suggestion =
+                                          _participantSuggestionForSport(v);
+                                      if (suggestion != null) {
+                                        _participantsCtrl.text = suggestion.key
+                                            .toString();
+                                        _participantSuggestionHint =
+                                            suggestion.value;
+                                      } else {
+                                        _participantSuggestionHint = null;
+                                      }
+                                    }),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                _TapPickerField(
+                                  label: 'Category',
+                                  value: _category ?? 'Category',
+                                  onTap: () => _showOptionPicker<String>(
+                                    title: 'Category',
+                                    options: const [
+                                      'Casual',
+                                      'Competition',
+                                      'Training',
+                                      'Social',
+                                    ],
+                                    onSelected: (v) =>
+                                        setState(() => _category = v),
+                                  ),
+                                ),
+                              ],
+                            );
+                          }
+                          return Row(
+                            children: [
+                              Expanded(
+                                child: _TapPickerField(
+                                  label: 'Sport',
+                                  value: _sport ?? 'Sport',
+                                  onTap: () => _showOptionPicker<String>(
+                                    title: 'Sport',
+                                    options: SampleData.sports,
+                                    onSelected: (v) => setState(() {
+                                      _sport = v;
+                                      final suggestion =
+                                          _participantSuggestionForSport(v);
+                                      if (suggestion != null) {
+                                        _participantsCtrl.text = suggestion.key
+                                            .toString();
+                                        _participantSuggestionHint =
+                                            suggestion.value;
+                                      } else {
+                                        _participantSuggestionHint = null;
+                                      }
+                                    }),
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _TapPickerField(
-                              label: 'Category',
-                              value: _category ?? 'Category',
-                              onTap: () => _showOptionPicker<String>(
-                                title: 'Category',
-                                options: const [
-                                  'Casual',
-                                  'Competition',
-                                  'Training',
-                                  'Social',
-                                ],
-                                onSelected: (v) =>
-                                    setState(() => _category = v),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _TapPickerField(
+                                  label: 'Category',
+                                  value: _category ?? 'Category',
+                                  onTap: () => _showOptionPicker<String>(
+                                    title: 'Category',
+                                    options: const [
+                                      'Casual',
+                                      'Competition',
+                                      'Training',
+                                      'Social',
+                                    ],
+                                    onSelected: (v) =>
+                                        setState(() => _category = v),
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
-                        ],
+                            ],
+                          );
+                        },
                       ),
                       const SizedBox(height: 12),
                       _TapPickerField(
@@ -660,52 +717,104 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                         onTap: _pickLocationFromMap,
                       ),
                       const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _latCtrl,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                    signed: true,
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final stackVertical = constraints.maxWidth < 430;
+                          if (stackVertical) {
+                            return Column(
+                              children: [
+                                TextFormField(
+                                  controller: _latCtrl,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                        signed: true,
+                                      ),
+                                  decoration: const InputDecoration(
+                                    hintText: 'Latitude (optional)',
                                   ),
-                              decoration: const InputDecoration(
-                                hintText: 'Latitude (optional)',
-                              ),
-                              validator: (v) {
-                                final txt = (v ?? '').trim();
-                                if (txt.isEmpty) return null;
-                                final n = double.tryParse(txt);
-                                if (n == null) return 'Invalid';
-                                if (n < -90 || n > 90) return '−90 to 90';
-                                return null;
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: _lngCtrl,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                    signed: true,
+                                  validator: (v) {
+                                    final txt = (v ?? '').trim();
+                                    if (txt.isEmpty) return null;
+                                    final n = double.tryParse(txt);
+                                    if (n == null) return 'Invalid';
+                                    if (n < -90 || n > 90) return '−90 to 90';
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 10),
+                                TextFormField(
+                                  controller: _lngCtrl,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                        signed: true,
+                                      ),
+                                  decoration: const InputDecoration(
+                                    hintText: 'Longitude (optional)',
                                   ),
-                              decoration: const InputDecoration(
-                                hintText: 'Longitude (optional)',
+                                  validator: (v) {
+                                    final txt = (v ?? '').trim();
+                                    if (txt.isEmpty) return null;
+                                    final n = double.tryParse(txt);
+                                    if (n == null) return 'Invalid';
+                                    if (n < -180 || n > 180)
+                                      return '−180 to 180';
+                                    return null;
+                                  },
+                                ),
+                              ],
+                            );
+                          }
+                          return Row(
+                            children: [
+                              Expanded(
+                                child: TextFormField(
+                                  controller: _latCtrl,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                        signed: true,
+                                      ),
+                                  decoration: const InputDecoration(
+                                    hintText: 'Latitude (optional)',
+                                  ),
+                                  validator: (v) {
+                                    final txt = (v ?? '').trim();
+                                    if (txt.isEmpty) return null;
+                                    final n = double.tryParse(txt);
+                                    if (n == null) return 'Invalid';
+                                    if (n < -90 || n > 90) return '−90 to 90';
+                                    return null;
+                                  },
+                                ),
                               ),
-                              validator: (v) {
-                                final txt = (v ?? '').trim();
-                                if (txt.isEmpty) return null;
-                                final n = double.tryParse(txt);
-                                if (n == null) return 'Invalid';
-                                if (n < -180 || n > 180) return '−180 to 180';
-                                return null;
-                              },
-                            ),
-                          ),
-                        ],
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: TextFormField(
+                                  controller: _lngCtrl,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                        signed: true,
+                                      ),
+                                  decoration: const InputDecoration(
+                                    hintText: 'Longitude (optional)',
+                                  ),
+                                  validator: (v) {
+                                    final txt = (v ?? '').trim();
+                                    if (txt.isEmpty) return null;
+                                    final n = double.tryParse(txt);
+                                    if (n == null) return 'Invalid';
+                                    if (n < -180 || n > 180)
+                                      return '−180 to 180';
+                                    return null;
+                                  },
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -743,15 +852,17 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Row(
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 10,
+                        runSpacing: 8,
                         children: [
                           IconButton.filledTonal(
                             onPressed: _decrementParticipants,
                             icon: const Icon(Icons.remove),
                           ),
-                          const SizedBox(width: 10),
                           SizedBox(
-                            width: 80,
+                            width: 92,
                             child: TextFormField(
                               controller: _participantsCtrl,
                               textAlign: TextAlign.center,
@@ -767,6 +878,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                                 if (parsed == null) {
                                   return;
                                 }
+                                final maxAllowed = _maxParticipantsForSport(
+                                  _sport,
+                                );
                                 if (parsed < 1) {
                                   _participantsCtrl.value =
                                       const TextEditingValue(
@@ -775,6 +889,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                                           offset: 1,
                                         ),
                                       );
+                                } else if (parsed > maxAllowed) {
+                                  final next = maxAllowed.toString();
+                                  _participantsCtrl.value = TextEditingValue(
+                                    text: next,
+                                    selection: TextSelection.collapsed(
+                                      offset: next.length,
+                                    ),
+                                  );
                                 }
                               },
                               validator: (v) {
@@ -783,14 +905,18 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                                 if (n == null || n <= 0) {
                                   return 'Enter a valid participant count';
                                 }
-                                if (n > 10000) {
-                                  return 'Too large';
+                                final maxAllowed = _maxParticipantsForSport(
+                                  _sport,
+                                );
+                                if (n > maxAllowed) {
+                                  return _isLargeEventSport(_sport)
+                                      ? 'Maximum is $maxAllowed for marathon events'
+                                      : 'Maximum is $maxAllowed unless this is a marathon event';
                                 }
                                 return null;
                               },
                             ),
                           ),
-                          const SizedBox(width: 10),
                           IconButton.filledTonal(
                             onPressed: _incrementParticipants,
                             icon: const Icon(Icons.add),
@@ -808,6 +934,17 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                           ),
                         ),
                       ],
+                      const SizedBox(height: 6),
+                      Text(
+                        _isLargeEventSport(_sport)
+                            ? 'Marathon event: max ${_maxParticipantsForSport(_sport)} participants.'
+                            : 'Maximum 100 participants (marathon events can exceed this).',
+                        style: TextStyle(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       const SizedBox(height: 14),
                       const Text(
                         'Fee',
@@ -958,13 +1095,15 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                         ),
                       ),
                       const SizedBox(height: 10),
-                      Row(
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 10,
+                        runSpacing: 8,
                         children: [
                           OutlinedButton(
                             onPressed: _pickThumbnail,
                             child: const Text('Choose Thumbnail'),
                           ),
-                          const SizedBox(width: 10),
                           if (_thumbnailPreviewBytes != null ||
                               _thumbnailFileId != null)
                             TextButton(
@@ -1130,6 +1269,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     final location = _locationCtrl.text.trim();
     final fee = _normalizeFeeLabel(_feeCtrl.text.trim());
     final capacity = int.tryParse(_participantsCtrl.text.trim());
+    final maxAllowedParticipants = _maxParticipantsForSport(sport);
 
     if (startAt == null ||
         durationMinutes == null ||
@@ -1141,6 +1281,18 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         const SnackBar(
           content: Text(
             'Please fill Sport, Date & Time, Duration, Location, and Participants.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (capacity > maxAllowedParticipants) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _isLargeEventSport(sport)
+                ? 'Participant limit is $maxAllowedParticipants for marathon events.'
+                : 'Participant limit is $maxAllowedParticipants unless this is a marathon event.',
           ),
         ),
       );
@@ -1414,13 +1566,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   void _incrementParticipants() {
     final current = int.tryParse(_participantsCtrl.text.trim()) ?? 1;
-    final next = (current + 1).clamp(1, 10000);
+    final next = (current + 1).clamp(1, _maxParticipantsForSport(_sport));
     setState(() => _participantsCtrl.text = next.toString());
   }
 
   void _decrementParticipants() {
     final current = int.tryParse(_participantsCtrl.text.trim()) ?? 1;
-    final next = (current - 1).clamp(1, 10000);
+    final next = (current - 1).clamp(1, _maxParticipantsForSport(_sport));
     setState(() => _participantsCtrl.text = next.toString());
   }
 

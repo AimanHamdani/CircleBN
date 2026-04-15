@@ -33,32 +33,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
-    with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> {
   int _tabIndex = 0;
-  late final AnimationController _fabBreathController;
-  late final Animation<double> _fabBreath;
-
-  @override
-  void initState() {
-    super.initState();
-    _fabBreathController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1900),
-    )..repeat(reverse: true);
-    _fabBreath = Tween<double>(begin: 0.96, end: 1.04).animate(
-      CurvedAnimation(
-        parent: _fabBreathController,
-        curve: Curves.easeInOutCubic,
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _fabBreathController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -92,52 +68,60 @@ class _HomeScreenState extends State<HomeScreen>
                     top: BorderSide(color: Color(0xFFD7E7E2), width: 1),
                   ),
                 ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _BottomNavItem(
-                        icon: Icons.home_outlined,
-                        activeIcon: Icons.home,
-                        label: 'Home',
-                        selected: _tabIndex == 0,
-                        activeColor: navAccent,
-                        onTap: () => setState(() => _tabIndex = 0),
-                      ),
-                    ),
-                    Expanded(
-                      child: _BottomNavItem(
-                        icon: Icons.people_outline,
-                        activeIcon: Icons.people,
-                        label: 'Circle',
-                        selected: _tabIndex == 1,
-                        activeColor: navAccent,
-                        onTap: () => setState(() => _tabIndex = 1),
-                      ),
-                    ),
-                    const SizedBox(width: 64),
-                    Expanded(
-                      child: _BottomNavItem(
-                        icon: Icons.calendar_month_outlined,
-                        activeIcon: Icons.calendar_month,
-                        label: 'Calendar',
-                        selected: _tabIndex == 3,
-                        activeColor: navAccent,
-                        onTap: () => setState(() => _tabIndex = 3),
-                      ),
-                    ),
-                    Expanded(
-                      child: _BottomNavItem(
-                        icon: Icons.person_outline,
-                        activeIcon: Icons.person,
-                        label: 'Profile',
-                        selected: false,
-                        activeColor: navAccent,
-                        onTap: () => Navigator.of(
-                          context,
-                        ).pushNamed(ProfileScreen.routeName),
-                      ),
-                    ),
-                  ],
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final centerGap = (constraints.maxWidth * 0.16).clamp(
+                      42.0,
+                      64.0,
+                    );
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: _BottomNavItem(
+                            icon: Icons.home_outlined,
+                            activeIcon: Icons.home,
+                            label: 'Home',
+                            selected: _tabIndex == 0,
+                            activeColor: navAccent,
+                            onTap: () => setState(() => _tabIndex = 0),
+                          ),
+                        ),
+                        Expanded(
+                          child: _BottomNavItem(
+                            icon: Icons.people_outline,
+                            activeIcon: Icons.people,
+                            label: 'Circle',
+                            selected: _tabIndex == 1,
+                            activeColor: navAccent,
+                            onTap: () => setState(() => _tabIndex = 1),
+                          ),
+                        ),
+                        SizedBox(width: centerGap),
+                        Expanded(
+                          child: _BottomNavItem(
+                            icon: Icons.calendar_month_outlined,
+                            activeIcon: Icons.calendar_month,
+                            label: 'Calendar',
+                            selected: _tabIndex == 3,
+                            activeColor: navAccent,
+                            onTap: () => setState(() => _tabIndex = 3),
+                          ),
+                        ),
+                        Expanded(
+                          child: _BottomNavItem(
+                            icon: Icons.person_outline,
+                            activeIcon: Icons.person,
+                            label: 'Profile',
+                            selected: false,
+                            activeColor: navAccent,
+                            onTap: () => Navigator.of(
+                              context,
+                            ).pushNamed(ProfileScreen.routeName),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
               Positioned(
@@ -145,30 +129,27 @@ class _HomeScreenState extends State<HomeScreen>
                 right: 0,
                 top: -8,
                 child: Center(
-                  child: ScaleTransition(
-                    scale: _fabBreath,
-                    child: InkWell(
-                      onTap: () => _showCreateChoice(context),
-                      borderRadius: BorderRadius.circular(999),
-                      child: Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: navAccent,
-                          borderRadius: BorderRadius.circular(999),
-                          boxShadow: [
-                            BoxShadow(
-                              color: navAccent.withValues(alpha: 0.35),
-                              blurRadius: 16,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: const Icon(
-                          Icons.add,
-                          color: Colors.white,
-                          size: 26,
-                        ),
+                  child: InkWell(
+                    onTap: () => _showCreateChoice(context),
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: navAccent,
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: navAccent.withValues(alpha: 0.35),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.add,
+                        color: Colors.white,
+                        size: 26,
                       ),
                     ),
                   ),

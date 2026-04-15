@@ -17,6 +17,7 @@ import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
 import '../profile/user_profile_view_screen.dart';
 import 'create_event_screen.dart';
+import 'event_scoring_screen.dart';
 import '../../theme/app_theme.dart';
 
 class EventDetailArgs {
@@ -237,6 +238,11 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                           ),
                           const SizedBox(width: 8),
                           _RoundIconButton(
+                            icon: Icons.scoreboard_outlined,
+                            onTap: () => _openScoreEntry(e),
+                          ),
+                          const SizedBox(width: 8),
+                          _RoundIconButton(
                             icon: _isDeleting
                                 ? Icons.hourglass_top
                                 : Icons.delete_outline,
@@ -372,6 +378,17 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     if (result == 'updated' || result == 'created' || result == true) {
       await _refreshEvent(eventId: event.id);
     }
+  }
+
+  Future<void> _openScoreEntry(Event event) async {
+    await Navigator.of(context).pushNamed(
+      EventScoringScreen.routeName,
+      arguments: EventScoringArgs(event: event),
+    );
+    if (!mounted) {
+      return;
+    }
+    await _refreshEvent(eventId: event.id);
   }
 
   Widget _chatComposerBar(BuildContext context, {required bool canSendChat}) {
@@ -1291,56 +1308,80 @@ class _ParticipantsTab extends StatelessWidget {
       return const Center(child: Text('No participants yet.'));
     }
 
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 14,
-        childAspectRatio: 0.82,
-      ),
-      itemCount: participants.length,
-      itemBuilder: (context, index) {
-        final p = participants[index];
-        final initial = p.username.isNotEmpty
-            ? p.username[0].toUpperCase()
-            : '?';
-        return Align(
-          alignment: Alignment.topCenter,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => onOpenProfile(p.userId),
-            child: SizedBox(
-              width: 86,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: p.color.withValues(alpha: 0.2),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child:
-                        (p.avatarFileId != null && p.avatarFileId!.isNotEmpty)
-                        ? FutureBuilder<Uint8List>(
-                            future: AppwriteService.getFileViewBytes(
-                              bucketId: AppwriteConfig.profileImagesBucketId,
-                              fileId: p.avatarFileId!,
-                            ),
-                            builder: (context, snap) {
-                              if (snap.connectionState ==
-                                      ConnectionState.done &&
-                                  snap.data != null &&
-                                  snap.data!.isNotEmpty) {
-                                return Image.memory(
-                                  snap.data!,
-                                  fit: BoxFit.cover,
-                                );
-                              }
-                              return Center(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final crossAxisCount = width >= 900
+            ? 6
+            : width >= 700
+            ? 5
+            : width >= 520
+            ? 4
+            : 3;
+        return GridView.builder(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 14,
+            childAspectRatio: 0.82,
+          ),
+          itemCount: participants.length,
+          itemBuilder: (context, index) {
+            final p = participants[index];
+            final initial = p.username.isNotEmpty
+                ? p.username[0].toUpperCase()
+                : '?';
+            return Align(
+              alignment: Alignment.topCenter,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => onOpenProfile(p.userId),
+                child: SizedBox(
+                  width: 86,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 52,
+                        height: 52,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: p.color.withValues(alpha: 0.2),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child:
+                            (p.avatarFileId != null &&
+                                p.avatarFileId!.isNotEmpty)
+                            ? FutureBuilder<Uint8List>(
+                                future: AppwriteService.getFileViewBytes(
+                                  bucketId:
+                                      AppwriteConfig.profileImagesBucketId,
+                                  fileId: p.avatarFileId!,
+                                ),
+                                builder: (context, snap) {
+                                  if (snap.connectionState ==
+                                          ConnectionState.done &&
+                                      snap.data != null &&
+                                      snap.data!.isNotEmpty) {
+                                    return Image.memory(
+                                      snap.data!,
+                                      fit: BoxFit.cover,
+                                    );
+                                  }
+                                  return Center(
+                                    child: Text(
+                                      initial,
+                                      style: TextStyle(
+                                        color: p.color,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 20,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              )
+                            : Center(
                                 child: Text(
                                   initial,
                                   style: TextStyle(
@@ -1349,35 +1390,25 @@ class _ParticipantsTab extends StatelessWidget {
                                     fontSize: 20,
                                   ),
                                 ),
-                              );
-                            },
-                          )
-                        : Center(
-                            child: Text(
-                              initial,
-                              style: TextStyle(
-                                color: p.color,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 20,
                               ),
-                            ),
-                          ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        p.username,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    p.username,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );

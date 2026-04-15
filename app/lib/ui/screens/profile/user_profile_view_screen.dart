@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
+import '../../../data/achievement_repository.dart';
+import '../../../data/badge_display_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/user_profile.dart';
 
@@ -25,6 +27,8 @@ class UserProfileViewScreen extends StatefulWidget {
 
 class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
   Future<UserProfile>? _future;
+  Future<AchievementSnapshot>? _achievementFuture;
+  Future<Set<String>>? _displayBadgeIdsFuture;
   String _targetUserId = '';
   bool _isOwnProfile = false;
 
@@ -41,6 +45,12 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
     }
     _isOwnProfile = _targetUserId == currentUserId;
     _future = profileRepository().getProfileById(_targetUserId);
+    _achievementFuture = achievementRepository().getSnapshotForUser(
+      _targetUserId,
+    );
+    _displayBadgeIdsFuture = badgeDisplayRepository().getSelectedBadgeIds(
+      _targetUserId,
+    );
   }
 
   @override
@@ -57,6 +67,10 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
           return FutureBuilder<UserProfile>(
             future: _future,
             builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done &&
+                  snap.data == null) {
+                return const Center(child: CircularProgressIndicator());
+              }
               final profile = snap.data ?? UserProfile.empty(_targetUserId);
               final name = profile.realName.trim().isNotEmpty
                   ? profile.realName.trim()
@@ -143,40 +157,53 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.22),
-                                  ),
-                                ),
-                                child: const Row(
-                                  children: [
-                                    Expanded(
-                                      child: _HeaderStat(
-                                        value: '24',
-                                        label: 'Events',
+                              FutureBuilder<AchievementSnapshot>(
+                                future: _achievementFuture,
+                                builder: (context, statSnap) {
+                                  final stats = statSnap.data;
+                                  return Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 14,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.12,
+                                      ),
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.22,
+                                        ),
                                       ),
                                     ),
-                                    Expanded(
-                                      child: _HeaderStat(
-                                        value: '8',
-                                        label: 'Clubs',
-                                      ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: _HeaderStat(
+                                            value:
+                                                '${stats?.createdEventsCount ?? 0}',
+                                            label: 'Events',
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: _HeaderStat(
+                                            value:
+                                                '${stats?.joinedClubsCount ?? 0}',
+                                            label: 'Circle',
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: _HeaderStat(
+                                            value:
+                                                '${stats?.currentStreak ?? 0}',
+                                            label: 'Streak',
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    Expanded(
-                                      child: _HeaderStat(
-                                        value: '5',
-                                        label: 'Streak',
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                                  );
+                                },
                               ),
                             ],
                           ),
@@ -227,6 +254,45 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                                           : sports.join(', '),
                                     ),
                                   ],
+                                ),
+                                const SizedBox(height: 14),
+                                FutureBuilder<AchievementSnapshot>(
+                                  future: _achievementFuture,
+                                  builder: (context, achievementSnap) {
+                                    final achievements = achievementSnap.data;
+                                    if (achievements == null) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    return FutureBuilder<Set<String>>(
+                                      future: _displayBadgeIdsFuture,
+                                      builder: (context, selectedSnap) {
+                                        final selectedBadgeIds =
+                                            selectedSnap.data ??
+                                            const <String>{};
+                                        final earned =
+                                            achievements.unlockedBadges;
+                                        final selectedEarned = earned
+                                            .where(
+                                              (badge) => selectedBadgeIds
+                                                  .contains(badge.badge.id),
+                                            )
+                                            .toList();
+                                        return _BadgeCard(
+                                          badges: selectedEarned
+                                              .map(
+                                                (badge) => _BadgeVisual(
+                                                  emoji: badge.badge.emoji,
+                                                  label: badge.badge.name,
+                                                ),
+                                              )
+                                              .toList(),
+                                          emptyText: earned.isEmpty
+                                              ? 'No badges unlocked yet. Join events and clubs to earn your first one.'
+                                              : "This user doesn't display any badges.",
+                                        );
+                                      },
+                                    );
+                                  },
                                 ),
                                 const SizedBox(height: 14),
                                 Container(
@@ -347,6 +413,13 @@ class _InfoLine {
   const _InfoLine({required this.label, required this.value});
 }
 
+class _BadgeVisual {
+  final String emoji;
+  final String label;
+
+  const _BadgeVisual({required this.emoji, required this.label});
+}
+
 class _InfoCard extends StatelessWidget {
   final String title;
   final List<_InfoLine> rows;
@@ -408,6 +481,74 @@ class _InfoCard extends StatelessWidget {
             if (i != rows.length - 1) const Divider(height: 1),
           ],
           const SizedBox(height: 10),
+        ],
+      ),
+    );
+  }
+}
+
+class _BadgeCard extends StatelessWidget {
+  final List<_BadgeVisual> badges;
+  final String emptyText;
+
+  const _BadgeCard({required this.badges, required this.emptyText});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFD8DEE7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'BADGES',
+            style: TextStyle(
+              color: Color(0xFF8A95A4),
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (badges.isEmpty)
+            Text(
+              emptyText,
+              style: TextStyle(
+                color: Colors.black.withValues(alpha: 0.55),
+                fontWeight: FontWeight.w600,
+              ),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final badge in badges)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F4),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: const Color(0xFFD7E5E1)),
+                    ),
+                    child: Text(
+                      '${badge.emoji}  ${badge.label}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF2D4A45),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
         ],
       ),
     );

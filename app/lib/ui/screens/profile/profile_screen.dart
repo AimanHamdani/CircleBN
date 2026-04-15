@@ -4,11 +4,14 @@ import 'package:appwrite/appwrite.dart';
 import 'package:flutter/material.dart';
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
+import '../../../data/achievement_repository.dart';
+import '../../../data/badge_display_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../data/sample_clubs.dart';
 import '../../../models/user_profile.dart';
 import '../home/home_screen.dart';
 import '../home/streak_screen.dart';
+import 'achievements_screen.dart';
 import '../login_screen.dart';
 import 'edit_profile_screen.dart';
 import 'change_password_screen.dart';
@@ -26,15 +29,41 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   late Future<UserProfile> _future;
+  late Future<AchievementSnapshot> _achievementFuture;
+  late Future<Set<String>> _displayBadgeIdsFuture;
+  late Future<List<Object?>> _pageFuture;
+  static List<Object?>? _cachedPageData;
 
   @override
   void initState() {
     super.initState();
     _future = profileRepository().getMyProfile();
+    _achievementFuture = achievementRepository().getMySnapshot();
+    _displayBadgeIdsFuture = badgeDisplayRepository().getSelectedBadgeIds(
+      currentUserId,
+    );
+    _pageFuture = _buildPageFuture();
   }
 
   void _reload() {
-    setState(() => _future = profileRepository().getMyProfile());
+    setState(() {
+      _future = profileRepository().getMyProfile();
+      _achievementFuture = achievementRepository().getMySnapshot();
+      _displayBadgeIdsFuture = badgeDisplayRepository().getSelectedBadgeIds(
+        currentUserId,
+      );
+      _pageFuture = _buildPageFuture();
+    });
+  }
+
+  Future<List<Object?>> _buildPageFuture() async {
+    final data = await Future.wait<Object?>([
+      _future,
+      _achievementFuture,
+      _displayBadgeIdsFuture,
+    ]);
+    _cachedPageData = data;
+    return data;
   }
 
   void _goBack() {
@@ -189,33 +218,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
       },
       child: Scaffold(
         backgroundColor: const Color(0xFFF4F6F8),
-        body: FutureBuilder<UserProfile>(
-          future: _future,
+        body: FutureBuilder<List<Object?>>(
+          future: _pageFuture,
+          initialData: _cachedPageData,
           builder: (context, snap) {
-            final profile = snap.data;
-            final realName = profile?.realName.trim().isNotEmpty == true
-                ? profile!.realName.trim()
+            if (snap.data == null) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final profile = snap.data![0] as UserProfile;
+            final achievements = snap.data![1] as AchievementSnapshot;
+            final selectedBadgeIds = snap.data![2] as Set<String>;
+
+            final realName = profile.realName.trim().isNotEmpty
+                ? profile.realName.trim()
                 : 'Name';
-            final age = profile?.age != null ? '${profile!.age}' : '—';
-            final gender = profile?.gender.trim().isNotEmpty == true
-                ? profile!.gender.trim()
+            final age = profile.age != null ? '${profile.age}' : '—';
+            final gender = profile.gender.trim().isNotEmpty
+                ? profile.gender.trim()
                 : '—';
-            final skillLevel = profile?.skillLevel.trim().isNotEmpty == true
-                ? profile!.skillLevel.trim()
+            final skillLevel = profile.skillLevel.trim().isNotEmpty
+                ? profile.skillLevel.trim()
                 : '—';
-            final email = profile?.email.trim().isNotEmpty == true
-                ? profile!.email.trim()
+            final email = profile.email.trim().isNotEmpty
+                ? profile.email.trim()
                 : '—';
-            final emergency =
-                profile?.emergencyContact.trim().isNotEmpty == true
-                ? profile!.emergencyContact.trim()
+            final emergency = profile.emergencyContact.trim().isNotEmpty
+                ? profile.emergencyContact.trim()
                 : '—';
-            final height = profile?.heightCm != null
-                ? '${profile!.heightCm} cm'
+            final height = profile.heightCm != null
+                ? '${profile.heightCm} cm'
                 : '—';
-            final notificationsEnabled = profile?.notificationsEnabled ?? true;
-            final sportsPreview =
-                (profile?.preferredSports ?? const <String>{}).toList()..sort();
+            final notificationsEnabled = profile.notificationsEnabled;
+            final sportsPreview = profile.preferredSports.toList()..sort();
             final sportsLabel = sportsPreview.isEmpty
                 ? 'Football · Badminton · Running'
                 : sportsPreview.take(3).join(' · ');
@@ -256,7 +291,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ],
                         ),
                         const SizedBox(height: 16),
-                        _ProfileAvatarBox(fileId: profile?.avatarFileId),
+                        _ProfileAvatarBox(fileId: profile.avatarFileId),
                         const SizedBox(height: 14),
                         Text(
                           realName,
@@ -274,52 +309,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        const Row(
+                        Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             _TopChip(
                               icon: Icons.local_fire_department,
-                              text: '5 streak',
+                              value: achievements.currentStreak,
+                              suffix: 'streak',
                             ),
-                            SizedBox(width: 8),
+                            const SizedBox(width: 8),
                             _TopChip(
                               icon: Icons.workspace_premium,
-                              text: '8 badges',
+                              value: achievements.unlockedBadges.length,
+                              suffix: 'badges',
                             ),
                           ],
-                        ),
-                        const SizedBox(height: 14),
-                        Container(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.22),
-                            ),
-                          ),
-                          child: const Row(
-                            children: [
-                              Expanded(
-                                child: _HeroStatCell(
-                                  value: '24',
-                                  label: 'Events',
-                                ),
-                              ),
-                              Expanded(
-                                child: _HeroStatCell(
-                                  value: '3',
-                                  label: 'Clubs',
-                                ),
-                              ),
-                              Expanded(
-                                child: _HeroStatCell(
-                                  value: '142',
-                                  label: 'Friends',
-                                ),
-                              ),
-                            ],
-                          ),
                         ),
                       ],
                     ),
@@ -329,12 +333,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
                       child: Column(
                         children: [
-                          if (snap.connectionState != ConnectionState.done &&
-                              profile == null)
-                            const Padding(
-                              padding: EdgeInsets.only(bottom: 12),
-                              child: LinearProgressIndicator(minHeight: 2),
-                            ),
                           _CardSection(
                             title: 'PERSONAL INFO',
                             child: Column(
@@ -355,6 +353,52 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 _InfoRow(label: 'Emergency', value: emergency),
                               ],
                             ),
+                          ),
+                          const SizedBox(height: 14),
+                          Builder(
+                            builder: (context) {
+                              final earned = achievements.unlockedBadges;
+                              final selectedEarned = earned
+                                  .where(
+                                    (badge) => selectedBadgeIds.contains(
+                                      badge.badge.id,
+                                    ),
+                                  )
+                                  .toList();
+                              return _CardSection(
+                                title: 'BADGES',
+                                child: earned.isEmpty
+                                    ? Text(
+                                        'No badges unlocked yet. Join events and clubs to earn your first one.',
+                                        style: TextStyle(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.55,
+                                          ),
+                                        ),
+                                      )
+                                    : selectedEarned.isEmpty
+                                    ? Text(
+                                        "This user doesn't display any badges.",
+                                        style: TextStyle(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.55,
+                                          ),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      )
+                                    : Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: [
+                                          for (final badge in selectedEarned)
+                                            _UnlockedBadgePill(
+                                              emoji: badge.badge.emoji,
+                                              label: badge.badge.name,
+                                            ),
+                                        ],
+                                      ),
+                              );
+                            },
                           ),
                           const SizedBox(height: 14),
                           _CardSection(
@@ -385,8 +429,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                if (profile == null ||
-                                    profile.preferredSports.isEmpty)
+                                if (profile.preferredSports.isEmpty)
                                   Text(
                                     'No sports selected yet.',
                                     style: TextStyle(
@@ -429,9 +472,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 Align(
                                   alignment: Alignment.centerRight,
                                   child: TextButton(
-                                    onPressed: profile == null
-                                        ? null
-                                        : () => _editPreferredSports(profile),
+                                    onPressed: () =>
+                                        _editPreferredSports(profile),
                                     child: const Text('Add / Remove Sports'),
                                   ),
                                 ),
@@ -453,10 +495,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     ),
                                     Switch(
                                       value: notificationsEnabled,
-                                      activeColor: Colors.white,
+                                      activeThumbColor: Colors.white,
                                       activeTrackColor: cs.primary,
                                       onChanged: (v) async {
-                                        if (profile == null) return;
                                         await profileRepository().saveMyProfile(
                                           profile.copyWith(
                                             notificationsEnabled: v,
@@ -474,6 +515,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     Navigator.of(
                                       context,
                                     ).pushNamed(StreakScreen.routeName);
+                                  },
+                                ),
+                                const Divider(height: 1),
+                                _MenuRow(
+                                  label: 'Achievements',
+                                  onTap: () async {
+                                    await Navigator.of(
+                                      context,
+                                    ).pushNamed(AchievementsScreen.routeName);
+                                    if (mounted) {
+                                      _reload();
+                                    }
                                   },
                                 ),
                                 const Divider(height: 1),
@@ -502,6 +555,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 _MenuRow(
                                   label: 'Log Out',
                                   onTap: () async {
+                                    final navigator = Navigator.of(context);
+                                    final messenger = ScaffoldMessenger.of(
+                                      context,
+                                    );
                                     try {
                                       // Use deleteSessions() to also remove client-side cookies/session storage.
                                       // This prevents the "log out then can't log back in" issue.
@@ -509,9 +566,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                           .deleteSessions();
                                     } on AppwriteException catch (e) {
                                       if (!mounted) return;
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
+                                      messenger.showSnackBar(
                                         SnackBar(
                                           content: Text(
                                             e.message ?? 'Failed to log out.',
@@ -520,9 +575,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       );
                                     } catch (_) {
                                       if (!mounted) return;
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
+                                      messenger.showSnackBar(
                                         const SnackBar(
                                           content: Text('Failed to log out.'),
                                         ),
@@ -532,9 +585,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       CurrentUser.reset();
                                     }
                                     if (!mounted) return;
-                                    Navigator.of(
-                                      context,
-                                    ).pushNamedAndRemoveUntil(
+                                    navigator.pushNamedAndRemoveUntil(
                                       LoginScreen.routeName,
                                       (_) => false,
                                     );
@@ -565,9 +616,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
 class _TopChip extends StatelessWidget {
   final IconData icon;
-  final String text;
+  final int value;
+  final String suffix;
 
-  const _TopChip({required this.icon, required this.text});
+  const _TopChip({
+    required this.icon,
+    required this.value,
+    required this.suffix,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -583,46 +639,32 @@ class _TopChip extends StatelessWidget {
         children: [
           Icon(icon, size: 16, color: const Color(0xFFFEC84B)),
           const SizedBox(width: 6),
-          Text(
-            text,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
+          _AnimatedCounterLabel(value: value, suffix: suffix),
         ],
       ),
     );
   }
 }
 
-class _HeroStatCell extends StatelessWidget {
-  final String value;
-  final String label;
+class _AnimatedCounterLabel extends StatelessWidget {
+  final int value;
+  final String suffix;
 
-  const _HeroStatCell({required this.value, required this.label});
+  const _AnimatedCounterLabel({required this.value, required this.suffix});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w900,
-            fontSize: 34 / 1.6,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.85),
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
+    const textStyle = TextStyle(
+      color: Colors.white,
+      fontWeight: FontWeight.w800,
+    );
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: value.toDouble()),
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.easeOutCubic,
+      builder: (context, animated, _) {
+        return Text('${animated.round()} $suffix', style: textStyle);
+      },
     );
   }
 }
@@ -697,45 +739,27 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-class _SkillRow extends StatelessWidget {
+class _UnlockedBadgePill extends StatelessWidget {
+  final String emoji;
   final String label;
-  final int value;
-  const _SkillRow({required this.label, required this.value});
+
+  const _UnlockedBadgePill({required this.emoji, required this.label});
 
   @override
   Widget build(BuildContext context) {
-    final clamped = value.clamp(1, 6).toDouble();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 82,
-            child: Text(
-              label,
-              style: const TextStyle(color: Color(0xFF4F5E69), fontSize: 16),
-            ),
-          ),
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(99),
-              child: LinearProgressIndicator(
-                minHeight: 6,
-                value: clamped / 6.0,
-                backgroundColor: const Color(0xFFE8EEED),
-                valueColor: const AlwaysStoppedAnimation(Color(0xFF1DA37E)),
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            '$value',
-            style: const TextStyle(
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF1D8267),
-            ),
-          ),
-        ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F4),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFD7E5E1)),
+      ),
+      child: Text(
+        '$emoji  $label',
+        style: const TextStyle(
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF2D4A45),
+        ),
       ),
     );
   }

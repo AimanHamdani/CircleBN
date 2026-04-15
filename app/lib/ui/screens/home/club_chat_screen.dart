@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../appwrite/appwrite_config.dart';
@@ -17,9 +19,17 @@ class ClubChatScreen extends StatefulWidget {
 
 class _ClubChatScreenState extends State<ClubChatScreen> {
   final _composerCtrl = TextEditingController();
+  final _chatListKey = GlobalKey<AnimatedListState>();
+  final List<_MockChatItem> _messages = <_MockChatItem>[];
+  static const _teal = Color(0xFF14B8A6);
+  static const _mint = Color(0xFFF0FDFA);
+  bool _didSeedMessages = false;
+  bool _isTyping = false;
+  Timer? _replyTimer;
 
   @override
   void dispose() {
+    _replyTimer?.cancel();
     _composerCtrl.dispose();
     super.dispose();
   }
@@ -39,6 +49,112 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
 
   int _mockMembers(Club c) => 20 + (c.id.hashCode.abs() % 80);
   int _mockOnline(Club c) => 3 + (c.id.hashCode.abs() % 12);
+
+  void _seedMessagesIfNeeded() {
+    if (_didSeedMessages) {
+      return;
+    }
+    _didSeedMessages = true;
+    _messages.addAll([
+      const _MockChatItem.incoming(
+        name: 'Sarah Lim',
+        avatarColor: Color(0xFFFF9800),
+        avatarIcon: Icons.emoji_events_outlined,
+        text: 'Hey team! Are we still on for Saturday? ⚽',
+      ),
+      const _MockChatItem.incoming(
+        name: 'James Wong',
+        avatarColor: Color(0xFF2196F3),
+        avatarIcon: Icons.bolt_outlined,
+        text: "Yes! I'll be there at 5:45pm 👍",
+      ),
+      const _MockChatItem.pinned(),
+      const _MockChatItem.outgoing(text: 'Same, bringing extra balls 🔥'),
+      const _MockChatItem.incoming(
+        name: 'Sarah Lim',
+        avatarColor: Color(0xFFFF9800),
+        avatarIcon: Icons.emoji_events_outlined,
+        text: 'See you all there! 🙌',
+      ),
+    ]);
+  }
+
+  void _insertMessage(_MockChatItem item) {
+    final insertIndex = _messages.length;
+    _messages.add(item);
+    _chatListKey.currentState?.insertItem(
+      insertIndex,
+      duration: const Duration(milliseconds: 260),
+    );
+  }
+
+  void _sendMessage() {
+    final text = _composerCtrl.text.trim();
+    if (text.isEmpty) {
+      return;
+    }
+
+    _composerCtrl.clear();
+    _insertMessage(_MockChatItem.outgoing(text: text));
+
+    setState(() {
+      _isTyping = true;
+    });
+
+    _replyTimer?.cancel();
+    _replyTimer = Timer(const Duration(milliseconds: 1100), () {
+      if (!mounted) {
+        return;
+      }
+      final replies = <_MockChatItem>[
+        const _MockChatItem.incoming(
+          name: 'Sarah Lim',
+          avatarColor: Color(0xFFFF9800),
+          avatarIcon: Icons.emoji_events_outlined,
+          text: 'Nice one! See you there 👌',
+        ),
+        const _MockChatItem.incoming(
+          name: 'James Wong',
+          avatarColor: Color(0xFF2196F3),
+          avatarIcon: Icons.bolt_outlined,
+          text: 'Perfect. Let us lock in the lineup.',
+        ),
+        const _MockChatItem.incoming(
+          name: 'Mia Tan',
+          avatarColor: Color(0xFF8B5CF6),
+          avatarIcon: Icons.sports_soccer_outlined,
+          text: 'Great energy team 🔥',
+        ),
+      ];
+      final reply = replies[_messages.length % replies.length];
+      setState(() {
+        _isTyping = false;
+      });
+      _insertMessage(reply);
+    });
+  }
+
+  Widget _buildChatItem(BuildContext context, _MockChatItem item) {
+    if (item.type == _MockChatItemType.pinned) {
+      return _PinnedEventCard(
+        primary: _teal,
+        onView: () {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('View event (mock).')));
+        },
+      );
+    }
+    if (item.type == _MockChatItemType.outgoing) {
+      return _OutgoingBubble(text: item.text, primary: _teal);
+    }
+    return _IncomingBubble(
+      name: item.name,
+      avatarColor: item.avatarColor,
+      avatarIcon: item.avatarIcon,
+      text: item.text,
+    );
+  }
 
   void _openInfo(Club club) {
     // On web, stacked post-frame callbacks can wait for another pointer event.
@@ -62,18 +178,18 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
   @override
   Widget build(BuildContext context) {
     final club = _clubFromRoute(context);
-    final cs = Theme.of(context).colorScheme;
+    _seedMessagesIfNeeded();
     final members = _mockMembers(club);
     final online = _mockOnline(club);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F8FA),
+      backgroundColor: _mint,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: _teal,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.of(context).maybePop(),
         ),
         titleSpacing: 0,
@@ -82,7 +198,9 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         title: Builder(
           builder: (context) {
             final screenW = MediaQuery.sizeOf(context).width;
-            final titleW = screenW > 0 ? (screenW - 72).clamp(160.0, 1200.0) : 280.0;
+            final titleW = screenW > 0
+                ? (screenW - 72).clamp(160.0, 1200.0)
+                : 280.0;
             return GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => _openInfo(club),
@@ -105,7 +223,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                             style: const TextStyle(
                               fontWeight: FontWeight.w900,
                               fontSize: 16,
-                              color: Colors.black87,
+                              color: Colors.white,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -115,7 +233,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                             '$members members · $online online',
                             style: TextStyle(
                               fontSize: 12,
-                              color: Colors.black.withValues(alpha: 0.5),
+                              color: Colors.white.withValues(alpha: 0.85),
                               fontWeight: FontWeight.w600,
                             ),
                             maxLines: 1,
@@ -130,87 +248,87 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
             );
           },
         ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+              ),
+              child: IconButton(
+                padding: EdgeInsets.zero,
+                icon: const Icon(
+                  Icons.info_outline,
+                  color: Colors.white,
+                  size: 18,
+                ),
+                onPressed: () => _openInfo(club),
+              ),
+            ),
+          ),
+        ],
       ),
       body: Column(
         children: [
           Expanded(
             child: LayoutBuilder(
               builder: (context, viewportConstraints) {
-                final listW = viewportConstraints.maxWidth.isFinite && viewportConstraints.maxWidth > 0
+                final listW =
+                    viewportConstraints.maxWidth.isFinite &&
+                        viewportConstraints.maxWidth > 0
                     ? viewportConstraints.maxWidth
                     : MediaQuery.sizeOf(context).width;
-                final contentW = listW > 0 ? (listW - 32).clamp(120.0, 2000.0) : 320.0;
-                return ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                  children: [
-                    Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(color: const Color(0xFFE3E7EE)),
+                return AnimatedList(
+                  key: _chatListKey,
+                  initialItemCount: _messages.length,
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                  itemBuilder: (context, index, animation) {
+                    final contentW = listW > 0
+                        ? (listW - 32).clamp(120.0, 2000.0)
+                        : 320.0;
+                    final item = _messages[index];
+                    return SizeTransition(
+                      sizeFactor: CurvedAnimation(
+                        parent: animation,
+                        curve: Curves.easeOutCubic,
+                      ),
+                      child: FadeTransition(
+                        opacity: CurvedAnimation(
+                          parent: animation,
+                          curve: Curves.easeOutCubic,
                         ),
-                        child: const Text(
-                          'Today',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black54),
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            bottom: index == _messages.length - 1 ? 0 : 10,
+                          ),
+                          child: SizedBox(
+                            width: contentW,
+                            child: _buildChatItem(context, item),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: contentW,
-                      child: _IncomingBubble(
-                        name: 'Sarah Lim',
-                        avatarColor: const Color(0xFFFF9800),
-                        avatarIcon: Icons.emoji_events_outlined,
-                        text: 'Hey team! Are we still on for Saturday? ⚽',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: contentW,
-                      child: _IncomingBubble(
-                        name: 'James Wong',
-                        avatarColor: const Color(0xFF2196F3),
-                        avatarIcon: Icons.bolt_outlined,
-                        text: "Yes! I'll be there at 5:45pm 👍",
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: contentW,
-                      child: _PinnedEventCard(
-                        primary: cs.primary,
-                        onView: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('View event (mock).')),
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: contentW,
-                      child: _OutgoingBubble(
-                        text: 'Same, bringing extra balls 🔥',
-                        primary: cs.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: contentW,
-                      child: _IncomingBubble(
-                        name: 'Sarah Lim',
-                        avatarColor: const Color(0xFFFF9800),
-                        avatarIcon: Icons.emoji_events_outlined,
-                        text: 'See you all there! 🙌',
-                      ),
-                    ),
-                  ],
+                    );
+                  },
                 );
               },
             ),
+          ),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            child: _isTyping
+                ? const Padding(
+                    key: ValueKey('typing'),
+                    padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: _TypingBubble(),
+                    ),
+                  )
+                : const SizedBox.shrink(key: ValueKey('not_typing')),
           ),
           SafeArea(
             top: false,
@@ -224,48 +342,54 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                       decoration: InputDecoration(
                         hintText: 'Message ${club.name}...',
                         filled: true,
-                        fillColor: Colors.white,
+                        fillColor: _mint,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(999),
-                          borderSide: BorderSide.none,
+                          borderSide: BorderSide(
+                            color: _teal.withValues(alpha: 0.45),
+                          ),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(999),
+                          borderSide: BorderSide(
+                            color: _teal.withValues(alpha: 0.45),
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(999),
+                          borderSide: const BorderSide(
+                            color: _teal,
+                            width: 1.4,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 14,
+                        ),
                       ),
                       minLines: 1,
                       maxLines: 4,
                       textInputAction: TextInputAction.send,
-                      onSubmitted: (_) {
-                        if (_composerCtrl.text.trim().isEmpty) {
-                          return;
-                        }
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Message sent (mock).')),
-                        );
-                        _composerCtrl.clear();
-                      },
+                      onSubmitted: (_) => _sendMessage(),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Material(
-                    color: cs.primary,
+                    color: _teal,
                     borderRadius: BorderRadius.circular(999),
                     clipBehavior: Clip.antiAlias,
                     child: InkWell(
-                      onTap: () {
-                        if (_composerCtrl.text.trim().isEmpty) {
-                          return;
-                        }
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Message sent (mock).')),
-                        );
-                        _composerCtrl.clear();
-                      },
+                      onTap: _sendMessage,
                       borderRadius: BorderRadius.circular(999),
                       child: const SizedBox(
                         width: 48,
                         height: 48,
                         child: Center(
-                          child: Icon(Icons.send, color: Colors.white, size: 20),
+                          child: Icon(
+                            Icons.send,
+                            color: Colors.white,
+                            size: 20,
+                          ),
                         ),
                       ),
                     ),
@@ -314,7 +438,12 @@ class _ClubChatThumb extends StatelessWidget {
                 if (snap.connectionState == ConnectionState.done &&
                     bytes != null &&
                     bytes.isNotEmpty) {
-                  return Image.memory(bytes, fit: BoxFit.cover, width: size, height: size);
+                  return Image.memory(
+                    bytes,
+                    fit: BoxFit.cover,
+                    width: size,
+                    height: size,
+                  );
                 }
                 if (snap.connectionState == ConnectionState.waiting ||
                     snap.connectionState == ConnectionState.active) {
@@ -329,10 +458,18 @@ class _ClubChatThumb extends StatelessWidget {
                     ),
                   );
                 }
-                return Icon(Icons.sports_soccer, color: Theme.of(context).colorScheme.primary, size: size * 0.5);
+                return Icon(
+                  Icons.sports_soccer,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: size * 0.5,
+                );
               },
             )
-          : Icon(Icons.sports_soccer, color: Theme.of(context).colorScheme.primary, size: size * 0.5),
+          : Icon(
+              Icons.sports_soccer,
+              color: Theme.of(context).colorScheme.primary,
+              size: size * 0.5,
+            ),
     );
   }
 }
@@ -352,6 +489,8 @@ class _IncomingBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const teal = Color(0xFF14B8A6);
+    const green = Color(0xFF0F5549);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
@@ -369,10 +508,20 @@ class _IncomingBubble extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(name, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black.withValues(alpha: 0.45))),
+              Text(
+                name,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.black.withValues(alpha: 0.45),
+                ),
+              ),
               const SizedBox(height: 4),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: const BorderRadius.only(
@@ -381,9 +530,17 @@ class _IncomingBubble extends StatelessWidget {
                     bottomRight: Radius.circular(16),
                     bottomLeft: Radius.circular(16),
                   ),
-                  border: Border.all(color: const Color(0xFFE3E7EE)),
+                  border: Border.all(color: teal.withValues(alpha: 0.65)),
                 ),
-                child: Text(text, style: const TextStyle(fontSize: 14, height: 1.35)),
+                child: Text(
+                  text,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    height: 1.35,
+                    color: green,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ],
           ),
@@ -401,6 +558,7 @@ class _OutgoingBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const green = Color(0xFF0F5549);
     final screenW = MediaQuery.sizeOf(context).width;
     final maxBubbleW = screenW > 0 ? screenW * 0.78 : 320.0;
     return Align(
@@ -409,7 +567,7 @@ class _OutgoingBubble extends StatelessWidget {
         constraints: BoxConstraints(maxWidth: maxBubbleW),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: primary,
+          color: green,
           borderRadius: const BorderRadius.only(
             topLeft: Radius.circular(16),
             topRight: Radius.circular(4),
@@ -417,7 +575,14 @@ class _OutgoingBubble extends StatelessWidget {
             bottomLeft: Radius.circular(16),
           ),
         ),
-        child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.35)),
+        child: Text(
+          text,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            height: 1.35,
+          ),
+        ),
       ),
     );
   }
@@ -431,12 +596,15 @@ class _PinnedEventCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const teal = Color(0xFF14B8A6);
+    const mint = Color(0xFFF0FDFA);
+    const green = Color(0xFF0F5549);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: mint,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE3E7EE)),
+        border: Border.all(color: teal.withValues(alpha: 0.65)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -457,11 +625,22 @@ class _PinnedEventCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          const Text('5-a-side Football', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+          const Text(
+            '5-a-side Football',
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              fontSize: 16,
+              color: green,
+            ),
+          ),
           const SizedBox(height: 4),
           Text(
             'Sat 13 Sep · 6pm · Bukit Timah',
-            style: TextStyle(fontSize: 12, color: Colors.black.withValues(alpha: 0.5), fontWeight: FontWeight.w600),
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.black.withValues(alpha: 0.5),
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 12),
           SizedBox(
@@ -469,14 +648,107 @@ class _PinnedEventCard extends StatelessWidget {
             child: FilledButton.tonal(
               onPressed: onView,
               style: FilledButton.styleFrom(
-                foregroundColor: primary,
-                backgroundColor: primary.withValues(alpha: 0.12),
+                foregroundColor: green,
+                backgroundColor: teal.withValues(alpha: 0.14),
               ),
-              child: const Text('View Event', style: TextStyle(fontWeight: FontWeight.w800)),
+              child: const Text(
+                'View Event',
+                style: TextStyle(fontWeight: FontWeight.w800, color: green),
+              ),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+class _TypingBubble extends StatelessWidget {
+  const _TypingBubble();
+
+  @override
+  Widget build(BuildContext context) {
+    const teal = Color(0xFF14B8A6);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(4),
+          topRight: Radius.circular(16),
+          bottomRight: Radius.circular(16),
+          bottomLeft: Radius.circular(16),
+        ),
+        border: Border.all(color: teal.withValues(alpha: 0.65)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          _TypingDot(delayMs: 0),
+          SizedBox(width: 4),
+          _TypingDot(delayMs: 120),
+          SizedBox(width: 4),
+          _TypingDot(delayMs: 240),
+        ],
+      ),
+    );
+  }
+}
+
+class _TypingDot extends StatelessWidget {
+  final int delayMs;
+
+  const _TypingDot({required this.delayMs});
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0.35, end: 1),
+      duration: Duration(milliseconds: 520 + delayMs),
+      curve: Curves.easeInOut,
+      onEnd: () {},
+      builder: (context, value, _) {
+        return Opacity(
+          opacity: value,
+          child: const Icon(Icons.circle, size: 6, color: Color(0xFF0F5549)),
+        );
+      },
+    );
+  }
+}
+
+enum _MockChatItemType { incoming, outgoing, pinned }
+
+class _MockChatItem {
+  final _MockChatItemType type;
+  final String name;
+  final Color avatarColor;
+  final IconData avatarIcon;
+  final String text;
+
+  const _MockChatItem._({
+    required this.type,
+    this.name = '',
+    this.avatarColor = const Color(0xFFFF9800),
+    this.avatarIcon = Icons.person_outline,
+    this.text = '',
+  });
+
+  const _MockChatItem.incoming({
+    required String name,
+    required Color avatarColor,
+    required IconData avatarIcon,
+    required String text,
+  }) : this._(
+         type: _MockChatItemType.incoming,
+         name: name,
+         avatarColor: avatarColor,
+         avatarIcon: avatarIcon,
+         text: text,
+       );
+
+  const _MockChatItem.outgoing({required String text})
+    : this._(type: _MockChatItemType.outgoing, text: text);
+
+  const _MockChatItem.pinned() : this._(type: _MockChatItemType.pinned);
 }

@@ -65,7 +65,9 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.35),
+                    ),
                   ),
                   child: Icon(
                     Icons.arrow_back,
@@ -85,91 +87,104 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
           centerTitle: false,
         ),
         body: FutureBuilder<List<Object?>>(
-        future: Future.wait<Object?>([
-          eventRepository().listEvents(),
-          profileRepository().getMyProfile(),
-        ]),
-        builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final events = (snap.data != null ? snap.data![0] as List<Event> : const <Event>[]);
-          final profile =
-              (snap.data != null ? snap.data![1] as UserProfile? : null);
-          final fullName = profile?.realName.trim().isNotEmpty == true ? profile!.realName.trim() : '—';
-          bool isParticipant(Event e) => e.joinedByMe || (e.creatorId != null && e.creatorId == currentUserId);
-
-          final created = events.where((e) {
-            if (e.creatorId == null || e.creatorId != currentUserId) {
-              return false;
+          future: Future.wait<Object?>([
+            eventRepository().listEvents(),
+            profileRepository().getMyProfile(),
+          ]),
+          builder: (context, snap) {
+            if (snap.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
             }
-            final endAt = e.startAt.add(e.duration);
-            return endAt.isAfter(now);
-          }).toList()
-            ..sort((a, b) => a.startAt.compareTo(b.startAt));
-          final ticket = events.where((e) {
-            if (!isParticipant(e)) return false;
-            final endAt = e.startAt.add(e.duration);
-            return endAt.isAfter(now);
-          }).toList()
-            ..sort((a, b) => a.startAt.compareTo(b.startAt));
-          final history = events.where((e) {
-            if (!isParticipant(e)) return false;
-            final endAt = e.startAt.add(e.duration);
-            return !endAt.isAfter(now);
-          }).toList()
-            ..sort((a, b) => b.startAt.compareTo(a.startAt));
 
-          return Column(
-            children: [
-              _ActivityTabHeader(
-                selected: _tab,
-                onSelect: (t) => setState(() => _tab = t),
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: _ActivityTabBody(
-                  tab: _tab,
-                  now: now,
-                  fullName: fullName,
-                  created: created,
-                  ticket: ticket,
-                  history: history,
-                  onOpenEvent: (event, {required bool allowCreatorActions, required bool showRegisterButton, DateTime? chatEnabledUntil}) {
-                    Navigator.of(context).pushNamed(
-                      EventDetailScreen.routeName,
-                      arguments: EventDetailArgs(
-                        event: event,
-                        showRegisterButton: showRegisterButton,
-                        allowCreatorActions: allowCreatorActions,
-                        chatEnabledUntil: chatEnabledUntil,
-                      ),
-                    ).then((_) {
-                      if (!mounted) {
-                        return;
-                      }
-                      setState(() {});
-                    });
-                  },
-                  onCancelTicket: _cancelTicket,
-                  isCancellingEvent: (eventId) => _cancellingEventIds.contains(eventId),
-                  onSendTicketMock: (event) {
-                    final message = [
-                      'Send Email/PDF (mock)',
-                      'Title: ${event.title}',
-                      'Fee: ${event.entryFeeLabel}',
-                      'Duration: ${_formatDurationLabel(event.duration)}',
-                    ].join('\n');
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(message)),
-                    );
-                  },
+            final events = (snap.data != null
+                ? snap.data![0] as List<Event>
+                : const <Event>[]);
+            final profile = (snap.data != null
+                ? snap.data![1] as UserProfile?
+                : null);
+            final fullName = profile?.realName.trim().isNotEmpty == true
+                ? profile!.realName.trim()
+                : '—';
+            bool isParticipant(Event e) =>
+                e.joinedByMe ||
+                (e.creatorId != null && e.creatorId == currentUserId);
+
+            final created = events.where((e) {
+              if (e.creatorId == null || e.creatorId != currentUserId) {
+                return false;
+              }
+              final endAt = e.startAt.add(e.duration);
+              return endAt.isAfter(now);
+            }).toList()..sort((a, b) => a.startAt.compareTo(b.startAt));
+            final ticket = events.where((e) {
+              if (!isParticipant(e)) return false;
+              final endAt = e.startAt.add(e.duration);
+              return endAt.isAfter(now);
+            }).toList()..sort((a, b) => a.startAt.compareTo(b.startAt));
+            final history = events.where((e) {
+              if (!isParticipant(e)) return false;
+              final endAt = e.startAt.add(e.duration);
+              return !endAt.isAfter(now);
+            }).toList()..sort((a, b) => b.startAt.compareTo(a.startAt));
+
+            return Column(
+              children: [
+                _ActivityTabHeader(
+                  selected: _tab,
+                  onSelect: (t) => setState(() => _tab = t),
                 ),
-              ),
-            ],
-          );
-        },
+                const SizedBox(height: 12),
+                Expanded(
+                  child: _ActivityTabBody(
+                    tab: _tab,
+                    now: now,
+                    fullName: fullName,
+                    created: created,
+                    ticket: ticket,
+                    history: history,
+                    onOpenEvent:
+                        (
+                          event, {
+                          required bool allowCreatorActions,
+                          required bool showRegisterButton,
+                          DateTime? chatEnabledUntil,
+                        }) {
+                          Navigator.of(context)
+                              .pushNamed(
+                                EventDetailScreen.routeName,
+                                arguments: EventDetailArgs(
+                                  event: event,
+                                  showRegisterButton: showRegisterButton,
+                                  allowCreatorActions: allowCreatorActions,
+                                  chatEnabledUntil: chatEnabledUntil,
+                                ),
+                              )
+                              .then((_) {
+                                if (!mounted) {
+                                  return;
+                                }
+                                setState(() {});
+                              });
+                        },
+                    onCancelTicket: _cancelTicket,
+                    isCancellingEvent: (eventId) =>
+                        _cancellingEventIds.contains(eventId),
+                    onSendTicketMock: (event) {
+                      final message = [
+                        'Send Email/PDF (mock)',
+                        'Title: ${event.title}',
+                        'Fee: ${event.entryFeeLabel}',
+                        'Duration: ${_formatDurationLabel(event.duration)}',
+                      ].join('\n');
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text(message)));
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -179,13 +194,37 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
     if (_cancellingEventIds.contains(event.id)) {
       return;
     }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Cancel ticket?'),
+          content: const Text('Are you sure you want to leave this event?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('No'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Yes'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true) {
+      return;
+    }
     setState(() => _cancellingEventIds.add(event.id));
     try {
       await eventRegistrationRepository().cancel(
         eventId: event.id,
         userId: currentUserId,
       );
-      final joined = await eventRegistrationRepository().getJoinedCount(event.id);
+      final joined = await eventRegistrationRepository().getJoinedCount(
+        event.id,
+      );
       if (AppwriteService.isConfigured &&
           AppwriteConfig.databaseId.isNotEmpty &&
           AppwriteConfig.eventsCollectionId.isNotEmpty) {
@@ -198,16 +237,16 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ticket cancelled.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Ticket cancelled.')));
     } catch (_) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to cancel ticket.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to cancel ticket.')));
     } finally {
       if (mounted) {
         setState(() => _cancellingEventIds.remove(event.id));
@@ -315,7 +354,8 @@ class _ActivityTabBody extends StatelessWidget {
     required bool allowCreatorActions,
     required bool showRegisterButton,
     DateTime? chatEnabledUntil,
-  }) onOpenEvent;
+  })
+  onOpenEvent;
   final Future<void> Function(Event event) onCancelTicket;
   final bool Function(String eventId) isCancellingEvent;
   final void Function(Event event) onSendTicketMock;
@@ -365,17 +405,20 @@ class _ActivityTabBody extends StatelessWidget {
     final list = tab == _ActivityTab.ticket
         ? ticket
         : tab == _ActivityTab.created
-            ? created
-            : history;
+        ? created
+        : history;
 
     if (list.isEmpty) {
       final label = tab == _ActivityTab.ticket
           ? 'No joined events yet'
           : tab == _ActivityTab.created
-              ? 'No created events yet'
-              : 'No history yet';
+          ? 'No created events yet'
+          : 'No history yet';
       return Center(
-        child: Text(label, style: TextStyle(color: Colors.black.withValues(alpha: 0.55))),
+        child: Text(
+          label,
+          style: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
+        ),
       );
     }
 
@@ -384,11 +427,14 @@ class _ActivityTabBody extends StatelessWidget {
       itemBuilder: (context, idx) {
         final e = list[idx];
         final endAt = e.startAt.add(e.duration);
-        final dateTimeStr = '${e.startAt.day}/${e.startAt.month}/${e.startAt.year.toString().substring(2)}';
+        final dateTimeStr =
+            '${e.startAt.day}/${e.startAt.month}/${e.startAt.year.toString().substring(2)}';
         final timeStr = _fmtTime(e.startAt);
         final durationStr = _fmtDuration(e.startAt, e.duration);
         final freezeHours = _freezeHoursFromLabel(e.cancellationFreeze);
-        final cancellationCutoff = e.startAt.subtract(Duration(hours: freezeHours));
+        final cancellationCutoff = e.startAt.subtract(
+          Duration(hours: freezeHours),
+        );
         final canCancelNow = now.isBefore(cancellationCutoff);
 
         final card = Container(
@@ -402,7 +448,11 @@ class _ActivityTabBody extends StatelessWidget {
             borderRadius: BorderRadius.circular(18),
             onTap: () {
               if (tab == _ActivityTab.created) {
-                onOpenEvent(e, allowCreatorActions: true, showRegisterButton: false);
+                onOpenEvent(
+                  e,
+                  allowCreatorActions: true,
+                  showRegisterButton: false,
+                );
                 return;
               }
 
@@ -417,7 +467,11 @@ class _ActivityTabBody extends StatelessWidget {
               }
 
               // ticket
-              onOpenEvent(e, allowCreatorActions: false, showRegisterButton: false);
+              onOpenEvent(
+                e,
+                allowCreatorActions: false,
+                showRegisterButton: false,
+              );
             },
             child: tab == _ActivityTab.ticket
                 ? Padding(
@@ -430,36 +484,76 @@ class _ActivityTabBody extends StatelessWidget {
                             Expanded(
                               child: Text(
                                 e.title,
-                                style: const TextStyle(fontWeight: FontWeight.w900),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
                               ),
                             ),
                             if (canCancelNow)
                               TextButton(
-                                onPressed: isCancellingEvent(e.id) ? null : () => onCancelTicket(e),
+                                onPressed: isCancellingEvent(e.id)
+                                    ? null
+                                    : () => onCancelTicket(e),
                                 style: TextButton.styleFrom(
                                   foregroundColor: Colors.red.shade400,
                                 ),
-                                child: Text(isCancellingEvent(e.id) ? 'Cancelling...' : 'Cancel'),
+                                child: Text(
+                                  isCancellingEvent(e.id)
+                                      ? 'Cancelling...'
+                                      : 'Cancel',
+                                ),
                               ),
                           ],
                         ),
                         const SizedBox(height: 6),
-                        Text('Name: $fullName', style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                        Text(
+                          'Name: $fullName',
+                          style: const TextStyle(
+                            color: Colors.black54,
+                            fontSize: 12,
+                          ),
+                        ),
                         const SizedBox(height: 4),
-                        Text('Location: ${e.location}', style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                        Text(
+                          'Location: ${e.location}',
+                          style: const TextStyle(
+                            color: Colors.black54,
+                            fontSize: 12,
+                          ),
+                        ),
                         const SizedBox(height: 4),
-                        Text('Date: $dateTimeStr  Time: $timeStr', style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                        Text(
+                          'Date: $dateTimeStr  Time: $timeStr',
+                          style: const TextStyle(
+                            color: Colors.black54,
+                            fontSize: 12,
+                          ),
+                        ),
                         const SizedBox(height: 4),
-                        Text('Duration: $durationStr', style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                        Text(
+                          'Duration: $durationStr',
+                          style: const TextStyle(
+                            color: Colors.black54,
+                            fontSize: 12,
+                          ),
+                        ),
                         const SizedBox(height: 4),
-                        Text('Fee: ${e.entryFeeLabel}', style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                        Text(
+                          'Fee: ${e.entryFeeLabel}',
+                          style: const TextStyle(
+                            color: Colors.black54,
+                            fontSize: 12,
+                          ),
+                        ),
                         const SizedBox(height: 4),
                         Text(
                           canCancelNow
                               ? 'Cancellation allowed until ${_fmtTime(cancellationCutoff)}'
                               : 'Cancellation freeze started (${e.cancellationFreeze})',
                           style: TextStyle(
-                            color: canCancelNow ? Colors.black54 : Colors.red.shade300,
+                            color: canCancelNow
+                                ? Colors.black54
+                                : Colors.red.shade300,
                             fontSize: 12,
                           ),
                         ),
@@ -488,20 +582,30 @@ class _ActivityTabBody extends StatelessWidget {
                                 Expanded(
                                   child: Text(
                                     e.title,
-                                    style: const TextStyle(fontWeight: FontWeight.w900),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                    ),
                                   ),
                                 ),
                                 if (tab == _ActivityTab.created)
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
                                     decoration: BoxDecoration(
-                                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .primary
+                                          .withValues(alpha: 0.12),
                                       borderRadius: BorderRadius.circular(999),
                                     ),
                                     child: Text(
                                       'Edit',
                                       style: TextStyle(
-                                        color: Theme.of(context).colorScheme.primary,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
                                         fontWeight: FontWeight.w800,
                                       ),
                                     ),
@@ -509,11 +613,29 @@ class _ActivityTabBody extends StatelessWidget {
                               ],
                             ),
                             const SizedBox(height: 6),
-                            Text('Location: ${e.location}', style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                            Text(
+                              'Location: ${e.location}',
+                              style: const TextStyle(
+                                color: Colors.black54,
+                                fontSize: 12,
+                              ),
+                            ),
                             const SizedBox(height: 4),
-                            Text('Date: $dateTimeStr  Time: $timeStr', style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                            Text(
+                              'Date: $dateTimeStr  Time: $timeStr',
+                              style: const TextStyle(
+                                color: Colors.black54,
+                                fontSize: 12,
+                              ),
+                            ),
                             const SizedBox(height: 4),
-                            Text('Duration: $durationStr', style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                            Text(
+                              'Duration: $durationStr',
+                              style: const TextStyle(
+                                color: Colors.black54,
+                                fontSize: 12,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -529,4 +651,3 @@ class _ActivityTabBody extends StatelessWidget {
     );
   }
 }
-

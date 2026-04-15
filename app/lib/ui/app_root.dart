@@ -14,8 +14,10 @@ import 'screens/home/map_picker_screen.dart';
 import 'screens/home/activity_overview_screen.dart';
 import 'screens/home/notifications_screen.dart';
 import 'screens/home/streak_screen.dart';
+import 'screens/home/private_events_screen.dart';
 import 'screens/profile/edit_profile_screen.dart';
 import 'screens/profile/change_password_screen.dart';
+import 'screens/profile/achievements_screen.dart';
 import 'screens/profile/profile_screen.dart';
 import 'screens/profile/user_profile_view_screen.dart';
 import 'screens/reset_password_screen.dart';
@@ -51,6 +53,8 @@ class AppRoot extends StatelessWidget {
         ActivityOverviewScreen.routeName: (_) => const ActivityOverviewScreen(),
         NotificationsScreen.routeName: (_) => const NotificationsScreen(),
         StreakScreen.routeName: (_) => const StreakScreen(),
+        PrivateEventsScreen.routeName: (_) => const PrivateEventsScreen(),
+        AchievementsScreen.routeName: (_) => const AchievementsScreen(),
         ProfileScreen.routeName: (_) => const ProfileScreen(),
         UserProfileViewScreen.routeName: (_) => const UserProfileViewScreen(),
         EditProfileScreen.routeName: (_) => const EditProfileScreen(),

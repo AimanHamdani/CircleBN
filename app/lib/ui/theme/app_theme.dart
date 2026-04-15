@@ -26,13 +26,19 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          textStyle: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(
+            fontFamily: 'Nunito',
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: cs.primary,
-          textStyle: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(
+            fontFamily: 'Nunito',
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     );
@@ -56,7 +62,10 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 14,
+        ),
         hintStyle: const TextStyle(fontFamily: 'Nunito'),
         labelStyle: const TextStyle(fontFamily: 'Nunito'),
         border: OutlineInputBorder(
@@ -88,20 +97,69 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          textStyle: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(
+            fontFamily: 'Nunito',
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: brandGreen,
-          textStyle: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(
+            fontFamily: 'Nunito',
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: _FadeThroughTransitionsBuilder(),
+          TargetPlatform.iOS: _FadeThroughTransitionsBuilder(),
+          TargetPlatform.windows: _FadeThroughTransitionsBuilder(),
+          TargetPlatform.macOS: _FadeThroughTransitionsBuilder(),
+          TargetPlatform.linux: _FadeThroughTransitionsBuilder(),
+        },
+      ),
     );
   }
 }
 
+class _FadeThroughTransitionsBuilder extends PageTransitionsBuilder {
+  const _FadeThroughTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    final fadeCurve = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    final slideCurve = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+
+    return FadeTransition(
+      opacity: Tween<double>(begin: 0.0, end: 1.0).animate(fadeCurve),
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0.0, 0.03),
+          end: Offset.zero,
+        ).animate(slideCurve),
+        child: child,
+      ),
+    );
+  }
+}

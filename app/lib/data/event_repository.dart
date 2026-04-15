@@ -17,6 +17,28 @@ class SampleEventRepository implements EventRepository {
 }
 
 class AppwriteEventRepository implements EventRepository {
+  bool _isPrivateEvent(Event event) {
+    final privacy = (event.privacy ?? '').toLowerCase();
+    return privacy.contains('private');
+  }
+
+  bool _canViewEvent({
+    required Event event,
+    required String currentUserId,
+    required Set<String> myEventIds,
+  }) {
+    if (!_isPrivateEvent(event)) {
+      return true;
+    }
+    if ((event.creatorId ?? '').trim() == currentUserId) {
+      return true;
+    }
+    if (myEventIds.contains(event.id)) {
+      return true;
+    }
+    return event.invitedUserIds.contains(currentUserId);
+  }
+
   @override
   Future<List<Event>> listEvents() async {
     if (!AppwriteService.isConfigured ||
@@ -31,25 +53,28 @@ class AppwriteEventRepository implements EventRepository {
 
     await _migrateLegacyThumbnailField(docs.documents);
 
-    final events = docs.documents
-        .map(
-          (d) => Event.fromMap(
-            Map<String, dynamic>.from(d.data),
-            id: d.$id,
-          ),
-        )
-        .toList()
-      ..sort((a, b) => a.startAt.compareTo(b.startAt));
+    final events =
+        docs.documents
+            .map(
+              (d) =>
+                  Event.fromMap(Map<String, dynamic>.from(d.data), id: d.$id),
+            )
+            .toList()
+          ..sort((a, b) => a.startAt.compareTo(b.startAt));
 
     final myId = currentUserId;
     if (myId.trim().isEmpty) {
-      return events;
+      return events.where((e) => !_isPrivateEvent(e)).toList();
     }
-    final myEventIds = await eventRegistrationRepository().listMyRegisteredEventIds(myId);
+    final myEventIds = await eventRegistrationRepository()
+        .listMyRegisteredEventIds(myId);
     return events
-        .map(
-          (e) => e.copyWith(
-            joinedByMe: myEventIds.contains(e.id),
+        .map((e) => e.copyWith(joinedByMe: myEventIds.contains(e.id)))
+        .where(
+          (e) => _canViewEvent(
+            event: e,
+            currentUserId: myId,
+            myEventIds: myEventIds,
           ),
         )
         .toList();
@@ -62,15 +87,14 @@ class AppwriteEventRepository implements EventRepository {
       final data = Map<String, dynamic>.from(d.data);
       final legacy = data['imageUrl'] ?? data['image_url'];
       final current = data['thumbnailFileId'] ?? data['thumbnail_file_id'];
-      if ((current == null || current.toString().isEmpty) && legacy != null && legacy.toString().isNotEmpty) {
+      if ((current == null || current.toString().isEmpty) &&
+          legacy != null &&
+          legacy.toString().isNotEmpty) {
         updates.add(
           AppwriteService.updateDocument(
             collectionId: AppwriteConfig.eventsCollectionId,
             documentId: d.$id,
-            data: {
-              ...data,
-              'thumbnailFileId': legacy.toString(),
-            },
+            data: {...data, 'thumbnailFileId': legacy.toString()},
           ).then((_) {}),
         );
       }
@@ -89,4 +113,3 @@ EventRepository eventRepository() {
 
   return AppwriteEventRepository();
 }
-

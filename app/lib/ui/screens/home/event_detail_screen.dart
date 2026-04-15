@@ -10,6 +10,7 @@ import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
 import '../../../utils/web_storage.dart';
 import '../../../data/event_repository.dart';
+import '../../../data/event_invite_repository.dart';
 import '../../../data/event_registration_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
@@ -724,8 +725,54 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     final maxCapacity = event.capacity > 0 ? event.capacity : 999999;
     final currentParticipantIds = [..._resolveParticipantIds(event)];
 
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(currentRegistered ? 'Leave event?' : 'Join event?'),
+          content: Text(
+            currentRegistered
+                ? 'Are you sure you want to cancel your registration?'
+                : 'Are you sure you want to join this event?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('No'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Yes'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+
     if (!currentRegistered) {
+      final canAccessPrivate = _canAccessPrivateEvent(event);
+      if (!canAccessPrivate) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'This is a private event. Only invited users can register.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
       final allowed = await _canRegisterForEvent(event);
+      if (!mounted) {
+        return;
+      }
       if (!allowed) {
         return;
       }
@@ -788,6 +835,17 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         ),
       );
     }
+  }
+
+  bool _canAccessPrivateEvent(Event event) {
+    final isPrivate = eventInviteRepository().isPrivate(event);
+    if (!isPrivate) {
+      return true;
+    }
+    if ((event.creatorId ?? '').trim() == currentUserId) {
+      return true;
+    }
+    return event.invitedUserIds.contains(currentUserId);
   }
 
   Future<bool> _persistRegistration({
@@ -1055,6 +1113,13 @@ class _DetailsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final privacyLabel = (() {
+      final raw = event.privacy?.trim() ?? '';
+      if (raw.isEmpty) {
+        return 'Public';
+      }
+      return raw.toLowerCase().contains('private') ? 'Private' : 'Public';
+    })();
     final genderLabel = (event.gender == null || event.gender!.trim().isEmpty)
         ? 'Any'
         : event.gender!.trim();
@@ -1148,11 +1213,11 @@ class _DetailsTab extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              const Expanded(
+              Expanded(
                 child: _MetricTile(
                   title: 'PRIVACY',
-                  value: 'Public',
-                  accentBorder: Color(0xFF94A3B8),
+                  value: privacyLabel,
+                  accentBorder: const Color(0xFF94A3B8),
                 ),
               ),
             ],
@@ -1240,32 +1305,54 @@ class _ParticipantsTab extends StatelessWidget {
         final initial = p.username.isNotEmpty
             ? p.username[0].toUpperCase()
             : '?';
-        return InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () => onOpenProfile(p.userId),
-          child: Column(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: p.color.withValues(alpha: 0.2),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: (p.avatarFileId != null && p.avatarFileId!.isNotEmpty)
-                    ? FutureBuilder<Uint8List>(
-                        future: AppwriteService.getFileViewBytes(
-                          bucketId: AppwriteConfig.profileImagesBucketId,
-                          fileId: p.avatarFileId!,
-                        ),
-                        builder: (context, snap) {
-                          if (snap.connectionState == ConnectionState.done &&
-                              snap.data != null &&
-                              snap.data!.isNotEmpty) {
-                            return Image.memory(snap.data!, fit: BoxFit.cover);
-                          }
-                          return Center(
+        return Align(
+          alignment: Alignment.topCenter,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => onOpenProfile(p.userId),
+            child: SizedBox(
+              width: 86,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: p.color.withValues(alpha: 0.2),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child:
+                        (p.avatarFileId != null && p.avatarFileId!.isNotEmpty)
+                        ? FutureBuilder<Uint8List>(
+                            future: AppwriteService.getFileViewBytes(
+                              bucketId: AppwriteConfig.profileImagesBucketId,
+                              fileId: p.avatarFileId!,
+                            ),
+                            builder: (context, snap) {
+                              if (snap.connectionState ==
+                                      ConnectionState.done &&
+                                  snap.data != null &&
+                                  snap.data!.isNotEmpty) {
+                                return Image.memory(
+                                  snap.data!,
+                                  fit: BoxFit.cover,
+                                );
+                              }
+                              return Center(
+                                child: Text(
+                                  initial,
+                                  style: TextStyle(
+                                    color: p.color,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 20,
+                                  ),
+                                ),
+                              );
+                            },
+                          )
+                        : Center(
                             child: Text(
                               initial,
                               style: TextStyle(
@@ -1274,32 +1361,22 @@ class _ParticipantsTab extends StatelessWidget {
                                 fontSize: 20,
                               ),
                             ),
-                          );
-                        },
-                      )
-                    : Center(
-                        child: Text(
-                          initial,
-                          style: TextStyle(
-                            color: p.color,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 20,
                           ),
-                        ),
-                      ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    p.username,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 6),
-              Text(
-                p.username,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
+            ),
           ),
         );
       },

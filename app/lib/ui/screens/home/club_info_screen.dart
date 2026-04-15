@@ -61,6 +61,7 @@ class _ClubInfoPayload {
   final bool isCurrentUserMember;
   final bool isCurrentUserAdmin;
   final bool isCurrentUserCreator;
+  final String? coCreatorId;
   final String? creatorLabel;
 
   const _ClubInfoPayload({
@@ -73,6 +74,7 @@ class _ClubInfoPayload {
     required this.isCurrentUserMember,
     required this.isCurrentUserAdmin,
     required this.isCurrentUserCreator,
+    required this.coCreatorId,
     required this.creatorLabel,
   });
 }
@@ -81,11 +83,13 @@ class _ClubMemberItem {
   final UserProfile profile;
   final bool isAdmin;
   final bool isCreator;
+  final bool isCoCreator;
 
   const _ClubMemberItem({
     required this.profile,
     required this.isAdmin,
     required this.isCreator,
+    required this.isCoCreator,
   });
 }
 
@@ -131,6 +135,8 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
     // Backward-compatible fallback: if the club has a creatorId but no membership docs yet,
     // treat the creator as an admin so the UI still works for old data.
     final creatorId = fresh.creatorId?.trim();
+    final founderId = (fresh.founderId ?? fresh.creatorId)?.trim();
+    final coCreatorId = fresh.coCreatorId?.trim();
     if (creatorId != null && creatorId.isNotEmpty) {
       final hasCreator = members.any((m) => m.userId == creatorId);
       if (!hasCreator) {
@@ -151,12 +157,12 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
       memberUserIds,
     );
     final profileById = {for (final p in memberProfiles) p.userId: p};
-    final creatorProfile = creatorId == null || creatorId.isEmpty
+    final founderProfile = founderId == null || founderId.isEmpty
         ? null
-        : profileById[creatorId];
-    final creatorLabel = creatorProfile == null
-        ? (creatorId == null || creatorId.isEmpty ? null : creatorId)
-        : _creatorDisplayLabel(creatorProfile);
+        : profileById[founderId];
+    final creatorLabel = founderProfile == null
+        ? (founderId == null || founderId.isEmpty ? null : founderId)
+        : _creatorDisplayLabel(founderProfile);
 
     final memberItems = members.map((m) {
       final profile = profileById[m.userId] ?? UserProfile.empty(m.userId);
@@ -165,6 +171,10 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
         isAdmin: m.role == ClubMemberRole.admin,
         isCreator:
             creatorId != null && creatorId.isNotEmpty && m.userId == creatorId,
+        isCoCreator:
+            coCreatorId != null &&
+            coCreatorId.isNotEmpty &&
+            m.userId == coCreatorId,
       );
     }).toList();
 
@@ -185,6 +195,7 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
       isCurrentUserMember: isCurrentUserMember,
       isCurrentUserAdmin: isCurrentUserAdmin,
       isCurrentUserCreator: isCurrentUserCreator,
+      coCreatorId: coCreatorId,
       creatorLabel: creatorLabel,
     );
   }
@@ -334,6 +345,34 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
       return;
     }
 
+    if ((club.creatorId ?? '').trim() == currentUserId) {
+      final nextCreatorId = await _resolveNextCreatorId(club);
+      if (nextCreatorId == null) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Assign a co-creator or make at least one admin before leaving.',
+            ),
+          ),
+        );
+        return;
+      }
+      try {
+        await _transferClubOwnership(club: club, nextCreatorId: nextCreatorId);
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to transfer creator role.')),
+        );
+        return;
+      }
+    }
+
     try {
       await clubMemberRepository().leaveClub(
         clubId: club.id,
@@ -358,6 +397,49 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Left club.')));
+  }
+
+  Future<String?> _resolveNextCreatorId(Club club) async {
+    final coCreatorId = (club.coCreatorId ?? '').trim();
+    final members = await clubMemberRepository().listMembers(clubId: club.id);
+    if (coCreatorId.isNotEmpty &&
+        coCreatorId != currentUserId &&
+        members.any((m) => m.userId == coCreatorId)) {
+      return coCreatorId;
+    }
+
+    final admins =
+        members
+            .where(
+              (m) =>
+                  m.role == ClubMemberRole.admin && m.userId != currentUserId,
+            )
+            .toList()
+          ..sort((a, b) => a.joinedAt.compareTo(b.joinedAt));
+    if (admins.isEmpty) {
+      return null;
+    }
+    return admins.first.userId;
+  }
+
+  Future<void> _transferClubOwnership({
+    required Club club,
+    required String nextCreatorId,
+  }) async {
+    await clubMemberRepository().setRole(
+      clubId: club.id,
+      userId: nextCreatorId,
+      role: ClubMemberRole.admin,
+    );
+    await AppwriteService.updateDocument(
+      collectionId: AppwriteConfig.clubsCollectionId,
+      documentId: club.id,
+      data: {
+        'creatorId': nextCreatorId,
+        'founderId': (club.founderId ?? club.creatorId ?? currentUserId).trim(),
+        'coCreatorId': null,
+      },
+    );
   }
 
   Future<void> _deleteEventsForClub(String clubId) async {
@@ -529,6 +611,105 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                   );
                 },
               ),
+              if (payload.isCurrentUserCreator &&
+                  member.profile.userId != currentUserId)
+                ListTile(
+                  leading: Icon(
+                    Icons.workspace_premium_outlined,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  title: Text(
+                    member.isCoCreator
+                        ? 'Remove co-creator'
+                        : 'Make co-creator',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  subtitle: const Text(
+                    'Co-creator becomes creator if you leave.',
+                  ),
+                  onTap: () async {
+                    Navigator.pop(sheetCtx);
+                    if (!member.isAdmin) {
+                      if (!mounted) {
+                        return;
+                      }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Only admins can be assigned as co-creator.',
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+                    final actionLabel = member.isCoCreator
+                        ? 'remove this co-creator'
+                        : 'make this member co-creator';
+                    final actionDescription = member.isCoCreator
+                        ? 'Are you sure you want to $actionLabel?'
+                        : 'Are you sure you want to $actionLabel?\n\nIf you leave the club, this co-creator can take over as creator.';
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Confirm action'),
+                        content: Text(actionDescription),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.of(ctx).pop(true),
+                            child: const Text('Yes'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true) {
+                      return;
+                    }
+                    try {
+                      await AppwriteService.updateDocument(
+                        collectionId: AppwriteConfig.clubsCollectionId,
+                        documentId: payload.club.id,
+                        data: {
+                          'coCreatorId': member.isCoCreator
+                              ? null
+                              : member.profile.userId,
+                          'founderId':
+                              (payload.club.founderId ??
+                                      payload.club.creatorId ??
+                                      currentUserId)
+                                  .trim(),
+                        },
+                      );
+                      if (!mounted) {
+                        return;
+                      }
+                      setState(() {
+                        _payloadFuture = _load(refreshClub: true);
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            member.isCoCreator
+                                ? 'Co-creator removed.'
+                                : 'Co-creator assigned.',
+                          ),
+                        ),
+                      );
+                    } catch (_) {
+                      if (!mounted) {
+                        return;
+                      }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Failed to update co-creator.'),
+                        ),
+                      );
+                    }
+                  },
+                ),
               ListTile(
                 leading: const Icon(
                   Icons.person_remove_outlined,
@@ -714,10 +895,11 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    const teal = Color(0xFF14B8A6);
+    const green = Color(0xFF0F5549);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F8FA),
+      backgroundColor: const Color(0xFFF4F6F8),
       // Web / route transition: horizontal constraints can be loose briefly; Row→Expanded
       // under SingleChildScrollView then never lays out → blank screen + mouse_tracker asserts.
       body: FutureBuilder<_ClubInfoPayload>(
@@ -830,7 +1012,9 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                           color: Colors.white.withValues(
                                             alpha: 0.92,
                                           ),
-                                          shape: const CircleBorder(),
+                                          borderRadius: BorderRadius.circular(
+                                            14,
+                                          ),
                                           clipBehavior: Clip.antiAlias,
                                           child: IconButton(
                                             padding: EdgeInsets.zero,
@@ -848,7 +1032,9 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                           color: Colors.white.withValues(
                                             alpha: 0.92,
                                           ),
-                                          shape: const CircleBorder(),
+                                          borderRadius: BorderRadius.circular(
+                                            14,
+                                          ),
                                           clipBehavior: Clip.antiAlias,
                                           child: IconButton(
                                             padding: EdgeInsets.zero,
@@ -995,8 +1181,9 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                                                       .member,
                                                                 );
                                                               } catch (_) {
-                                                                if (!mounted)
+                                                                if (!mounted) {
                                                                   return;
+                                                                }
                                                                 messenger.showSnackBar(
                                                                   const SnackBar(
                                                                     content: Text(
@@ -1007,8 +1194,9 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                                                 return;
                                                               }
 
-                                                              if (!mounted)
+                                                              if (!mounted) {
                                                                 return;
+                                                              }
                                                               setState(() {
                                                                 _payloadFuture =
                                                                     _load(
@@ -1092,6 +1280,7 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                         style: const TextStyle(
                                           fontSize: 22,
                                           fontWeight: FontWeight.w900,
+                                          color: green,
                                         ),
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
@@ -1106,8 +1295,8 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                           Text(
                                             sport,
                                             style: TextStyle(
-                                              color: Colors.black.withValues(
-                                                alpha: 0.45,
+                                              color: green.withValues(
+                                                alpha: 0.8,
                                               ),
                                               fontWeight: FontWeight.w700,
                                               fontSize: 14,
@@ -1119,7 +1308,7 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                               vertical: 4,
                                             ),
                                             decoration: BoxDecoration(
-                                              color: cs.primary.withValues(
+                                              color: teal.withValues(
                                                 alpha: 0.14,
                                               ),
                                               borderRadius:
@@ -1130,7 +1319,7 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                                   ? club.privacy
                                                   : 'Public',
                                               style: TextStyle(
-                                                color: cs.primary,
+                                                color: green,
                                                 fontWeight: FontWeight.w900,
                                                 fontSize: 12,
                                               ),
@@ -1199,6 +1388,7 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                           );
                                         },
                                         style: FilledButton.styleFrom(
+                                          backgroundColor: teal,
                                           padding: const EdgeInsets.symmetric(
                                             horizontal: 18,
                                             vertical: 10,
@@ -1227,10 +1417,10 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                             Container(
                               padding: const EdgeInsets.symmetric(vertical: 14),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFF0F4F3),
+                                color: const Color(0xFFEAF1F4),
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
-                                  color: const Color(0xFFE3E7EE),
+                                  color: teal.withValues(alpha: 0.7),
                                 ),
                               ),
                               child: Row(
@@ -1252,6 +1442,7 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                               style: TextStyle(
                                 fontWeight: FontWeight.w900,
                                 fontSize: 16,
+                                color: green,
                               ),
                             ),
                             const SizedBox(height: 8),
@@ -1285,6 +1476,15 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                     ),
                                   ),
                                 ),
+                                TextButton(
+                                  onPressed: () {},
+                                  child: const Text(
+                                    'See all',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
                             const SizedBox(height: 8),
@@ -1297,8 +1497,8 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                 ),
                               )
                             else
-                              ...p.members.map(
-                                (m) => Padding(
+                              for (final m in p.members)
+                                Padding(
                                   padding: const EdgeInsets.only(bottom: 10),
                                   child: GestureDetector(
                                     behavior: HitTestBehavior.opaque,
@@ -1318,13 +1518,13 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                         : null,
                                     child: _MemberProfileTile(
                                       profile: m.profile,
-                                      primary: cs.primary,
+                                      primary: teal,
                                       isAdmin: m.isAdmin,
                                       isCreator: m.isCreator,
+                                      isCoCreator: m.isCoCreator,
                                     ),
                                   ),
                                 ),
-                              ),
                             const SizedBox(height: 24),
                             const Row(
                               children: [
@@ -1358,7 +1558,7 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                 if (i > 0) const SizedBox(height: 12),
                                 _ClubUpcomingEventCard(
                                   event: p.upcomingEvents[i],
-                                  primary: cs.primary,
+                                  primary: teal,
                                 ),
                               ],
                             ],
@@ -1378,7 +1578,7 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
   }
 
   Widget _divider() {
-    return Container(width: 1, height: 36, color: const Color(0xFFE3E7EE));
+    return Container(width: 1, height: 36, color: const Color(0x4D14B8A6));
   }
 }
 
@@ -1428,7 +1628,7 @@ class _ClubUpcomingEventCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFE3E7EE)),
+          border: Border.all(color: const Color(0x4D14B8A6)),
         ),
         child: Row(
           children: [
@@ -1482,31 +1682,37 @@ class _MemberProfileTile extends StatelessWidget {
   final Color primary;
   final bool isAdmin;
   final bool isCreator;
+  final bool isCoCreator;
 
   const _MemberProfileTile({
     required this.profile,
     required this.primary,
     required this.isAdmin,
     required this.isCreator,
+    required this.isCoCreator,
   });
 
   @override
   Widget build(BuildContext context) {
-    final name = profile.realName.trim().isNotEmpty
+    const teal = Color(0xFF14B8A6);
+    const green = Color(0xFF0F5549);
+    final rawName = profile.realName.trim().isNotEmpty
         ? profile.realName.trim()
         : profile.username;
+    final name = _sanitizeMemberText(rawName, fallback: profile.userId);
     final sportsPreview = profile.preferredSports.toList()..sort();
-    final roleLabel = isAdmin ? 'Admin' : 'Member';
-    final subtitle = sportsPreview.isEmpty
+    final roleLabel = isCreator ? 'Creator' : (isAdmin ? 'Admin' : 'Member');
+    final subtitleRaw = sportsPreview.isEmpty
         ? roleLabel
         : '$roleLabel · ${sportsPreview.take(2).join(', ')}${sportsPreview.length > 2 ? '…' : ''}';
+    final subtitle = _sanitizeMemberText(subtitleRaw, fallback: roleLabel);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE3E7EE)),
+        border: Border.all(color: teal.withValues(alpha: 0.6)),
       ),
       child: Row(
         children: [
@@ -1525,6 +1731,7 @@ class _MemberProfileTile extends StatelessWidget {
                   style: const TextStyle(
                     fontWeight: FontWeight.w900,
                     fontSize: 15,
+                    color: green,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -1532,22 +1739,36 @@ class _MemberProfileTile extends StatelessWidget {
                   subtitle,
                   style: TextStyle(
                     fontSize: 12,
-                    color: Colors.black.withValues(alpha: 0.45),
+                    color: green.withValues(alpha: 0.75),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
             ),
           ),
-          if (isCreator) ...[
-            _AdminPill(text: 'Creator', color: const Color(0xFF7C3AED)),
+          if (isAdmin && !isCreator) _AdminPill(text: 'Admin', color: primary),
+          if (isCoCreator) ...[
             const SizedBox(width: 6),
+            _AdminPill(text: 'Co-creator', color: const Color(0xFF0F5549)),
           ],
-          if (isAdmin) _AdminPill(text: 'Admin', color: primary),
         ],
       ),
     );
   }
+}
+
+String _sanitizeMemberText(String raw, {required String fallback}) {
+  final text = raw.trim();
+  if (text.isEmpty) {
+    return fallback;
+  }
+  if (text.contains('\${') ||
+      text.contains('.map(') ||
+      text.contains(").join('") ||
+      text.length > 120) {
+    return fallback;
+  }
+  return text;
 }
 
 class _ClubMemberAvatar extends StatelessWidget {
@@ -1757,19 +1978,24 @@ class _StatCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const green = Color(0xFF0F5549);
     return Expanded(
       child: Column(
         children: [
           Text(
             value,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              color: green,
+            ),
           ),
           const SizedBox(height: 2),
           Text(
             label,
             style: TextStyle(
               fontSize: 12,
-              color: Colors.black.withValues(alpha: 0.45),
+              color: green.withValues(alpha: 0.75),
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -1787,17 +2013,19 @@ class _MetaRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const teal = Color(0xFF14B8A6);
+    const green = Color(0xFF0F5549);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 18, color: Colors.black.withValues(alpha: 0.45)),
+        Icon(icon, size: 18, color: teal),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
             text,
             style: TextStyle(
               fontSize: 13,
-              color: Colors.black.withValues(alpha: 0.65),
+              color: green.withValues(alpha: 0.85),
               fontWeight: FontWeight.w600,
             ),
           ),

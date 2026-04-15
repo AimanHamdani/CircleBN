@@ -9,6 +9,7 @@ import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
 import '../../../data/club_member_repository.dart';
 import '../../../data/club_repository.dart';
+import '../../../data/event_invite_repository.dart';
 import '../../../data/sample_clubs.dart';
 import '../../../models/club.dart';
 import '../../../models/event.dart';
@@ -55,6 +56,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   String? _thumbnailFileId;
   Uint8List? _thumbnailPreviewBytes;
   bool _isSubmitting = false;
+  String? _participantSuggestionHint;
 
   /// Clubs where the current user is an admin (loaded once).
   late final Future<List<Club>> _adminClubsFuture;
@@ -211,6 +213,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _duration = _durationLabelFromDuration(e.duration);
     _durationDisplayCtrl.text = _duration ?? '';
     _participantsCtrl.text = e.capacity.toString();
+    _participantSuggestionHint = _participantSuggestionForSport(e.sport)?.value;
     _feeCtrl.text = _normalizeFeeLabel(e.entryFeeLabel);
     _thumbnailFileId = e.thumbnailFileId;
     _skillLevel = _normalizeSkillLevelLabel(e.skillLevel);
@@ -234,6 +237,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         : draft.participantsText;
     _feeCtrl.text = draft.feeText.isEmpty ? 'Free' : draft.feeText;
     _sport = draft.sport;
+    _participantSuggestionHint = _participantSuggestionForSport(_sport)?.value;
     _category = draft.category;
     _privacy = draft.privacy;
     _dateTime = draft.dateTime;
@@ -307,6 +311,41 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _thumbnailPreviewBytes = null;
     _hostAsClub = false;
     _hostClubId = null;
+    _participantSuggestionHint = null;
+  }
+
+  MapEntry<int, String>? _participantSuggestionForSport(String? sport) {
+    final value = (sport ?? '').trim().toLowerCase();
+    if (value.isEmpty) {
+      return null;
+    }
+    if (value.contains('football') ||
+        value.contains('basketball') ||
+        value.contains('volleyball')) {
+      return const MapEntry<int, String>(
+        4,
+        'Suggested team setup: 3-5 participants.',
+      );
+    }
+    if (value.contains('badminton') ||
+        value.contains('tennis') ||
+        value.contains('pickleball') ||
+        value.contains('table tennis')) {
+      return const MapEntry<int, String>(
+        4,
+        'Suggested racket setup: 2-4 participants.',
+      );
+    }
+    if (value.contains('running') ||
+        value.contains('jogging') ||
+        value.contains('cycling') ||
+        value.contains('swimming')) {
+      return const MapEntry<int, String>(
+        6,
+        'Suggested group setup: around 4-8 participants.',
+      );
+    }
+    return const MapEntry<int, String>(4, 'Suggested setup: 3-5 participants.');
   }
 
   String? _durationLabelFromDuration(Duration d) {
@@ -385,7 +424,19 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                               onTap: () => _showOptionPicker<String>(
                                 title: 'Sport',
                                 options: SampleData.sports,
-                                onSelected: (v) => setState(() => _sport = v),
+                                onSelected: (v) => setState(() {
+                                  _sport = v;
+                                  final suggestion =
+                                      _participantSuggestionForSport(v);
+                                  if (suggestion != null) {
+                                    _participantsCtrl.text = suggestion.key
+                                        .toString();
+                                    _participantSuggestionHint =
+                                        suggestion.value;
+                                  } else {
+                                    _participantSuggestionHint = null;
+                                  }
+                                }),
                               ),
                             ),
                           ),
@@ -746,6 +797,17 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                           ),
                         ],
                       ),
+                      if (_participantSuggestionHint != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          _participantSuggestionHint!,
+                          style: TextStyle(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 14),
                       const Text(
                         'Fee',
@@ -1085,6 +1147,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       return;
     }
 
+    final selectedPrivacy = (_privacy ?? '').toLowerCase();
+    final isPrivateEvent = selectedPrivacy.contains('private');
+
     final skillLevel =
         _skillLevel ??
         _normalizeSkillLevelLabel(_initialEvent?.skillLevel ?? '—');
@@ -1126,11 +1191,42 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           : null;
     }
 
+    if (isPrivateEvent &&
+        (resolvedClubId == null || resolvedClubId.trim().isEmpty)) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Private events currently require club hosting so members can be invited.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    List<String> invitedUserIds = _isEditMode
+        ? [...(_initialEvent?.invitedUserIds ?? const <String>[])]
+        : const <String>[];
+    List<String> rejectedInviteUserIds = _isEditMode
+        ? [...(_initialEvent?.rejectedInviteUserIds ?? const <String>[])]
+        : const <String>[];
+    if (isPrivateEvent && resolvedClubId != null && resolvedClubId.isNotEmpty) {
+      invitedUserIds = await eventInviteRepository().buildClubInviteeIds(
+        clubId: resolvedClubId,
+        creatorId: currentUserId,
+      );
+      rejectedInviteUserIds = _isEditMode
+          ? [...(_initialEvent?.rejectedInviteUserIds ?? const <String>[])]
+          : const <String>[];
+    }
+
     final initialClubRaw = _initialEvent?.clubId?.trim();
     final normalizedInitialClub =
         (initialClubRaw != null && initialClubRaw.isNotEmpty)
-            ? initialClubRaw
-            : null;
+        ? initialClubRaw
+        : null;
     final clubAssociationChanged =
         (resolvedClubId ?? '') != (normalizedInitialClub ?? '');
     final validateFnId = AppwriteConfig.validateEventClubHostFunctionId.trim();
@@ -1150,9 +1246,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         final msg = e is Exception
             ? e.toString().replaceFirst('Exception: ', '')
             : 'Club host validation failed.';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(msg)));
         return;
       }
     }
@@ -1174,6 +1270,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       'creatorId': _initialEvent?.creatorId ?? currentUserId,
       'category': _category,
       'privacy': _privacy,
+      'invitedUserIds': invitedUserIds,
+      'rejectedInviteUserIds': rejectedInviteUserIds,
       'gender': _gender,
       'ageGroup': _ageGroup,
       'hostRole': _hostRole,

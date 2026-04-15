@@ -98,7 +98,10 @@ class _ClubsScreenState extends State<ClubsScreen> {
                       const Expanded(
                         child: Text(
                           'Sport',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                       IconButton(
@@ -120,7 +123,12 @@ class _ClubsScreenState extends State<ClubsScreen> {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        trailing: s == _selectedSport ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary) : null,
+                        trailing: s == _selectedSport
+                            ? Icon(
+                                Icons.check,
+                                color: Theme.of(context).colorScheme.primary,
+                              )
+                            : null,
                         onTap: () => Navigator.of(ctx).pop(s),
                       );
                     },
@@ -155,7 +163,7 @@ class _ClubsScreenState extends State<ClubsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Clubs',
+                    'Circle',
                     style: TextStyle(
                       fontSize: 34 / 1.6,
                       fontWeight: FontWeight.w900,
@@ -166,8 +174,15 @@ class _ClubsScreenState extends State<ClubsScreen> {
                   TextField(
                     controller: _searchCtrl,
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.search, color: Color(0xFFBDE7E3)),
-                      suffixIcon: const Icon(Icons.tune, size: 18, color: Color(0xFFBDE7E3)),
+                      prefixIcon: const Icon(
+                        Icons.search,
+                        color: Color(0xFFBDE7E3),
+                      ),
+                      suffixIcon: const Icon(
+                        Icons.tune,
+                        size: 18,
+                        color: Color(0xFFBDE7E3),
+                      ),
                       hintText: 'Search for clubs...',
                       hintStyle: const TextStyle(color: Color(0xFFBDE7E3)),
                       fillColor: Colors.white.withValues(alpha: 0.14),
@@ -178,11 +193,20 @@ class _ClubsScreenState extends State<ClubsScreen> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(999),
-                        borderSide: const BorderSide(color: Color(0xFFBDE7E3), width: 1.5),
+                        borderSide: const BorderSide(
+                          color: Color(0xFFBDE7E3),
+                          width: 1.5,
+                        ),
                       ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
                     ),
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 10),
@@ -214,7 +238,9 @@ class _ClubsScreenState extends State<ClubsScreen> {
                             Text(
                               'Could not load clubs.\n${snap.error}',
                               textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.black.withValues(alpha: 0.65)),
+                              style: TextStyle(
+                                color: Colors.black.withValues(alpha: 0.65),
+                              ),
                             ),
                             const SizedBox(height: 16),
                             FilledButton(
@@ -233,18 +259,21 @@ class _ClubsScreenState extends State<ClubsScreen> {
 
                   final clubs = snap.data ?? const <Club>[];
                   final filtered = clubs.where((c) {
-                    final sportOk = _selectedSport == 'All' || c.sports.contains(_selectedSport);
+                    final sportOk =
+                        _selectedSport == 'All' ||
+                        c.sports.contains(_selectedSport);
                     if (!sportOk) {
                       return false;
                     }
                     return _clubMatchesSearch(c, searchLower);
-                  }).toList()
-                    ..sort((a, b) => a.name.compareTo(b.name));
+                  }).toList()..sort((a, b) => a.name.compareTo(b.name));
 
                   if (filtered.isEmpty) {
                     return Center(
                       child: Text(
-                        clubs.isEmpty ? 'No clubs yet. Create one from Home.' : 'No clubs match your filters.',
+                        clubs.isEmpty
+                            ? 'No clubs yet. Create one from Home.'
+                            : 'No clubs match your filters.',
                         textAlign: TextAlign.center,
                       ),
                     );
@@ -274,10 +303,10 @@ class _ClubsScreenState extends State<ClubsScreen> {
                                     arguments: c,
                                   )
                                   .then((_) {
-                                if (context.mounted) {
-                                  _refreshClubs();
-                                }
-                              });
+                                    if (context.mounted) {
+                                      _refreshClubs();
+                                    }
+                                  });
                             });
                           });
                         },
@@ -301,12 +330,16 @@ class _ClubsScreenState extends State<ClubsScreen> {
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(12),
                                     clipBehavior: Clip.antiAlias,
-                                    child: c.thumbnailFileId != null && c.thumbnailFileId!.isNotEmpty
+                                    child:
+                                        c.thumbnailFileId != null &&
+                                            c.thumbnailFileId!.isNotEmpty
                                         ? FutureBuilder(
-                                            future: AppwriteService.getFileViewBytes(
-                                              bucketId: AppwriteConfig.storageBucketId,
-                                              fileId: c.thumbnailFileId!,
-                                            ),
+                                            future:
+                                                AppwriteService.getFileViewBytes(
+                                                  bucketId: AppwriteConfig
+                                                      .storageBucketId,
+                                                  fileId: c.thumbnailFileId!,
+                                                ),
                                             builder: (context, snap) {
                                               if (snap.hasData) {
                                                 return Image.memory(
@@ -314,7 +347,10 @@ class _ClubsScreenState extends State<ClubsScreen> {
                                                   fit: BoxFit.cover,
                                                 );
                                               }
-                                              return const Icon(Icons.groups, size: 20);
+                                              return const Icon(
+                                                Icons.groups,
+                                                size: 20,
+                                              );
                                             },
                                           )
                                         : const Icon(Icons.groups, size: 20),
@@ -323,18 +359,24 @@ class _ClubsScreenState extends State<ClubsScreen> {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         c.name,
-                                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 14.5,
+                                        ),
                                       ),
                                       if (subtitle.isNotEmpty) ...[
                                         const SizedBox(height: 2),
                                         Text(
                                           subtitle,
                                           style: TextStyle(
-                                            color: Colors.black.withValues(alpha: 0.55),
+                                            color: Colors.black.withValues(
+                                              alpha: 0.55,
+                                            ),
                                             fontSize: 12.5,
                                           ),
                                           maxLines: 2,
@@ -401,4 +443,3 @@ class _ClubsScreenState extends State<ClubsScreen> {
     );
   }
 }
-

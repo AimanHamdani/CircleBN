@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../auth/current_user.dart';
+import '../../../data/event_invite_repository.dart';
 import '../../../data/event_registration_repository.dart';
 import '../../../data/event_repository.dart';
 import '../../../models/event.dart';
@@ -44,22 +45,24 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Future<List<_AppNotificationItem>> _loadNotifications() async {
     final events = await eventRepository().listEvents();
     final prefs = await SharedPreferences.getInstance();
-    final previousKnownEventIds = prefs.getStringList(_knownEventIdsKey)?.toSet() ?? <String>{};
+    final previousKnownEventIds =
+        prefs.getStringList(_knownEventIdsKey)?.toSet() ?? <String>{};
     final myId = currentUserId.trim();
     final joinedIds = <String>{
       ...events.where((e) => e.joinedByMe).map((e) => e.id),
     };
     if (myId.isNotEmpty) {
-      final registrations = await eventRegistrationRepository().listMyRegisteredEventIds(myId);
+      final registrations = await eventRegistrationRepository()
+          .listMyRegisteredEventIds(myId);
       joinedIds.addAll(registrations);
     }
 
     final now = DateTime.now();
-    final eventById = <String, Event>{
-      for (final e in events) e.id: e,
-    };
+    final eventById = <String, Event>{for (final e in events) e.id: e};
     final currentEventIds = eventById.keys.toSet();
-    final disappearedEventIds = previousKnownEventIds.difference(currentEventIds);
+    final disappearedEventIds = previousKnownEventIds.difference(
+      currentEventIds,
+    );
 
     final items = <_AppNotificationItem>[];
 
@@ -95,6 +98,27 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       }
     }
 
+    for (final event in events) {
+      final isPrivateInvite =
+          eventInviteRepository().isPrivate(event) &&
+          eventInviteRepository().isInvited(event, userId: myId) &&
+          !event.joinedByMe &&
+          !event.rejectedInviteUserIds.contains(myId);
+      if (!isPrivateInvite) {
+        continue;
+      }
+      items.add(
+        _AppNotificationItem(
+          id: 'invite_${event.id}',
+          type: _AppNotificationType.eventInvite,
+          title: 'Private event invite',
+          message: 'You were invited to ${event.title}.',
+          createdAt: now.subtract(const Duration(minutes: 2)),
+          event: event,
+        ),
+      );
+    }
+
     await prefs.setStringList(_knownEventIdsKey, currentEventIds.toList());
     items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return items;
@@ -128,10 +152,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         ),
         title: const Text(
           'Notifications',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w900,
-          ),
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
         ),
         actions: [
           TextButton(
@@ -146,7 +167,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             },
             child: const Text(
               'Mark all read',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -169,7 +193,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 child: Text(
                   'No notifications yet.\nYou will see joined-event alerts here.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.black54, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    color: Colors.black54,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             );
@@ -194,7 +221,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 }
 
-enum _AppNotificationType { startingSoon, cancelledOrDeleted }
+enum _AppNotificationType { startingSoon, cancelledOrDeleted, eventInvite }
 
 class _AppNotificationItem {
   final String id;
@@ -228,9 +255,20 @@ class _NotificationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isSoon = item.type == _AppNotificationType.startingSoon;
-    final iconBackground = isSoon ? const Color(0xFFDFF0E7) : const Color(0xFFF1F2F7);
-    final iconColor = isSoon ? const Color(0xFF4A8D64) : const Color(0xFFB05A76);
-    final borderColor = unread ? const Color(0xFF6B6FF0) : const Color(0xFFD0D2DA);
+    final isInvite = item.type == _AppNotificationType.eventInvite;
+    final iconBackground = isSoon
+        ? const Color(0xFFDFF0E7)
+        : isInvite
+        ? const Color(0xFFEAE8FF)
+        : const Color(0xFFF1F2F7);
+    final iconColor = isSoon
+        ? const Color(0xFF4A8D64)
+        : isInvite
+        ? const Color(0xFF5E62E8)
+        : const Color(0xFFB05A76);
+    final borderColor = unread
+        ? const Color(0xFF6B6FF0)
+        : const Color(0xFFD0D2DA);
     final cardColor = unread ? Colors.white : const Color(0xFFF6F6F9);
 
     return InkWell(
@@ -254,7 +292,11 @@ class _NotificationTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(13),
               ),
               child: Icon(
-                isSoon ? Icons.schedule : Icons.close,
+                isSoon
+                    ? Icons.schedule
+                    : isInvite
+                    ? Icons.mail_outline
+                    : Icons.close,
                 color: iconColor,
               ),
             ),
@@ -263,11 +305,26 @@ class _NotificationTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(item.title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20 - 3)),
+                  Text(
+                    item.title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 20 - 3,
+                    ),
+                  ),
                   const SizedBox(height: 2),
-                  Text(item.message, style: TextStyle(color: Colors.black.withValues(alpha: 0.68), fontSize: 13.5)),
+                  Text(
+                    item.message,
+                    style: TextStyle(
+                      color: Colors.black.withValues(alpha: 0.68),
+                      fontSize: 13.5,
+                    ),
+                  ),
                   const SizedBox(height: 6),
-                  Text(_relativeTime(item.createdAt), style: const TextStyle(color: Colors.black38, fontSize: 12)),
+                  Text(
+                    _relativeTime(item.createdAt),
+                    style: const TextStyle(color: Colors.black38, fontSize: 12),
+                  ),
                 ],
               ),
             ),
@@ -276,7 +333,10 @@ class _NotificationTile extends StatelessWidget {
                 width: 9,
                 height: 9,
                 margin: const EdgeInsets.only(top: 6),
-                decoration: const BoxDecoration(color: Color(0xFF6B6FF0), shape: BoxShape.circle),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF6B6FF0),
+                  shape: BoxShape.circle,
+                ),
               ),
           ],
         ),

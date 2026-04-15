@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../appwrite/appwrite_service.dart';
+import '../../../data/achievement_repository.dart';
+import '../../../data/club_repository.dart';
 import '../../../data/event_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
@@ -8,6 +10,7 @@ import '../../../models/user_profile.dart';
 import '../../../auth/current_user.dart';
 import '../../../auth/session_persistence.dart';
 import '../login_screen.dart';
+import '../../../data/event_invite_repository.dart';
 import 'all_events_screen.dart';
 import 'create_event_screen.dart';
 import 'create_club_screen.dart';
@@ -18,6 +21,7 @@ import 'clubs_screen.dart';
 import 'calendar_screen.dart';
 import 'notifications_screen.dart';
 import 'streak_screen.dart';
+import 'private_events_screen.dart';
 import '../../widgets/event_thumbnail_header.dart';
 import '../../theme/app_theme.dart';
 
@@ -29,8 +33,32 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   int _tabIndex = 0;
+  late final AnimationController _fabBreathController;
+  late final Animation<double> _fabBreath;
+
+  @override
+  void initState() {
+    super.initState();
+    _fabBreathController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1900),
+    )..repeat(reverse: true);
+    _fabBreath = Tween<double>(begin: 0.96, end: 1.04).animate(
+      CurvedAnimation(
+        parent: _fabBreathController,
+        curve: Curves.easeInOutCubic,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _fabBreathController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -117,27 +145,30 @@ class _HomeScreenState extends State<HomeScreen> {
                 right: 0,
                 top: -8,
                 child: Center(
-                  child: InkWell(
-                    onTap: () => _showCreateChoice(context),
-                    borderRadius: BorderRadius.circular(999),
-                    child: Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: navAccent,
-                        borderRadius: BorderRadius.circular(999),
-                        boxShadow: [
-                          BoxShadow(
-                            color: navAccent.withValues(alpha: 0.35),
-                            blurRadius: 16,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.add,
-                        color: Colors.white,
-                        size: 26,
+                  child: ScaleTransition(
+                    scale: _fabBreath,
+                    child: InkWell(
+                      onTap: () => _showCreateChoice(context),
+                      borderRadius: BorderRadius.circular(999),
+                      child: Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: navAccent,
+                          borderRadius: BorderRadius.circular(999),
+                          boxShadow: [
+                            BoxShadow(
+                              color: navAccent.withValues(alpha: 0.35),
+                              blurRadius: 16,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.add,
+                          color: Colors.white,
+                          size: 26,
+                        ),
                       ),
                     ),
                   ),
@@ -357,6 +388,29 @@ class _HomeBody extends StatefulWidget {
 }
 
 class _HomeBodyState extends State<_HomeBody> {
+  late Future<UserProfile> _profileFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _profileFuture = profileRepository().getMyProfile();
+  }
+
+  String _displayName(UserProfile? profile) {
+    if (profile == null) {
+      return 'there';
+    }
+    final realName = profile.realName.trim();
+    if (realName.isNotEmpty) {
+      return realName;
+    }
+    final username = profile.username.trim();
+    if (username.isNotEmpty) {
+      return username;
+    }
+    return 'there';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Theme(
@@ -398,14 +452,22 @@ class _HomeBodyState extends State<_HomeBody> {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        const Text(
-                          'Home 👋',
-                          style: TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            height: 1.05,
-                          ),
+                        FutureBuilder<UserProfile>(
+                          future: _profileFuture,
+                          builder: (context, snapshot) {
+                            final name = _displayName(snapshot.data);
+                            return Text(
+                              '$name 👋',
+                              style: const TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.white,
+                                height: 1.05,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            );
+                          },
                         ),
                       ],
                     ),
@@ -418,36 +480,44 @@ class _HomeBodyState extends State<_HomeBody> {
                           context,
                         ).pushNamed(StreakScreen.routeName),
                         borderRadius: BorderRadius.circular(14),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.22),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.35),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.local_fire_department,
-                                color: Colors.white.withValues(alpha: 0.95),
-                                size: 20,
+                        child: FutureBuilder<AchievementSnapshot>(
+                          future: achievementRepository().getMySnapshot(),
+                          builder: (context, snapshot) {
+                            final streak = snapshot.data?.currentStreak ?? 0;
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
                               ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '5',
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.95),
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 15,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.22),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.35),
                                 ),
                               ),
-                            ],
-                          ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.local_fire_department,
+                                    color: Colors.white.withValues(alpha: 0.95),
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  _AnimatedCounterText(
+                                    value: streak,
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.95,
+                                      ),
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -541,8 +611,16 @@ class _HomeBodyState extends State<_HomeBody> {
                           ).pushNamed(AllEventsScreen.routeName),
                           child: const Text('Show all'),
                         ),
+                        TextButton(
+                          onPressed: () => Navigator.of(
+                            context,
+                          ).pushNamed(PrivateEventsScreen.routeName),
+                          child: const Text('Private'),
+                        ),
                       ],
                     ),
+                    const SizedBox(height: 8),
+                    _PrivateInvitesSection(),
                     const SizedBox(height: 10),
                     _HomeEventsSection(),
                   ],
@@ -704,6 +782,232 @@ class _HomeEventsSection extends StatelessWidget {
   }
 }
 
+class _PrivateInvitesSection extends StatefulWidget {
+  @override
+  State<_PrivateInvitesSection> createState() => _PrivateInvitesSectionState();
+}
+
+class _PrivateInvitesSectionState extends State<_PrivateInvitesSection> {
+  late Future<_PrivateInvitesPayload> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _loadInvites();
+  }
+
+  Future<_PrivateInvitesPayload> _loadInvites() async {
+    final events = await eventRepository().listEvents();
+    final clubs = await clubRepository().listClubs();
+    final clubNameById = <String, String>{
+      for (final club in clubs) club.id: club.name,
+    };
+    final invites = events.where((e) {
+      if (!eventInviteRepository().isPrivate(e)) {
+        return false;
+      }
+      final invited = eventInviteRepository().isInvited(
+        e,
+        userId: currentUserId,
+      );
+      if (!invited || e.joinedByMe) {
+        return false;
+      }
+      final rejected = e.rejectedInviteUserIds.contains(currentUserId);
+      return !rejected;
+    }).toList()..sort((a, b) => a.startAt.compareTo(b.startAt));
+    return _PrivateInvitesPayload(invites: invites, clubNameById: clubNameById);
+  }
+
+  Future<void> _acceptInvite(Event event) async {
+    try {
+      await eventInviteRepository().acceptInvite(
+        event: event,
+        userId: currentUserId,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _future = _loadInvites();
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Joined ${event.title}.')));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to accept invite.')));
+    }
+  }
+
+  Future<void> _rejectInvite(Event event) async {
+    try {
+      await eventInviteRepository().rejectInvite(
+        event: event,
+        userId: currentUserId,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _future = _loadInvites();
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Invite rejected.')));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to reject invite.')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<_PrivateInvitesPayload>(
+      future: _future,
+      builder: (context, snapshot) {
+        final payload =
+            snapshot.data ??
+            const _PrivateInvitesPayload(
+              invites: <Event>[],
+              clubNameById: <String, String>{},
+            );
+        final invites = payload.invites;
+        if (invites.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Private Invites',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 10),
+            for (int i = 0; i < invites.length; i++) ...[
+              _InviteCard(
+                event: invites[i],
+                clubName: payload.clubNameById[invites[i].clubId ?? ''],
+                onOpen: () {
+                  Navigator.of(context).pushNamed(
+                    EventDetailScreen.routeName,
+                    arguments: EventDetailArgs(
+                      event: invites[i],
+                      showRegisterButton: true,
+                    ),
+                  );
+                },
+                onAccept: () => _acceptInvite(invites[i]),
+                onReject: () => _rejectInvite(invites[i]),
+              ),
+              if (i != invites.length - 1) const SizedBox(height: 10),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _PrivateInvitesPayload {
+  final List<Event> invites;
+  final Map<String, String> clubNameById;
+
+  const _PrivateInvitesPayload({
+    required this.invites,
+    required this.clubNameById,
+  });
+}
+
+class _InviteCard extends StatelessWidget {
+  final Event event;
+  final String? clubName;
+  final VoidCallback onOpen;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+
+  const _InviteCard({
+    required this.event,
+    required this.clubName,
+    required this.onOpen,
+    required this.onAccept,
+    required this.onReject,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final clubLabel = (clubName ?? '').trim();
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F4FF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFC7CBFF)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (clubLabel.isNotEmpty) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE7E9FF),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                'Invited from club: $clubLabel',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF4B4AE0),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          Text(
+            event.title,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${event.location} • ${_fmtTime(event.startAt)}',
+            style: const TextStyle(color: Colors.black54, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onReject,
+                  child: const Text('Reject'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton(
+                  onPressed: onAccept,
+                  child: const Text('Accept'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(onPressed: onOpen, child: const Text('Details')),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TodayEventCard extends StatelessWidget {
   final Event event;
   final VoidCallback onOpen;
@@ -730,7 +1034,7 @@ class _TodayEventCard extends StatelessWidget {
       badgeFg = cs.primary;
       badgeLabel = 'Open';
     }
-    return InkWell(
+    return _PressableCard(
       onTap: onOpen,
       borderRadius: BorderRadius.circular(18),
       child: Container(
@@ -865,7 +1169,7 @@ class _ActivityCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return InkWell(
+    return _PressableCard(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
@@ -973,4 +1277,64 @@ bool _sportMatchesPreferred(String sport, Set<String> preferred) {
     }
   }
   return false;
+}
+
+class _PressableCard extends StatefulWidget {
+  final VoidCallback onTap;
+  final BorderRadius borderRadius;
+  final Widget child;
+
+  const _PressableCard({
+    required this.onTap,
+    required this.borderRadius,
+    required this.child,
+  });
+
+  @override
+  State<_PressableCard> createState() => _PressableCardState();
+}
+
+class _PressableCardState extends State<_PressableCard> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapCancel: () => setState(() => _pressed = false),
+      onTapUp: (_) => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: _pressed ? 0.985 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOutCubic,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: widget.onTap,
+            borderRadius: widget.borderRadius,
+            child: widget.child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AnimatedCounterText extends StatelessWidget {
+  final int value;
+  final TextStyle style;
+
+  const _AnimatedCounterText({required this.value, required this.style});
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: value.toDouble()),
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutCubic,
+      builder: (context, animated, _) {
+        return Text(animated.round().toString(), style: style);
+      },
+    );
+  }
 }

@@ -18,7 +18,7 @@ class SampleEvents {
     Event(
       id: 'morning_run',
       title: 'Morning Run',
-      sport: 'Jogging / Running',
+      sport: 'Running / Jogging',
       startAt: _atDaysFromToday(0, 7, 0),
       duration: const Duration(hours: 1, minutes: 30),
       location: 'City Park',
@@ -26,7 +26,8 @@ class SampleEvents {
       capacity: 20,
       skillLevel: '1 - 3',
       entryFeeLabel: 'Free',
-      description: 'Easy pace group run. Meet at the park entrance for warm-up and route briefing.',
+      description:
+          'Easy pace group run. Meet at the park entrance for warm-up and route briefing.',
       joinedByMe: true,
       creatorId: _creatorId,
       thumbnailFileId: null,
@@ -42,7 +43,8 @@ class SampleEvents {
       capacity: 16,
       skillLevel: '1 - 4',
       entryFeeLabel: '\$3',
-      description: 'Friendly doubles rotation. Shuttlecocks provided. Bring your own racket.',
+      description:
+          'Friendly doubles rotation. Shuttlecocks provided. Bring your own racket.',
       joinedByMe: false,
       thumbnailFileId: null,
     ),
@@ -57,7 +59,8 @@ class SampleEvents {
       capacity: 20,
       skillLevel: '1 - 4',
       entryFeeLabel: 'Free',
-      description: 'Casual games. We’ll split into teams, rotate, and keep it beginner-friendly.',
+      description:
+          'Casual games. We’ll split into teams, rotate, and keep it beginner-friendly.',
       joinedByMe: true,
       creatorId: _creatorId,
       thumbnailFileId: null,
@@ -73,7 +76,8 @@ class SampleEvents {
       capacity: 12,
       skillLevel: '2 - 4',
       entryFeeLabel: 'Free',
-      description: 'Chill ride with regroup points. Helmet required. Bring water.',
+      description:
+          'Chill ride with regroup points. Helmet required. Bring water.',
       joinedByMe: false,
       thumbnailFileId: null,
     ),
@@ -88,10 +92,10 @@ class SampleEvents {
       capacity: 10,
       skillLevel: '1 - 3',
       entryFeeLabel: '\$2',
-      description: 'Laps + technique drills. Any pace welcome; we’ll split lanes by speed.',
+      description:
+          'Laps + technique drills. Any pace welcome; we’ll split lanes by speed.',
       joinedByMe: false,
       thumbnailFileId: null,
     ),
   ]..sort((a, b) => a.startAt.compareTo(b.startAt));
 }
-

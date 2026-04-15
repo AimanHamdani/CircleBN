@@ -63,22 +63,25 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
         clubMemberRepository()
             .isAdmin(clubId: args.id, userId: currentUserId)
             .then((isAdmin) {
-          if (!mounted) return;
-          setState(() => _canEdit = isAdmin);
-
-          if (!isAdmin) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Only admins can edit this club.')),
-              );
-              Navigator.of(context).pop();
+              setState(() => _canEdit = isAdmin);
+
+              if (!isAdmin) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Only admins can edit this club.'),
+                    ),
+                  );
+                  Navigator.of(context).pop();
+                });
+              }
+            })
+            .whenComplete(() {
+              if (!mounted) return;
+              setState(() => _checkingAccess = false);
             });
-          }
-        }).whenComplete(() {
-          if (!mounted) return;
-          setState(() => _checkingAccess = false);
-        });
       }
     }
 
@@ -92,7 +95,9 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
     _privacy = club.privacy.isNotEmpty ? club.privacy : 'Public';
     _memberLimit = club.memberLimit;
     _approvalRequired = club.approvalRequired;
-    _whoCanSendMessages = club.whoCanSendMessages.isNotEmpty ? club.whoCanSendMessages : 'Everyone';
+    _whoCanSendMessages = club.whoCanSendMessages.isNotEmpty
+        ? club.whoCanSendMessages
+        : 'Everyone';
     _selectedSports = {...club.sports};
     _thumbnailFileId = club.thumbnailFileId;
   }
@@ -140,7 +145,9 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                 child: Column(
                   children: [
                     GestureDetector(
-                      onTap: (!_canEdit || _isSubmitting) ? null : _pickClubPhoto,
+                      onTap: (!_canEdit || _isSubmitting)
+                          ? null
+                          : _pickClubPhoto,
                       behavior: HitTestBehavior.opaque,
                       child: Container(
                         height: 140,
@@ -178,13 +185,15 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                   children: [
                     TextFormField(
                       controller: _nameCtrl,
-                      decoration: const InputDecoration(hintText: 'e.g. FC Velocity'),
+                      decoration: const InputDecoration(
+                        hintText: 'e.g. FC Velocity',
+                      ),
                       validator: (v) {
                         final txt = (v ?? '').trim();
                         if (txt.isEmpty) return 'Club name is required';
                         return null;
                       },
-                          enabled: !_isSubmitting && _canEdit,
+                      enabled: !_isSubmitting && _canEdit,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
@@ -194,13 +203,15 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                       decoration: const InputDecoration(
                         hintText: 'Tell people what your club is about...',
                       ),
-                          enabled: !_isSubmitting && _canEdit,
+                      enabled: !_isSubmitting && _canEdit,
                     ),
                     const SizedBox(height: 12),
                     Align(
                       alignment: Alignment.centerLeft,
                       child: TextButton(
-                        onPressed: (!_canEdit || _isSubmitting) ? null : () => _showSportsPicker(context),
+                        onPressed: (!_canEdit || _isSubmitting)
+                            ? null
+                            : () => _showSportsPicker(context),
                         child: const Text('Choose Sports'),
                       ),
                     ),
@@ -209,20 +220,25 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                         spacing: 8,
                         runSpacing: 8,
                         children: _selectedSports
-                            .map((s) => Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: cs.primary.withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(999),
+                            .map(
+                              (s) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: cs.primary.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  s,
+                                  style: TextStyle(
+                                    color: cs.primary,
+                                    fontWeight: FontWeight.w800,
                                   ),
-                                  child: Text(
-                                    s,
-                                    style: TextStyle(
-                                      color: cs.primary,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ))
+                                ),
+                              ),
+                            )
                             .toList(),
                       ),
                   ],
@@ -237,22 +253,28 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                     _PickerRow(
                       label: 'Privacy',
                       value: _privacy,
-                      onTap: (!_canEdit || _isSubmitting) ? null : () => _showOptionPicker<String>(
-                        context,
-                        'Privacy',
-                        const ['Public', 'Private'],
-                        (v) => setState(() => _privacy = v),
-                      ),
+                      onTap: (!_canEdit || _isSubmitting)
+                          ? null
+                          : () => _showOptionPicker<String>(
+                              context,
+                              'Privacy',
+                              const ['Public', 'Private'],
+                              (v) => setState(() => _privacy = v),
+                            ),
                     ),
                     const SizedBox(height: 14),
                     _MemberLimitRow(
                       memberLimit: _memberLimit,
-                      onChanged: (!_canEdit || _isSubmitting) ? (_) {} : (v) => setState(() => _memberLimit = v),
+                      onChanged: (!_canEdit || _isSubmitting)
+                          ? (_) {}
+                          : (v) => setState(() => _memberLimit = v),
                     ),
                     const SizedBox(height: 14),
                     SwitchListTile(
                       value: _approvalRequired,
-                      onChanged: (!_canEdit || _isSubmitting) ? null : (v) => setState(() => _approvalRequired = v),
+                      onChanged: (!_canEdit || _isSubmitting)
+                          ? null
+                          : (v) => setState(() => _approvalRequired = v),
                       title: const Text('Approval required'),
                       subtitle: const Text('Members must be approved to join'),
                     ),
@@ -260,12 +282,18 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                     _PickerRow(
                       label: 'Who can send messages',
                       value: _whoCanSendMessages,
-                      onTap: (!_canEdit || _isSubmitting) ? null : () => _showOptionPicker<String>(
-                        context,
-                        'Who can send messages',
-                        const ['Everyone', 'Admins only', 'Admins & moderators'],
-                        (v) => setState(() => _whoCanSendMessages = v),
-                      ),
+                      onTap: (!_canEdit || _isSubmitting)
+                          ? null
+                          : () => _showOptionPicker<String>(
+                              context,
+                              'Who can send messages',
+                              const [
+                                'Everyone',
+                                'Admins only',
+                                'Admins & moderators',
+                              ],
+                              (v) => setState(() => _whoCanSendMessages = v),
+                            ),
                     ),
                   ],
                 ),
@@ -275,7 +303,9 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                 title: 'LOCATION (optional)',
                 child: TextFormField(
                   controller: _locationCtrl,
-                  decoration: const InputDecoration(hintText: 'Home base / city'),
+                  decoration: const InputDecoration(
+                    hintText: 'Home base / city',
+                  ),
                 ),
               ),
               const SizedBox(height: 24),
@@ -285,7 +315,10 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                     ? const SizedBox(
                         width: 18,
                         height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
                       )
                     : Text(submitText),
               ),
@@ -311,7 +344,11 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
             if (snap.hasData) {
               return Image.memory(snap.data!, fit: BoxFit.cover);
             }
-            return const Icon(Icons.image_outlined, size: 40, color: Color(0xFF9CA9B0));
+            return const Icon(
+              Icons.image_outlined,
+              size: 40,
+              color: Color(0xFF9CA9B0),
+            );
           },
         ),
       );
@@ -321,11 +358,18 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.add_photo_alternate_outlined, size: 40, color: Color(0xFF9CA9B0)),
+          Icon(
+            Icons.add_photo_alternate_outlined,
+            size: 40,
+            color: Color(0xFF9CA9B0),
+          ),
           SizedBox(height: 8),
           Text(
             'Tap to upload a club photo',
-            style: TextStyle(color: Color(0xFF9CA9B0), fontWeight: FontWeight.w600),
+            style: TextStyle(
+              color: Color(0xFF9CA9B0),
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -384,7 +428,10 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('Sports', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                  const Text(
+                    'Sports',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
                   const SizedBox(height: 12),
                   Flexible(
                     child: SingleChildScrollView(
@@ -405,7 +452,7 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                                   }
                                 });
                               },
-                            )
+                            ),
                         ],
                       ),
                     ),
@@ -415,7 +462,8 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                     children: [
                       Expanded(
                         child: OutlinedButton(
-                          onPressed: () => Navigator.of(ctx).pop(_selectedSports),
+                          onPressed: () =>
+                              Navigator.of(ctx).pop(_selectedSports),
                           child: const Text('Cancel'),
                         ),
                       ),
@@ -427,7 +475,7 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                         ),
                       ),
                     ],
-                  )
+                  ),
                 ],
               ),
             );
@@ -456,7 +504,13 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
               padding: const EdgeInsets.all(16),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
             ),
             for (final o in options)
@@ -480,7 +534,11 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
         AppwriteConfig.databaseId.isEmpty ||
         AppwriteConfig.clubsCollectionId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Appwrite database/clubs collection is not configured.')),
+        const SnackBar(
+          content: Text(
+            'Appwrite database/clubs collection is not configured.',
+          ),
+        ),
       );
       return;
     }
@@ -503,7 +561,15 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
         'approvalRequired': _approvalRequired,
         'whoCanSendMessages': _whoCanSendMessages,
         'location': _locationCtrl.text.trim(),
-        'creatorId': _isEditMode ? (_editingClub?.creatorId ?? currentUserId) : currentUserId,
+        'creatorId': _isEditMode
+            ? (_editingClub?.creatorId ?? currentUserId)
+            : currentUserId,
+        'founderId': _isEditMode
+            ? (_editingClub?.founderId ??
+                  _editingClub?.creatorId ??
+                  currentUserId)
+            : currentUserId,
+        'coCreatorId': _isEditMode ? _editingClub?.coCreatorId : null,
         'thumbnailFileId': _thumbnailFileId,
       };
 
@@ -543,9 +609,9 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
       );
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to create club.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to create club.')));
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -592,11 +658,7 @@ class _PickerRow extends StatelessWidget {
   final String value;
   final VoidCallback? onTap;
 
-  const _PickerRow({
-    required this.label,
-    required this.value,
-    this.onTap,
-  });
+  const _PickerRow({required this.label, required this.value, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -607,10 +669,24 @@ class _PickerRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 2),
         child: Row(
           children: [
-            Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.black87))),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black87,
+                ),
+              ),
+            ),
             Row(
               children: [
-                Text(value, style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w800)),
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
                 const SizedBox(width: 6),
                 const Icon(Icons.keyboard_arrow_down, size: 18),
               ],
@@ -626,10 +702,7 @@ class _MemberLimitRow extends StatefulWidget {
   final int memberLimit;
   final ValueChanged<int> onChanged;
 
-  const _MemberLimitRow({
-    required this.memberLimit,
-    required this.onChanged,
-  });
+  const _MemberLimitRow({required this.memberLimit, required this.onChanged});
 
   @override
   State<_MemberLimitRow> createState() => _MemberLimitRowState();
@@ -663,14 +736,19 @@ class _MemberLimitRowState extends State<_MemberLimitRow> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Member limit', style: TextStyle(fontWeight: FontWeight.w800)),
+        const Text(
+          'Member limit',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
         const SizedBox(height: 8),
         Row(
           children: [
             IconButton.filledTonal(
               onPressed: widget.memberLimit <= 0
                   ? null
-                  : () => widget.onChanged((widget.memberLimit - 1).clamp(0, 100000)),
+                  : () => widget.onChanged(
+                      (widget.memberLimit - 1).clamp(0, 100000),
+                    ),
               icon: const Icon(Icons.remove),
             ),
             const SizedBox(width: 10),
@@ -678,12 +756,13 @@ class _MemberLimitRowState extends State<_MemberLimitRow> {
               child: TextFormField(
                 controller: _ctrl,
                 keyboardType: TextInputType.number,
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                ],
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 decoration: const InputDecoration(
                   isDense: true,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                 ),
                 onChanged: (v) {
                   final n = int.tryParse(v.trim());
@@ -694,7 +773,8 @@ class _MemberLimitRowState extends State<_MemberLimitRow> {
             ),
             const SizedBox(width: 10),
             IconButton.filledTonal(
-              onPressed: () => widget.onChanged((widget.memberLimit + 1).clamp(0, 100000)),
+              onPressed: () =>
+                  widget.onChanged((widget.memberLimit + 1).clamp(0, 100000)),
               icon: const Icon(Icons.add),
             ),
           ],
@@ -703,4 +783,3 @@ class _MemberLimitRowState extends State<_MemberLimitRow> {
     );
   }
 }
-

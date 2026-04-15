@@ -7,7 +7,8 @@ class Club {
   final String privacy; // 'Public' | 'Private'
   final int memberLimit;
   final bool approvalRequired;
-  final String whoCanSendMessages; // 'Everyone' | 'Admins only' | 'Admins & moderators'
+  final String
+  whoCanSendMessages; // 'Everyone' | 'Admins only' | 'Admins & moderators'
 
   final String location; // optional but stored as empty string when unset
 
@@ -16,6 +17,8 @@ class Club {
 
   // Used for creator-only actions.
   final String? creatorId;
+  final String? founderId;
+  final String? coCreatorId;
 
   /// When set in Appwrite (e.g. `membersCount`, `memberCount`), shown on club info.
   final int? membersCount;
@@ -38,6 +41,8 @@ class Club {
     this.location = '',
     this.thumbnailFileId,
     this.creatorId,
+    this.founderId,
+    this.coCreatorId,
     this.membersCount,
     this.adminsCount,
     this.foundedAt,
@@ -52,12 +57,12 @@ class Club {
     final parsedSports = rawSports is List
         ? rawSports.map((e) => e.toString()).toSet()
         : rawSports is String
-            ? rawSports
-                .split(',')
-                .map((s) => s.trim())
-                .where((s) => s.isNotEmpty)
-                .toSet()
-            : <String>{};
+        ? rawSports
+              .split(',')
+              .map((s) => s.trim())
+              .where((s) => s.isNotEmpty)
+              .toSet()
+        : <String>{};
 
     int parseInt(Object? v, {int defaultValue = 0}) {
       if (v is int) return v;
@@ -103,7 +108,10 @@ class Club {
     }
 
     final foundedFromData = parseOptionalDate(
-      data['foundedAt'] ?? data['founded_at'] ?? data['createdAt'] ?? data['created_at'],
+      data['foundedAt'] ??
+          data['founded_at'] ??
+          data['createdAt'] ??
+          data['created_at'],
     );
 
     return Club(
@@ -112,19 +120,50 @@ class Club {
       description: (data['description'] ?? '').toString(),
       sports: parsedSports,
       privacy: (data['privacy'] ?? 'Public').toString(),
-      memberLimit: parseInt(data['memberLimit'] ?? data['member_limit'], defaultValue: 0),
-      approvalRequired: parseBool(data['approvalRequired'] ?? data['approval_required'], defaultValue: false),
-      whoCanSendMessages: (data['whoCanSendMessages'] ?? data['who_can_send_messages'] ?? 'Everyone').toString(),
+      memberLimit: parseInt(
+        data['memberLimit'] ?? data['member_limit'],
+        defaultValue: 0,
+      ),
+      approvalRequired: parseBool(
+        data['approvalRequired'] ?? data['approval_required'],
+        defaultValue: false,
+      ),
+      whoCanSendMessages:
+          (data['whoCanSendMessages'] ??
+                  data['who_can_send_messages'] ??
+                  'Everyone')
+              .toString(),
       location: (data['location'] ?? '').toString(),
-      thumbnailFileId: data['thumbnailFileId']?.toString() ??
+      thumbnailFileId:
+          data['thumbnailFileId']?.toString() ??
           data['thumbnail_file_id']?.toString() ??
           data['imageUrl']?.toString() ??
           data['image_url']?.toString(),
-      creatorId: data['creatorId']?.toString() ?? data['creator_id']?.toString(),
+      creatorId:
+          data['creatorId']?.toString() ?? data['creator_id']?.toString(),
+      founderId:
+          data['founderId']?.toString() ??
+          data['founder_id']?.toString() ??
+          data['originalCreatorId']?.toString() ??
+          data['original_creator_id']?.toString(),
+      coCreatorId:
+          data['coCreatorId']?.toString() ??
+          data['co_creator_id']?.toString() ??
+          data['successorCreatorId']?.toString() ??
+          data['successor_creator_id']?.toString(),
       membersCount: parseOptionalInt(
-        data['membersCount'] ?? data['members_count'] ?? data['memberCount'] ?? data['member_count'] ?? data['members'],
+        data['membersCount'] ??
+            data['members_count'] ??
+            data['memberCount'] ??
+            data['member_count'] ??
+            data['members'],
       ),
-      adminsCount: parseOptionalInt(data['adminsCount'] ?? data['admins_count'] ?? data['adminCount'] ?? data['admin_count']),
+      adminsCount: parseOptionalInt(
+        data['adminsCount'] ??
+            data['admins_count'] ??
+            data['adminCount'] ??
+            data['admin_count'],
+      ),
       foundedAt: foundedFromData ?? documentCreatedAt,
     );
   }
@@ -141,10 +180,11 @@ class Club {
       'location': location,
       'thumbnailFileId': thumbnailFileId,
       'creatorId': creatorId,
+      'founderId': founderId,
+      'coCreatorId': coCreatorId,
       if (membersCount != null) 'membersCount': membersCount,
       if (adminsCount != null) 'adminsCount': adminsCount,
       if (foundedAt != null) 'foundedAt': foundedAt!.toIso8601String(),
     };
   }
 }
-

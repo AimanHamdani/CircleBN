@@ -269,8 +269,9 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
                         if (value.isEmpty) return null;
                         final n = int.tryParse(value);
                         if (n == null) return 'Enter a number';
-                        if (n < 50 || n > 260)
+                        if (n < 50 || n > 260) {
                           return 'Enter a realistic height';
+                        }
                         return null;
                       },
                       onFieldSubmitted: (_) => _next(base),

@@ -19,11 +19,8 @@ import '../../../models/user_profile.dart';
 import '../../../services/ticket_service.dart';
 import '../profile/user_profile_view_screen.dart';
 import 'create_event_screen.dart';
-<<<<<<< HEAD
 import 'event_scoring_screen.dart';
-=======
 import 'scan_qr_screen.dart';
->>>>>>> 5bd59b6 (Ticket UI and scanner updates)
 import '../../theme/app_theme.dart';
 
 class EventDetailArgs {
@@ -481,7 +478,6 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     }
   }
 
-<<<<<<< HEAD
   Future<void> _openScoreEntry(Event event) async {
     await Navigator.of(context).pushNamed(
       EventScoringScreen.routeName,
@@ -491,12 +487,12 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       return;
     }
     await _refreshEvent(eventId: event.id);
-=======
+  }
+
   Future<void> _openScanQr(Event event) async {
     await Navigator.of(
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => ScanQrScreen(event: event)));
->>>>>>> 5bd59b6 (Ticket UI and scanner updates)
   }
 
   Widget _chatComposerBar(BuildContext context, {required bool canSendChat}) {

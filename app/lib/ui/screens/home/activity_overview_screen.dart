@@ -587,29 +587,6 @@ class _ActivityTabBody extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-<<<<<<< HEAD
-                            Expanded(
-                              child: Text(
-                                e.title,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ),
-                            if (canCancelNow)
-                              TextButton(
-                                onPressed: isCancellingEvent(e.id)
-                                    ? null
-                                    : () => onCancelTicket(e),
-                                style: TextButton.styleFrom(
-                                  foregroundColor: Colors.red.shade400,
-                                ),
-                                child: Text(
-                                  isCancellingEvent(e.id)
-                                      ? 'Cancelling...'
-                                      : 'Cancel',
-                                ),
-=======
                             Container(
                               decoration: BoxDecoration(
                                 color: Colors.black,
@@ -788,7 +765,6 @@ class _ActivityTabBody extends StatelessWidget {
                                     ? Colors.black54
                                     : Colors.red.shade300,
                                 fontSize: 12,
->>>>>>> 5bd59b6 (Ticket UI and scanner updates)
                               ),
                             ),
                             const SizedBox(height: 8),
@@ -817,73 +793,8 @@ class _ActivityTabBody extends StatelessWidget {
                             ),
                           ],
                         ),
-<<<<<<< HEAD
-                        const SizedBox(height: 6),
-                        Text(
-                          'Name: $fullName',
-                          style: const TextStyle(
-                            color: Colors.black54,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Location: ${e.location}',
-                          style: const TextStyle(
-                            color: Colors.black54,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Date: $dateTimeStr  Time: $timeStr',
-                          style: const TextStyle(
-                            color: Colors.black54,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Duration: $durationStr',
-                          style: const TextStyle(
-                            color: Colors.black54,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Fee: ${e.entryFeeLabel}',
-                          style: const TextStyle(
-                            color: Colors.black54,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          canCancelNow
-                              ? 'Cancellation allowed until ${_fmtTime(cancellationCutoff)}'
-                              : 'Cancellation freeze started (${e.cancellationFreeze})',
-                          style: TextStyle(
-                            color: canCancelNow
-                                ? Colors.black54
-                                : Colors.red.shade300,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: OutlinedButton(
-                            onPressed: () => onSendTicketMock(e),
-                            child: const Text('Send Email/PDF →'),
-                          ),
-                        ),
-                      ],
-                    ),
-=======
                       );
                     },
->>>>>>> 5bd59b6 (Ticket UI and scanner updates)
                   )
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -669,13 +669,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                           .deleteSessions();
                                     } on AppwriteException catch (e) {
                                       if (!mounted) return;
-<<<<<<< HEAD
                                       messenger.showSnackBar(
-=======
-                                      ScaffoldMessenger.of(
-                                        this.context,
-                                      ).showSnackBar(
->>>>>>> 5bd59b6 (Ticket UI and scanner updates)
                                         SnackBar(
                                           content: Text(
                                             e.message ?? 'Failed to log out.',
@@ -684,13 +678,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       );
                                     } catch (_) {
                                       if (!mounted) return;
-<<<<<<< HEAD
                                       messenger.showSnackBar(
-=======
-                                      ScaffoldMessenger.of(
-                                        this.context,
-                                      ).showSnackBar(
->>>>>>> 5bd59b6 (Ticket UI and scanner updates)
                                         const SnackBar(
                                           content: Text('Failed to log out.'),
                                         ),
@@ -700,13 +688,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       CurrentUser.reset();
                                     }
                                     if (!mounted) return;
-<<<<<<< HEAD
                                     navigator.pushNamedAndRemoveUntil(
-=======
-                                    Navigator.of(
-                                      this.context,
-                                    ).pushNamedAndRemoveUntil(
->>>>>>> 5bd59b6 (Ticket UI and scanner updates)
                                       LoginScreen.routeName,
                                       (_) => false,
                                     );
@@ -860,7 +842,6 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-<<<<<<< HEAD
 class _UnlockedBadgePill extends StatelessWidget {
   final String emoji;
   final String label;
@@ -993,8 +974,6 @@ class _SportSkillRow extends StatelessWidget {
   }
 }
 
-=======
->>>>>>> 5bd59b6 (Ticket UI and scanner updates)
 class _MenuRow extends StatelessWidget {
   final String label;
   final bool isDanger;

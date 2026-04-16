@@ -758,8 +758,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                                     if (txt.isEmpty) return null;
                                     final n = double.tryParse(txt);
                                     if (n == null) return 'Invalid';
-                                    if (n < -180 || n > 180)
+                                    if (n < -180 || n > 180) {
                                       return '−180 to 180';
+                                    }
                                     return null;
                                   },
                                 ),
@@ -806,8 +807,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                                     if (txt.isEmpty) return null;
                                     final n = double.tryParse(txt);
                                     if (n == null) return 'Invalid';
-                                    if (n < -180 || n > 180)
+                                    if (n < -180 || n > 180) {
                                       return '−180 to 180';
+                                    }
                                     return null;
                                   },
                                 ),

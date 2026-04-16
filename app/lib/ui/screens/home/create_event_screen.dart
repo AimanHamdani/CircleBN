@@ -758,8 +758,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                                     if (txt.isEmpty) return null;
                                     final n = double.tryParse(txt);
                                     if (n == null) return 'Invalid';
-                                    if (n < -180 || n > 180)
+                                    if (n < -180 || n > 180) {
                                       return '−180 to 180';
+                                    }
                                     return null;
                                   },
                                 ),
@@ -806,8 +807,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                                     if (txt.isEmpty) return null;
                                     final n = double.tryParse(txt);
                                     if (n == null) return 'Invalid';
-                                    if (n < -180 || n > 180)
+                                    if (n < -180 || n > 180) {
                                       return '−180 to 180';
+                                    }
                                     return null;
                                   },
                                 ),
@@ -1156,13 +1158,19 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     ];
     final chosen = await showModalBottomSheet<String>(
       context: context,
+      isScrollControlled: true,
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final o in options)
-              ListTile(title: Text(o), onTap: () => Navigator.pop(ctx, o)),
-          ],
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(ctx).height * 0.72,
+          ),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              for (final o in options)
+                ListTile(title: Text(o), onTap: () => Navigator.pop(ctx, o)),
+            ],
+          ),
         ),
       ),
     );

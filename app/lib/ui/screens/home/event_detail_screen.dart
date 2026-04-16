@@ -10,6 +10,7 @@ import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
 import '../../../utils/web_storage.dart';
 import '../../../data/event_repository.dart';
+import '../../../data/club_repository.dart';
 import '../../../data/event_invite_repository.dart';
 import '../../../data/event_registration_repository.dart';
 import '../../../data/profile_repository.dart';
@@ -268,7 +269,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                   duration: const Duration(milliseconds: 200),
                   child: _tab == _EventDetailTab.details
                       ? _DetailsTab(
-                          key: const ValueKey('details'),
+                          key: ValueKey('details-${e.id}'),
                           event: e.copyWith(
                             joined: joinedCount,
                             joinedByMe: isRegisteredByMe,
@@ -1106,16 +1107,78 @@ class _TabButton extends StatelessWidget {
   }
 }
 
-class _DetailsTab extends StatelessWidget {
+class _DetailsTab extends StatefulWidget {
   final Event event;
   const _DetailsTab({super.key, required this.event});
 
+  @override
+  State<_DetailsTab> createState() => _DetailsTabState();
+}
+
+class _DetailsTabState extends State<_DetailsTab> {
+  String _hostedByLabel = '…';
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveHostedByLabel();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DetailsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final o = oldWidget.event;
+    final n = widget.event;
+    if (o.id != n.id ||
+        o.clubId != n.clubId ||
+        o.creatorId != n.creatorId) {
+      _resolveHostedByLabel();
+    }
+  }
+
+  Future<void> _resolveHostedByLabel() async {
+    setState(() => _hostedByLabel = '…');
+    final e = widget.event;
+    final clubId = e.clubId?.trim() ?? '';
+    try {
+      if (clubId.isNotEmpty) {
+        final club = await clubRepository().getClub(clubId);
+        if (!mounted) {
+          return;
+        }
+        final name = club?.name.trim() ?? '';
+        setState(() {
+          _hostedByLabel = name.isNotEmpty ? name : 'Unknown club';
+        });
+        return;
+      }
+      final creatorId = e.creatorId?.trim() ?? '';
+      if (creatorId.isEmpty) {
+        if (!mounted) {
+          return;
+        }
+        setState(() => _hostedByLabel = '—');
+        return;
+      }
+      final profile = await profileRepository().getProfileById(creatorId);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _hostedByLabel = _hostPersonDisplayName(profile));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _hostedByLabel = '—');
+    }
+  }
+
   Future<void> _openLocationInGoogleMaps(BuildContext context) async {
-    final lat = event.lat;
-    final lng = event.lng;
+    final lat = widget.event.lat;
+    final lng = widget.event.lng;
     final query = (lat != null && lng != null)
         ? '$lat,$lng'
-        : Uri.encodeComponent(event.location.trim());
+        : Uri.encodeComponent(widget.event.location.trim());
     final uri = Uri.parse(
       'https://www.google.com/maps/search/?api=1&query=$query',
     );
@@ -1130,6 +1193,7 @@ class _DetailsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final event = widget.event;
     final privacyLabel = (() {
       final raw = event.privacy?.trim() ?? '';
       if (raw.isEmpty) {
@@ -1268,6 +1332,12 @@ class _DetailsTab extends StatelessWidget {
             ),
             child: Column(
               children: [
+                _PolicyRow(
+                  label: 'Hosted by',
+                  value: _hostedByLabel,
+                  valueMuted: _hostedByLabel == '…',
+                ),
+                const Divider(height: 1, color: Color(0xFFE3E7EE)),
                 _PolicyRow(label: "Host's role", value: hostRoleLabel),
                 const Divider(height: 1, color: Color(0xFFE3E7EE)),
                 _PolicyRow(
@@ -1418,7 +1488,12 @@ class _ParticipantsTab extends StatelessWidget {
 class _PolicyRow extends StatelessWidget {
   final String label;
   final String value;
-  const _PolicyRow({required this.label, required this.value});
+  final bool valueMuted;
+  const _PolicyRow({
+    required this.label,
+    required this.value,
+    this.valueMuted = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1435,7 +1510,21 @@ class _PolicyRow extends StatelessWidget {
               ),
             ),
           ),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w900)),
+          Expanded(
+            flex: 2,
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                color: valueMuted
+                    ? Colors.black.withValues(alpha: 0.35)
+                    : Colors.black87,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1643,6 +1732,27 @@ class _RoundIconButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Prefer real name when set; otherwise username (skips placeholder defaults).
+String _hostPersonDisplayName(UserProfile profile) {
+  final rn = profile.realName.trim();
+  final un = profile.username.trim();
+  final hasReal = rn.isNotEmpty && rn != 'Name';
+  final hasUser = un.isNotEmpty && un != 'Username';
+  if (hasReal) {
+    return rn;
+  }
+  if (hasUser) {
+    return un;
+  }
+  if (rn.isNotEmpty) {
+    return rn;
+  }
+  if (un.isNotEmpty) {
+    return un;
+  }
+  return 'Host';
 }
 
 String _fmtDateTime(DateTime dt) {

@@ -18,6 +18,19 @@ import 'change_password_screen.dart';
 import '../../../auth/current_user.dart';
 import '../../../auth/session_persistence.dart';
 
+/// Shown per sport when there are no scored matches yet (profile skill section).
+const String _kUnlockSportSkillLevelMessage =
+    'Play 3 matches to unlock skill level';
+
+const String _kSkillLevelRankHelpBody =
+    'Per-sport tiers (Lvl 1–10) line up with rank labels like this:\n\n'
+    '1–2 = Beginner\n'
+    '3–4 = Novice\n'
+    '5–6 = Intermediate\n'
+    '7–8 = Advanced\n'
+    '9–10 = Pro/Master\n\n'
+    'Skill thresholds and level thresholds both refer to this same ladder—how far you have progressed within each sport.';
+
 class ProfileScreen extends StatefulWidget {
   static const routeName = '/profile';
 
@@ -73,6 +86,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return thresholds.last;
     }
     return thresholds[(tierLevel - 1).clamp(0, thresholds.length - 1)];
+  }
+
+  void _showSkillLevelHelpDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('How skill levels work'),
+        content: const SingleChildScrollView(
+          child: Text(_kSkillLevelRankHelpBody),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _goBack() {
@@ -413,6 +444,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           const SizedBox(height: 14),
                           _CardSection(
                             title: 'SKILL LEVEL',
+                            titleAction: IconButton(
+                              onPressed: _showSkillLevelHelpDialog,
+                              tooltip: 'About skill levels & ranks',
+                              icon: Icon(
+                                Icons.help_outline,
+                                color: Colors.black.withValues(alpha: 0.45),
+                                size: 22,
+                              ),
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 36,
+                                minHeight: 36,
+                              ),
+                            ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -447,7 +493,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 const SizedBox(height: 4),
                                 Text(
                                   _showAllSportsSkills
-                                      ? 'Showing all sports. Unplayed sports are marked as Haven\'t played.'
+                                      ? 'Showing all sports. Sports without scored matches show unlock guidance below.'
                                       : 'Showing sports with activity only.',
                                   style: TextStyle(
                                     color: Colors.black.withValues(alpha: 0.55),
@@ -775,7 +821,13 @@ class _AnimatedCounterLabel extends StatelessWidget {
 class _CardSection extends StatelessWidget {
   final String title;
   final Widget child;
-  const _CardSection({required this.title, required this.child});
+  final Widget? titleAction;
+
+  const _CardSection({
+    required this.title,
+    required this.child,
+    this.titleAction,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -790,13 +842,21 @@ class _CardSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Color(0xFF9CA9B0),
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.7,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: Color(0xFF9CA9B0),
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.7,
+                  ),
+                ),
+              ),
+              if (titleAction != null) titleAction!,
+            ],
           ),
           const SizedBox(height: 8),
           child,
@@ -929,12 +989,19 @@ class _SportSkillRow extends StatelessWidget {
                 ),
               ),
             ] else
-              Text(
-                'Haven\'t played',
-                style: TextStyle(
-                  color: Colors.black.withValues(alpha: 0.55),
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
+              Expanded(
+                flex: 2,
+                child: Text(
+                  _kUnlockSportSkillLevelMessage,
+                  textAlign: TextAlign.end,
+                  maxLines: 3,
+                  softWrap: true,
+                  style: TextStyle(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                    height: 1.25,
+                  ),
                 ),
               ),
           ],

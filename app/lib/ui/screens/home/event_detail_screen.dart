@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:appwrite/appwrite.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:printing/printing.dart';
 
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
@@ -16,9 +17,11 @@ import '../../../data/event_registration_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
+import '../../../services/ticket_service.dart';
 import '../profile/user_profile_view_screen.dart';
 import 'create_event_screen.dart';
 import 'event_scoring_screen.dart';
+import 'scan_qr_screen.dart';
 import '../../theme/app_theme.dart';
 
 class EventDetailArgs {
@@ -234,6 +237,11 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                             args.allowCreatorActions) ...[
                           const SizedBox(width: 8),
                           _RoundIconButton(
+                            icon: Icons.qr_code_scanner,
+                            onTap: () => _openScanQr(e),
+                          ),
+                          const SizedBox(width: 8),
+                          _RoundIconButton(
                             icon: Icons.edit_outlined,
                             onTap: () => _onEditEvent(e),
                           ),
@@ -305,6 +313,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                       joinedCount: joinedCount,
                       capacity: e.capacity,
                       onTap: () => _toggleRegistration(e),
+                      event: e,
+                      userProfile: null,
                     )
                   : null)
             : (_tab == _EventDetailTab.chat
@@ -320,6 +330,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     required int joinedCount,
     required int capacity,
     required VoidCallback onTap,
+    required Event event,
+    required UserProfile? userProfile,
   }) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     final isFull = capacity > 0 && joinedCount >= capacity;
@@ -348,6 +360,18 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                 ),
               ),
             ),
+            if (isRegistered) ...[
+              ElevatedButton.icon(
+                onPressed: () => _handleShareTicket(event),
+                icon: const Icon(Icons.share),
+                label: const Text('Share Ticket'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green.shade600,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
             FilledButton(
               onPressed: (!isRegistered && isFull) ? null : onTap,
               style: FilledButton.styleFrom(
@@ -365,6 +389,80 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _handleShareTicket(Event event) async {
+    try {
+      // Fetch current user's profile
+      final userProfile = await ProfileRepository().getMyProfile();
+
+      if (!mounted) return;
+
+      await _shareTicket(event, userProfile);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _shareTicket(Event event, UserProfile userProfile) async {
+    try {
+      // Show loading indicator
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Generating Ticket'),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Please wait while we generate your ticket...'),
+            ],
+          ),
+        ),
+      );
+
+      // Generate ticket ID
+      final ticketId = await TicketService.generateTicketId(
+        eventId: event.id,
+        userId: currentUserId,
+      );
+
+      // Generate PDF
+      final pdfBytes = await TicketService.generateTicketPdf(
+        event: event,
+        user: userProfile,
+        ticketId: ticketId,
+      );
+
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog
+
+      // Share PDF using printing package
+      await Printing.sharePdf(
+        bytes: pdfBytes,
+        filename:
+            '${event.title}_ticket_${ticketId.toString().padLeft(5, '0')}.pdf',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog if still open
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error generating ticket: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _onEditEvent(Event event) async {
@@ -390,6 +488,12 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       return;
     }
     await _refreshEvent(eventId: event.id);
+  }
+
+  Future<void> _openScanQr(Event event) async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => ScanQrScreen(event: event)));
   }
 
   Widget _chatComposerBar(BuildContext context, {required bool canSendChat}) {
@@ -842,17 +946,19 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       }
     }
 
-    if (mounted && ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            currentRegistered
-                ? 'Registration cancelled.'
-                : 'Registered successfully.',
-          ),
-        ),
-      );
+    if (!mounted || !ok) {
+      return;
     }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          currentRegistered
+              ? 'Registration cancelled.'
+              : 'Registered successfully.',
+        ),
+      ),
+    );
   }
 
   bool _canAccessPrivateEvent(Event event) {

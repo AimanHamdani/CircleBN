@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../../auth/current_user.dart';
 import '../../../data/event_registration_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../services/attendance_service.dart';
+import '../../../services/ticket_service.dart';
 import '../profile/user_profile_view_screen.dart';
 
 class ScanQrScreen extends StatefulWidget {
@@ -21,11 +23,25 @@ class ScanQrScreen extends StatefulWidget {
 class _ScanQrScreenState extends State<ScanQrScreen> {
   late MobileScannerController controller;
   bool _isProcessing = false;
+  bool _isCheckingAccess = true;
+  bool _canScan = false;
+  String? _accessMessage;
   String? _lastScannedCode;
   DateTime? _lastScanTime;
 
   final _registrationRepo = EventRegistrationRepository();
   final _profileRepo = ProfileRepository();
+
+  bool get _isHostScanner {
+    final event = widget.event;
+    if (event == null) {
+      return false;
+    }
+    return (event.creatorId ?? '').trim() == currentUserId;
+  }
+
+  String get _scannerRoleLabel =>
+      _isHostScanner ? 'Host scanner' : 'Helper scanner';
 
   @override
   void initState() {
@@ -36,6 +52,7 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
       detectionTimeoutMs: 1000,
       returnImage: false,
     );
+    _loadScanAccess();
   }
 
   @override
@@ -67,18 +84,62 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
           ),
         ],
       ),
-      body: MobileScanner(
-        controller: controller,
-        onDetect: _handleQrDetection,
-        errorBuilder: (context, error, child) {
-          return _buildErrorWidget(error.toString());
-        },
-        placeholderBuilder: (context, child) {
-          return const Center(child: CircularProgressIndicator());
-        },
-        overlay: _buildScannerOverlay(),
-      ),
+      body: _isCheckingAccess
+          ? const Center(child: CircularProgressIndicator())
+          : !_canScan
+          ? _buildErrorWidget(
+              _accessMessage ??
+                  'You can only scan after the host checks you in.',
+            )
+          : MobileScanner(
+              controller: controller,
+              onDetect: _handleQrDetection,
+              errorBuilder: (context, error, child) {
+                return _buildErrorWidget(error.toString());
+              },
+              placeholderBuilder: (context, child) {
+                return const Center(child: CircularProgressIndicator());
+              },
+              overlay: _buildScannerOverlay(),
+            ),
     );
+  }
+
+  Future<void> _loadScanAccess() async {
+    final event = widget.event;
+    if (event == null) {
+      setState(() {
+        _isCheckingAccess = false;
+        _canScan = false;
+        _accessMessage = 'Event information not available.';
+      });
+      return;
+    }
+    final isCreator = (event.creatorId ?? '').trim() == currentUserId;
+    if (isCreator) {
+      setState(() {
+        _isCheckingAccess = false;
+        _canScan = true;
+      });
+      return;
+    }
+    try {
+      final attendance = await AttendanceService.getAttendanceList(event.id);
+      final attendedIds = attendance.map((item) => item.userId).toSet();
+      setState(() {
+        _isCheckingAccess = false;
+        _canScan = attendedIds.contains(currentUserId);
+        _accessMessage = attendedIds.contains(currentUserId)
+            ? null
+            : 'You can help scan only after your own attendance is confirmed.';
+      });
+    } catch (_) {
+      setState(() {
+        _isCheckingAccess = false;
+        _canScan = false;
+        _accessMessage = 'Could not verify scan access right now.';
+      });
+    }
   }
 
   void _handleQrDetection(BarcodeCapture capture) {
@@ -107,19 +168,21 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
 
   Future<void> _processTicket(String ticketIdStr) async {
     try {
-      // Parse ticket ID from QR code data
-      final ticketId = int.tryParse(ticketIdStr.trim());
-      if (ticketId == null || ticketId < 0 || ticketId > 99999) {
-        _showErrorDialog('Invalid ticket ID format');
-        return;
-      }
-
       if (widget.event == null) {
         _showErrorDialog('Event information not available');
         return;
       }
 
       final event = widget.event!;
+      final validation = TicketService.validateScannedQrData(
+        rawData: ticketIdStr,
+        event: event,
+      );
+      if (!validation.isValid || validation.ticketId == null) {
+        _showErrorDialog(validation.errorMessage ?? 'Invalid QR code');
+        return;
+      }
+      final ticketId = validation.ticketId!;
 
       // Check if attendance already marked
       final alreadyMarked = await AttendanceService.isAttendanceMarked(
@@ -128,7 +191,9 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
       );
 
       if (alreadyMarked) {
-        _showErrorDialog('Attendance already marked for this ticket');
+        _showErrorDialog(
+          'This participant is already checked in for this event.',
+        );
         return;
       }
 
@@ -136,12 +201,19 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
       final participantIds = await _registrationRepo.listParticipantUserIds(
         event.id,
       );
-      if (ticketId >= participantIds.length) {
+      if (ticketId < 0 || ticketId >= participantIds.length) {
         _showErrorDialog('Ticket ID does not match any registered participant');
         return;
       }
 
-      final userId = participantIds[ticketId];
+      final expectedUserId = participantIds[ticketId];
+      final userId = validation.userId ?? expectedUserId;
+      if (!validation.isLegacy && userId != expectedUserId) {
+        _showErrorDialog(
+          'This QR code does not match the registered participant',
+        );
+        return;
+      }
 
       // Fetch user profile for confirmation display
       final profiles = await _profileRepo.getProfilesByIds([userId]);
@@ -189,22 +261,41 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
                 'Ticket ID',
                 ticketId.toString().padLeft(5, '0'),
               ),
+              const SizedBox(height: 12),
+              _buildAttendanceInfo('Scanner', _scannerRoleLabel),
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  border: Border.all(color: Colors.green.shade300),
+                  color: _isHostScanner
+                      ? Colors.green.shade50
+                      : Colors.blue.shade50,
+                  border: Border.all(
+                    color: _isHostScanner
+                        ? Colors.green.shade300
+                        : Colors.blue.shade300,
+                  ),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(Icons.check_circle, color: Colors.green),
-                    SizedBox(width: 8),
+                    Icon(
+                      _isHostScanner
+                          ? Icons.verified_rounded
+                          : Icons.groups_rounded,
+                      color: _isHostScanner ? Colors.green : Colors.blue,
+                    ),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Mark this person as attended?',
-                        style: TextStyle(color: Colors.green),
+                        _isHostScanner
+                            ? 'Confirm this check-in as the event host?'
+                            : 'Confirm this check-in as a verified helper?',
+                        style: TextStyle(
+                          color: _isHostScanner
+                              ? Colors.green.shade800
+                              : Colors.blue.shade800,
+                        ),
                       ),
                     ),
                   ],
@@ -257,6 +348,7 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
         eventId: event.id,
         ticketId: ticketId,
         userId: userId,
+        scannerUserId: currentUserId,
       );
 
       if (!mounted) return;
@@ -292,19 +384,38 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
               Text('Attendee: $userName'),
               const SizedBox(height: 8),
               Text('Ticket ID: ${ticketId.toString().padLeft(5, '0')}'),
+              const SizedBox(height: 8),
+              Text('Scanner: $_scannerRoleLabel'),
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.green.shade50,
+                  color: _isHostScanner
+                      ? Colors.green.shade50
+                      : Colors.blue.shade50,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.green.shade300),
+                  border: Border.all(
+                    color: _isHostScanner
+                        ? Colors.green.shade300
+                        : Colors.blue.shade300,
+                  ),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(Icons.check_circle, color: Colors.green),
-                    SizedBox(width: 8),
-                    Expanded(child: Text('Attendance successfully marked.')),
+                    Icon(
+                      _isHostScanner
+                          ? Icons.verified_rounded
+                          : Icons.groups_rounded,
+                      color: _isHostScanner ? Colors.green : Colors.blue,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _isHostScanner
+                            ? 'Attendance successfully marked by the host.'
+                            : 'Attendance successfully marked by a verified helper.',
+                      ),
+                    ),
                   ],
                 ),
               ),

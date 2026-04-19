@@ -19,6 +19,7 @@ import 'screens/home/private_events_screen.dart';
 import 'screens/profile/edit_profile_screen.dart';
 import 'screens/profile/change_password_screen.dart';
 import 'screens/profile/achievements_screen.dart';
+import 'screens/profile/membership_screen.dart';
 import 'screens/profile/profile_screen.dart';
 import 'screens/profile/user_profile_view_screen.dart';
 import 'screens/reset_password_screen.dart';
@@ -82,6 +83,7 @@ class AppRoot extends StatelessWidget {
         PrivateEventsScreen.routeName: (_) => const PrivateEventsScreen(),
         AchievementsScreen.routeName: (_) => const AchievementsScreen(),
         ProfileScreen.routeName: (_) => const ProfileScreen(),
+        MembershipScreen.routeName: (_) => const MembershipScreen(),
         UserProfileViewScreen.routeName: (_) => const UserProfileViewScreen(),
         EditProfileScreen.routeName: (_) => const EditProfileScreen(),
         ChangePasswordScreen.routeName: (_) => const ChangePasswordScreen(),

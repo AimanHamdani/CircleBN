@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:pdf/pdf.dart';
@@ -12,6 +13,7 @@ import '../models/user_profile.dart';
 class TicketService {
   static final EventRegistrationRepository _registrationRepo =
       EventRegistrationRepository();
+  static const String _qrSecret = 'circlebn_qr_v1_attendance_secret';
 
   /// Generate a sequential ticket ID (0-99999) based on registration order.
   /// Lower index = earlier registrant.
@@ -50,13 +52,16 @@ class TicketService {
   }) async {
     final pdf = pw.Document();
 
-    final qrImageData = await generateQrCodeImage(ticketId.toString());
+    final qrImageData = await generateQrCodeImage(
+      buildTicketQrData(event: event, userId: user.userId, ticketId: ticketId),
+    );
 
     final attendeeName = user.realName.trim().isEmpty
         ? 'N/A'
         : user.realName.trim();
     final eventDate = _formatTemplateDate(event.startAt);
     final eventTime = _formatTemplateTime(event.startAt);
+    final validUntil = _formatTemplateTime(event.startAt.add(event.duration));
     final location = event.location.trim().isEmpty
         ? 'TBA'
         : event.location.trim();
@@ -181,6 +186,27 @@ class TicketService {
                             ],
                           ),
                           pw.SizedBox(height: 26),
+                          pw.Row(
+                            crossAxisAlignment: pw.CrossAxisAlignment.start,
+                            children: [
+                              pw.Expanded(
+                                child: _buildTicketField(
+                                  'SPORT',
+                                  event.sport,
+                                  leftAligned: true,
+                                ),
+                              ),
+                              pw.SizedBox(width: 18),
+                              pw.Expanded(
+                                child: _buildTicketField(
+                                  'VALID UNTIL',
+                                  validUntil,
+                                  leftAligned: true,
+                                ),
+                              ),
+                            ],
+                          ),
+                          pw.SizedBox(height: 26),
                           pw.Center(
                             child: pw.Image(
                               qrImageData,
@@ -197,6 +223,15 @@ class TicketService {
                             style: pw.TextStyle(
                               fontSize: 12,
                               color: PdfColors.black,
+                            ),
+                          ),
+                          pw.SizedBox(height: 6),
+                          pw.Text(
+                            'Valid until $validUntil',
+                            textAlign: pw.TextAlign.center,
+                            style: pw.TextStyle(
+                              fontSize: 11,
+                              color: PdfColors.grey700,
                             ),
                           ),
                           pw.SizedBox(height: 20),
@@ -337,5 +372,176 @@ class TicketService {
     final qrBytes = qrImage!.buffer.asUint8List();
 
     return pw.MemoryImage(qrBytes);
+  }
+
+  static String buildTicketQrData({
+    required Event event,
+    required String userId,
+    required int ticketId,
+  }) {
+    final expiresAt = event.startAt.add(event.duration);
+    final payload = _TicketQrPayload(
+      version: 1,
+      eventId: event.id,
+      userId: userId,
+      ticketId: ticketId,
+      expiresAtMs: expiresAt.millisecondsSinceEpoch,
+      signature: _signFields(
+        eventId: event.id,
+        userId: userId,
+        ticketId: ticketId,
+        expiresAtMs: expiresAt.millisecondsSinceEpoch,
+      ),
+    );
+    return jsonEncode(payload.toMap());
+  }
+
+  static TicketQrValidationResult validateScannedQrData({
+    required String rawData,
+    required Event event,
+  }) {
+    final trimmed = rawData.trim();
+    final legacyTicketId = int.tryParse(trimmed);
+    if (legacyTicketId != null) {
+      return TicketQrValidationResult.validLegacy(ticketId: legacyTicketId);
+    }
+
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded is! Map<String, dynamic>) {
+        return const TicketQrValidationResult.invalid('Invalid QR code format');
+      }
+      final payload = _TicketQrPayload.fromMap(decoded);
+      if (payload.version != 1) {
+        return const TicketQrValidationResult.invalid(
+          'Unsupported QR code version',
+        );
+      }
+      if (payload.eventId != event.id) {
+        return const TicketQrValidationResult.invalid(
+          'This QR code is not for this event',
+        );
+      }
+      if (DateTime.now().millisecondsSinceEpoch > payload.expiresAtMs) {
+        return const TicketQrValidationResult.invalid(
+          'This ticket QR has expired',
+        );
+      }
+      final expectedSig = _signFields(
+        eventId: payload.eventId,
+        userId: payload.userId,
+        ticketId: payload.ticketId,
+        expiresAtMs: payload.expiresAtMs,
+      );
+      if (payload.signature != expectedSig) {
+        return const TicketQrValidationResult.invalid(
+          'This QR code could not be verified',
+        );
+      }
+      return TicketQrValidationResult.valid(
+        eventId: payload.eventId,
+        userId: payload.userId,
+        ticketId: payload.ticketId,
+      );
+    } catch (_) {
+      return const TicketQrValidationResult.invalid('Invalid QR code format');
+    }
+  }
+
+  static String _signFields({
+    required String eventId,
+    required String userId,
+    required int ticketId,
+    required int expiresAtMs,
+  }) {
+    final input = '$eventId|$userId|$ticketId|$expiresAtMs|$_qrSecret';
+    return _fnv1a32(input).toRadixString(16).padLeft(8, '0');
+  }
+
+  static int _fnv1a32(String input) {
+    var hash = 0x811C9DC5;
+    const prime = 0x01000193;
+    const mask32 = 0xFFFFFFFF;
+    for (final unit in utf8.encode(input)) {
+      hash ^= unit;
+      hash = (hash * prime) & mask32;
+    }
+    return hash;
+  }
+}
+
+class TicketQrValidationResult {
+  final bool isValid;
+  final bool isLegacy;
+  final String? eventId;
+  final String? userId;
+  final int? ticketId;
+  final String? errorMessage;
+
+  const TicketQrValidationResult._({
+    required this.isValid,
+    required this.isLegacy,
+    this.eventId,
+    this.userId,
+    this.ticketId,
+    this.errorMessage,
+  });
+
+  const TicketQrValidationResult.valid({
+    required String eventId,
+    required String userId,
+    required int ticketId,
+  }) : this._(
+         isValid: true,
+         isLegacy: false,
+         eventId: eventId,
+         userId: userId,
+         ticketId: ticketId,
+       );
+
+  const TicketQrValidationResult.validLegacy({required int ticketId})
+    : this._(isValid: true, isLegacy: true, ticketId: ticketId);
+
+  const TicketQrValidationResult.invalid(String message)
+    : this._(isValid: false, isLegacy: false, errorMessage: message);
+}
+
+class _TicketQrPayload {
+  final int version;
+  final String eventId;
+  final String userId;
+  final int ticketId;
+  final int expiresAtMs;
+  final String signature;
+
+  const _TicketQrPayload({
+    required this.version,
+    required this.eventId,
+    required this.userId,
+    required this.ticketId,
+    required this.expiresAtMs,
+    required this.signature,
+  });
+
+  factory _TicketQrPayload.fromMap(Map<String, dynamic> map) {
+    return _TicketQrPayload(
+      version: (map['v'] ?? 0) as int,
+      eventId: (map['eventId'] ?? '').toString(),
+      userId: (map['userId'] ?? '').toString(),
+      ticketId: (map['ticketId'] ?? 0) as int,
+      expiresAtMs: (map['exp'] ?? 0) as int,
+      signature: (map['sig'] ?? '').toString(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'v': version,
+      'eventId': eventId,
+      'userId': userId,
+      'ticketId': ticketId,
+      'exp': expiresAtMs,
+      'sig': signature,
+    };
   }
 }

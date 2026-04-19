@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../auth/current_user.dart';
-import '../../../data/event_registration_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
+import '../../../services/attendance_service.dart';
 import '../../theme/app_theme.dart';
 
 class EventScoringArgs {
@@ -97,10 +97,9 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
     }
 
     try {
-      final ids = await eventRegistrationRepository().listParticipantUserIds(
-        event.id,
-      );
-      final profiles = await profileRepository().getProfilesByIds(ids);
+      final attendance = await AttendanceService.getAttendanceList(event.id);
+      final attendedIds = attendance.map((item) => item.userId).toList();
+      final profiles = await profileRepository().getProfilesByIds(attendedIds);
       final merged = <UserProfile>[...profiles];
       if (_isHostAndPlay(event)) {
         final hostId = (event.creatorId ?? currentUserId).trim();
@@ -114,6 +113,9 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
       setState(() {
         _players = merged;
         _isLoading = false;
+        _error = merged.isEmpty
+            ? 'No attended participants available for scoring yet.'
+            : null;
       });
     } catch (_) {
       setState(() {
@@ -1131,8 +1133,13 @@ class _MatchEntry {
   int bestOf;
   final TextEditingController teamANameCtrl;
   final TextEditingController teamBNameCtrl;
+  final TextEditingController activeSetScoreACtrl;
+  final TextEditingController activeSetScoreBCtrl;
   final List<_PlayerStatEntry> teamA;
   final List<_PlayerStatEntry> teamB;
+  final List<_SavedSetScore?> savedSets;
+  int activeSetIndex;
+  int? editingSetIndex;
 
   _MatchEntry({
     required this.matchNumber,
@@ -1140,8 +1147,13 @@ class _MatchEntry {
     required this.bestOf,
     required this.teamANameCtrl,
     required this.teamBNameCtrl,
+    required this.activeSetScoreACtrl,
+    required this.activeSetScoreBCtrl,
     required this.teamA,
     required this.teamB,
+    required this.savedSets,
+    required this.activeSetIndex,
+    required this.editingSetIndex,
     this.isDraftSubmitted = false,
   });
 
@@ -1160,8 +1172,13 @@ class _MatchEntry {
       bestOf: bestOf,
       teamANameCtrl: TextEditingController(text: 'Team A'),
       teamBNameCtrl: TextEditingController(text: 'Team B'),
+      activeSetScoreACtrl: TextEditingController(text: '0'),
+      activeSetScoreBCtrl: TextEditingController(text: '0'),
       teamA: List.generate(effectiveTeamSize, (_) => _PlayerStatEntry.create()),
       teamB: List.generate(effectiveTeamSize, (_) => _PlayerStatEntry.create()),
+      savedSets: List<_SavedSetScore?>.filled(bestOf, null),
+      activeSetIndex: 0,
+      editingSetIndex: null,
       isDraftSubmitted: false,
     );
   }
@@ -1169,6 +1186,8 @@ class _MatchEntry {
   void dispose() {
     teamANameCtrl.dispose();
     teamBNameCtrl.dispose();
+    activeSetScoreACtrl.dispose();
+    activeSetScoreBCtrl.dispose();
     for (final p in teamA) {
       p.dispose();
     }
@@ -1176,6 +1195,18 @@ class _MatchEntry {
       p.dispose();
     }
   }
+}
+
+class _SavedSetScore {
+  final int index;
+  int scoreA;
+  int scoreB;
+
+  _SavedSetScore({
+    required this.index,
+    required this.scoreA,
+    required this.scoreB,
+  });
 }
 
 class _PlayerStatEntry {
@@ -1256,6 +1287,96 @@ class _PlayerStatEntry {
 }
 
 enum _FootballResult { win, draw, loss }
+
+bool _isSetLikeSport({
+  required bool isVolleyballAdvanced,
+  required bool isBadmintonAdvanced,
+}) {
+  return isVolleyballAdvanced || isBadmintonAdvanced;
+}
+
+bool _usesSetTerm({
+  required String sportKey,
+  required bool isVolleyballAdvanced,
+}) {
+  final normalized = sportKey.trim().toLowerCase();
+  return isVolleyballAdvanced ||
+      (normalized.contains('tennis') &&
+          !normalized.contains('table tennis') &&
+          !normalized.contains('ping pong'));
+}
+
+String _setUnitLabel({
+  required String sportKey,
+  required bool isVolleyballAdvanced,
+  required int index,
+}) {
+  final usesSet = _usesSetTerm(
+    sportKey: sportKey,
+    isVolleyballAdvanced: isVolleyballAdvanced,
+  );
+  return '${usesSet ? 'Set' : 'Game'} ${index + 1}';
+}
+
+String _setSectionTitle({
+  required String sportKey,
+  required bool isVolleyballAdvanced,
+}) {
+  return _usesSetTerm(
+        sportKey: sportKey,
+        isVolleyballAdvanced: isVolleyballAdvanced,
+      )
+      ? 'SETS — PROGRESSIVE SAVE'
+      : 'GAMES — PROGRESSIVE SAVE';
+}
+
+int _savedUnitWins(_MatchEntry match, {required bool forTeamA}) {
+  var wins = 0;
+  for (final item in match.savedSets) {
+    if (item == null) {
+      continue;
+    }
+    if (forTeamA && item.scoreA > item.scoreB) {
+      wins += 1;
+    } else if (!forTeamA && item.scoreB > item.scoreA) {
+      wins += 1;
+    }
+  }
+  return wins;
+}
+
+void _syncResultsFromSavedSets(
+  _MatchEntry match, {
+  required bool allowDraw,
+  required bool syncPointField,
+}) {
+  final winsA = _savedUnitWins(match, forTeamA: true);
+  final winsB = _savedUnitWins(match, forTeamA: false);
+  _FootballResult resultA;
+  _FootballResult resultB;
+  if (winsA > winsB) {
+    resultA = _FootballResult.win;
+    resultB = _FootballResult.loss;
+  } else if (winsB > winsA) {
+    resultA = _FootballResult.loss;
+    resultB = _FootballResult.win;
+  } else {
+    resultA = allowDraw ? _FootballResult.draw : _FootballResult.loss;
+    resultB = allowDraw ? _FootballResult.draw : _FootballResult.loss;
+  }
+  for (final stat in match.teamA) {
+    stat.footballResult = resultA;
+    if (syncPointField) {
+      stat.pointsCtrl.text = resultA == _FootballResult.win ? '1' : '0';
+    }
+  }
+  for (final stat in match.teamB) {
+    stat.footballResult = resultB;
+    if (syncPointField) {
+      stat.pointsCtrl.text = resultB == _FootballResult.win ? '1' : '0';
+    }
+  }
+}
 
 class _EventScoringHeader extends StatelessWidget {
   final String title;
@@ -1417,6 +1538,299 @@ class _RacketFormatToggle extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ProgressiveSetPanel extends StatelessWidget {
+  final _MatchEntry match;
+  final bool canEdit;
+  final Color accent;
+  final String sportKey;
+  final bool isVolleyballAdvanced;
+  final String teamALabel;
+  final String teamBLabel;
+  final VoidCallback onChanged;
+
+  const _ProgressiveSetPanel({
+    required this.match,
+    required this.canEdit,
+    required this.accent,
+    required this.sportKey,
+    required this.isVolleyballAdvanced,
+    required this.teamALabel,
+    required this.teamBLabel,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final sectionTitle = _setSectionTitle(
+      sportKey: sportKey,
+      isVolleyballAdvanced: isVolleyballAdvanced,
+    );
+
+    void loadSetIntoEditor(int index) {
+      final existing = match.savedSets[index];
+      match.activeSetIndex = index;
+      match.editingSetIndex = index;
+      match.activeSetScoreACtrl.text = '${existing?.scoreA ?? 0}';
+      match.activeSetScoreBCtrl.text = '${existing?.scoreB ?? 0}';
+    }
+
+    void stageNextUnsavedSet() {
+      match.editingSetIndex = null;
+      var nextIndex = match.bestOf;
+      for (var i = 0; i < match.savedSets.length; i++) {
+        if (match.savedSets[i] == null) {
+          nextIndex = i;
+          break;
+        }
+      }
+      match.activeSetIndex = nextIndex.clamp(0, match.bestOf - 1);
+      match.activeSetScoreACtrl.text = '0';
+      match.activeSetScoreBCtrl.text = '0';
+    }
+
+    void adjustScore(TextEditingController ctrl, int delta) {
+      final current = int.tryParse(ctrl.text.trim()) ?? 0;
+      final next = (current + delta).clamp(0, 99);
+      ctrl.value = TextEditingValue(
+        text: '$next',
+        selection: TextSelection.collapsed(offset: '$next'.length),
+      );
+      onChanged();
+    }
+
+    void saveCurrentSet() {
+      final index = match.editingSetIndex ?? match.activeSetIndex;
+      final scoreA = int.tryParse(match.activeSetScoreACtrl.text.trim()) ?? 0;
+      final scoreB = int.tryParse(match.activeSetScoreBCtrl.text.trim()) ?? 0;
+      match.savedSets[index] = _SavedSetScore(
+        index: index,
+        scoreA: scoreA,
+        scoreB: scoreB,
+      );
+      stageNextUnsavedSet();
+      onChanged();
+    }
+
+    final visibleIndices = <int>{};
+    for (var i = 0; i < match.savedSets.length; i++) {
+      if (match.savedSets[i] != null) {
+        visibleIndices.add(i);
+      }
+    }
+    if (match.editingSetIndex != null) {
+      visibleIndices.add(match.editingSetIndex!);
+    } else if (match.activeSetIndex < match.bestOf) {
+      visibleIndices.add(match.activeSetIndex);
+    }
+    final ordered = visibleIndices.toList()..sort();
+    final winsA = _savedUnitWins(match, forTeamA: true);
+    final winsB = _savedUnitWins(match, forTeamA: false);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withValues(alpha: 0.32)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            sectionTitle,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 11,
+              letterSpacing: 0.5,
+              color: accent.withValues(alpha: 0.85),
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final index in ordered) ...[
+            if (match.savedSets[index] != null &&
+                match.editingSetIndex != index)
+              Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: accent.withValues(alpha: 0.22)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${_setUnitLabel(sportKey: sportKey, isVolleyballAdvanced: isVolleyballAdvanced, index: index)}: ${match.savedSets[index]!.scoreA} - ${match.savedSets[index]!.scoreB}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: accent,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: canEdit
+                          ? () {
+                              loadSetIntoEditor(index);
+                              onChanged();
+                            }
+                          : null,
+                      child: const Text('Edit set'),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: accent.withValues(alpha: 0.22)),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _setUnitLabel(
+                              sportKey: sportKey,
+                              isVolleyballAdvanced: isVolleyballAdvanced,
+                              index: index,
+                            ),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: accent,
+                            ),
+                          ),
+                        ),
+                        FilledButton.tonal(
+                          onPressed: canEdit ? saveCurrentSet : null,
+                          child: const Text('Save set'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _SetScoreEditor(
+                            label: teamALabel,
+                            controller: match.activeSetScoreACtrl,
+                            accent: accent,
+                            canEdit: canEdit,
+                            onMinus: () =>
+                                adjustScore(match.activeSetScoreACtrl, -1),
+                            onPlus: () =>
+                                adjustScore(match.activeSetScoreACtrl, 1),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _SetScoreEditor(
+                            label: teamBLabel,
+                            controller: match.activeSetScoreBCtrl,
+                            accent: accent,
+                            canEdit: canEdit,
+                            onMinus: () =>
+                                adjustScore(match.activeSetScoreBCtrl, -1),
+                            onPlus: () =>
+                                adjustScore(match.activeSetScoreBCtrl, 1),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+          ],
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: accent.withValues(alpha: 0.28)),
+            ),
+            child: Text(
+              winsA == winsB
+                  ? 'Winner: not decided'
+                  : 'Winner: ${winsA > winsB ? teamALabel : teamBLabel} ($winsA-$winsB)',
+              style: TextStyle(fontWeight: FontWeight.w800, color: accent),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SetScoreEditor extends StatelessWidget {
+  final String label;
+  final TextEditingController controller;
+  final Color accent;
+  final bool canEdit;
+  final VoidCallback onMinus;
+  final VoidCallback onPlus;
+
+  const _SetScoreEditor({
+    required this.label,
+    required this.controller,
+    required this.accent,
+    required this.canEdit,
+    required this.onMinus,
+    required this.onPlus,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          label,
+          style: TextStyle(fontWeight: FontWeight.w700, color: accent),
+        ),
+        const SizedBox(height: 6),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _CircleStepButton(
+              icon: Icons.remove,
+              onTap: canEdit ? onMinus : null,
+            ),
+            const SizedBox(width: 8),
+            Container(
+              width: 44,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                controller.text.trim().isEmpty ? '0' : controller.text.trim(),
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: accent,
+                  fontSize: 20,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            _CircleStepButton(icon: Icons.add, onTap: canEdit ? onPlus : null),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -1822,6 +2236,14 @@ class _MatchCard extends StatelessWidget {
     }
 
     int teamTotalScore(List<_PlayerStatEntry> team) {
+      if (_isSetLikeSport(
+        isVolleyballAdvanced: isVolleyballAdvanced,
+        isBadmintonAdvanced: isBadmintonAdvanced,
+      )) {
+        return identical(team, match.teamA)
+            ? _savedUnitWins(match, forTeamA: true)
+            : _savedUnitWins(match, forTeamA: false);
+      }
       return team.fold<int>(0, (sum, stat) {
         return sum + (int.tryParse(stat.pointsCtrl.text.trim()) ?? 0);
       });
@@ -1850,7 +2272,15 @@ class _MatchCard extends StatelessWidget {
     }
 
     void syncTeamResultsFromTotals() {
-      if (isBadmintonAdvanced) {
+      if (_isSetLikeSport(
+        isVolleyballAdvanced: isVolleyballAdvanced,
+        isBadmintonAdvanced: isBadmintonAdvanced,
+      )) {
+        _syncResultsFromSavedSets(
+          match,
+          allowDraw: isVolleyballAdvanced,
+          syncPointField: isBadmintonAdvanced,
+        );
         return;
       }
       final totalA = teamTotalScore(match.teamA);
@@ -1937,11 +2367,16 @@ class _MatchCard extends StatelessWidget {
                   style: TextStyle(fontWeight: FontWeight.w900, color: accent),
                 ),
                 const Spacer(),
-                Text(
-                  'Best of ${match.bestOf}',
-                  style: TextStyle(fontWeight: FontWeight.w700, color: accent),
-                ),
-                const SizedBox(width: 8),
+                if (!isFootballAdvanced && !isBasketballAdvanced) ...[
+                  Text(
+                    'Best of ${match.bestOf}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: accent,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 IconButton(
                   onPressed: canEdit ? onRemoveMatch : null,
                   icon: const Icon(Icons.delete_outline),
@@ -1957,6 +2392,25 @@ class _MatchCard extends StatelessWidget {
                 isSingles: match.isSingles,
                 enabled: canEdit,
                 onChanged: applyRacketFormat,
+              ),
+            ),
+          ],
+          if (_isSetLikeSport(
+            isVolleyballAdvanced: isVolleyballAdvanced,
+            isBadmintonAdvanced: isBadmintonAdvanced,
+          )) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              child: _ProgressiveSetPanel(
+                match: match,
+                canEdit: canEdit,
+                accent: accent,
+                sportKey: sportKey,
+                isVolleyballAdvanced: isVolleyballAdvanced,
+                teamALabel: 'Team A',
+                teamBLabel: 'Team B',
+                onChanged: onAnyStatChanged,
               ),
             ),
           ],
@@ -2206,15 +2660,10 @@ class _SinglesMatchCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isTennis =
-        sportKey.contains('tennis') &&
-        !sportKey.contains('table tennis') &&
-        !sportKey.contains('ping pong');
-    final scoreSectionTitle = isTennis
-        ? 'GAMES PER SET — IN PROGRESS'
-        : 'GAME SCORES — IN PROGRESS';
-    final firstScoreLabel = isTennis ? 'Set 1' : 'G1';
-    final secondScoreLabel = isTennis ? 'Set 2' : 'G2';
+    final isSetLike = _isSetLikeSport(
+      isVolleyballAdvanced: isVolleyballAdvanced,
+      isBadmintonAdvanced: isBadmintonAdvanced,
+    );
     final playerA = match.teamA.first;
     final playerB = match.teamB.first;
     final accent = isFootballAdvanced
@@ -2227,38 +2676,12 @@ class _SinglesMatchCard extends StatelessWidget {
         ? AppTheme.eventPurpleDeep
         : const Color(0xFF6D28D9);
 
-    void adjustIntController(TextEditingController ctrl, int delta) {
-      final current = int.tryParse(ctrl.text.trim()) ?? 0;
-      final next = (current + delta).clamp(0, 99);
-      ctrl.value = TextEditingValue(
-        text: '$next',
-        selection: TextSelection.collapsed(offset: '$next'.length),
+    if (isSetLike) {
+      _syncResultsFromSavedSets(
+        match,
+        allowDraw: isVolleyballAdvanced,
+        syncPointField: isBadmintonAdvanced,
       );
-      if (isBadmintonAdvanced) {
-        final setA1 = int.tryParse(playerA.badmintonSet1Ctrl.text.trim()) ?? 0;
-        final setB1 = int.tryParse(playerB.badmintonSet1Ctrl.text.trim()) ?? 0;
-        final setA2 = int.tryParse(playerA.badmintonSet2Ctrl.text.trim()) ?? 0;
-        final setB2 = int.tryParse(playerB.badmintonSet2Ctrl.text.trim()) ?? 0;
-        final setsA = (setA1 > setB1 ? 1 : 0) + (setA2 > setB2 ? 1 : 0);
-        final setsB = (setB1 > setA1 ? 1 : 0) + (setB2 > setA2 ? 1 : 0);
-        if (setsA > setsB) {
-          playerA.footballResult = _FootballResult.win;
-          playerB.footballResult = _FootballResult.loss;
-          playerA.pointsCtrl.text = '1';
-          playerB.pointsCtrl.text = '0';
-        } else if (setsB > setsA) {
-          playerA.footballResult = _FootballResult.loss;
-          playerB.footballResult = _FootballResult.win;
-          playerA.pointsCtrl.text = '0';
-          playerB.pointsCtrl.text = '1';
-        } else {
-          playerA.footballResult = _FootballResult.draw;
-          playerB.footballResult = _FootballResult.draw;
-          playerA.pointsCtrl.text = '0';
-          playerB.pointsCtrl.text = '0';
-        }
-      }
-      onAnyStatChanged();
     }
 
     return Container(
@@ -2277,10 +2700,11 @@ class _SinglesMatchCard extends StatelessWidget {
                 style: TextStyle(fontWeight: FontWeight.w900, color: accent),
               ),
               const Spacer(),
-              Text(
-                'Best of ${match.bestOf}',
-                style: TextStyle(fontWeight: FontWeight.w700, color: accent),
-              ),
+              if (!isFootballAdvanced && !isBasketballAdvanced)
+                Text(
+                  'Best of ${match.bestOf}',
+                  style: TextStyle(fontWeight: FontWeight.w700, color: accent),
+                ),
               IconButton(
                 onPressed: canEdit ? onRemoveMatch : null,
                 icon: const Icon(Icons.delete_outline),
@@ -2290,303 +2714,26 @@ class _SinglesMatchCard extends StatelessWidget {
           if (isBadmintonAdvanced) ...[
             const SizedBox(height: 6),
             _RacketFormatToggle(
-              isSingles: true,
+              isSingles: match.isSingles,
               enabled: canEdit && onSwitchRacketFormat != null,
               onChanged: (selected) => onSwitchRacketFormat!(selected),
             ),
           ],
-          if (isBadmintonAdvanced) ...[
+          if (isSetLike) ...[
             const SizedBox(height: 6),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-              decoration: BoxDecoration(
-                color: accent.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: accent.withValues(alpha: 0.32)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    scoreSectionTitle,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 11,
-                      letterSpacing: 0.5,
-                      color: accent.withValues(alpha: 0.85),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _CircleStepButton(
-                              icon: Icons.remove,
-                              onTap: canEdit
-                                  ? () => adjustIntController(
-                                      playerA.badmintonSet1Ctrl,
-                                      -1,
-                                    )
-                                  : null,
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              width: 44,
-                              height: 34,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: accent.withValues(alpha: 0.14),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                playerA.badmintonSet1Ctrl.text.trim().isEmpty
-                                    ? '0'
-                                    : playerA.badmintonSet1Ctrl.text.trim(),
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  color: accent,
-                                  fontSize: 20,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            _CircleStepButton(
-                              icon: Icons.add,
-                              onTap: canEdit
-                                  ? () => adjustIntController(
-                                      playerA.badmintonSet1Ctrl,
-                                      1,
-                                    )
-                                  : null,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        firstScoreLabel,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: Colors.black.withValues(alpha: 0.5),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _CircleStepButton(
-                              icon: Icons.remove,
-                              onTap: canEdit
-                                  ? () => adjustIntController(
-                                      playerB.badmintonSet1Ctrl,
-                                      -1,
-                                    )
-                                  : null,
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              width: 44,
-                              height: 34,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: accent.withValues(alpha: 0.14),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                playerB.badmintonSet1Ctrl.text.trim().isEmpty
-                                    ? '0'
-                                    : playerB.badmintonSet1Ctrl.text.trim(),
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  color: accent,
-                                  fontSize: 20,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            _CircleStepButton(
-                              icon: Icons.add,
-                              onTap: canEdit
-                                  ? () => adjustIntController(
-                                      playerB.badmintonSet1Ctrl,
-                                      1,
-                                    )
-                                  : null,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _CircleStepButton(
-                              icon: Icons.remove,
-                              onTap: canEdit
-                                  ? () => adjustIntController(
-                                      playerA.badmintonSet2Ctrl,
-                                      -1,
-                                    )
-                                  : null,
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              width: 44,
-                              height: 34,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: accent.withValues(alpha: 0.14),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                playerA.badmintonSet2Ctrl.text.trim().isEmpty
-                                    ? '0'
-                                    : playerA.badmintonSet2Ctrl.text.trim(),
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  color: accent,
-                                  fontSize: 20,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            _CircleStepButton(
-                              icon: Icons.add,
-                              onTap: canEdit
-                                  ? () => adjustIntController(
-                                      playerA.badmintonSet2Ctrl,
-                                      1,
-                                    )
-                                  : null,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        secondScoreLabel,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: Colors.black.withValues(alpha: 0.5),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _CircleStepButton(
-                              icon: Icons.remove,
-                              onTap: canEdit
-                                  ? () => adjustIntController(
-                                      playerB.badmintonSet2Ctrl,
-                                      -1,
-                                    )
-                                  : null,
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              width: 44,
-                              height: 34,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: accent.withValues(alpha: 0.14),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                playerB.badmintonSet2Ctrl.text.trim().isEmpty
-                                    ? '0'
-                                    : playerB.badmintonSet2Ctrl.text.trim(),
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  color: accent,
-                                  fontSize: 20,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            _CircleStepButton(
-                              icon: Icons.add,
-                              onTap: canEdit
-                                  ? () => adjustIntController(
-                                      playerB.badmintonSet2Ctrl,
-                                      1,
-                                    )
-                                  : null,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: accent.withValues(alpha: 0.28)),
-                    ),
-                    child: Text(
-                      () {
-                        final setA1 =
-                            int.tryParse(
-                              playerA.badmintonSet1Ctrl.text.trim(),
-                            ) ??
-                            0;
-                        final setB1 =
-                            int.tryParse(
-                              playerB.badmintonSet1Ctrl.text.trim(),
-                            ) ??
-                            0;
-                        final setA2 =
-                            int.tryParse(
-                              playerA.badmintonSet2Ctrl.text.trim(),
-                            ) ??
-                            0;
-                        final setB2 =
-                            int.tryParse(
-                              playerB.badmintonSet2Ctrl.text.trim(),
-                            ) ??
-                            0;
-                        final setsA =
-                            (setA1 > setB1 ? 1 : 0) + (setA2 > setB2 ? 1 : 0);
-                        final setsB =
-                            (setB1 > setA1 ? 1 : 0) + (setB2 > setA2 ? 1 : 0);
-                        if (setsA == setsB) {
-                          return 'Winner: not decided';
-                        }
-                        final winnerName = setsA > setsB
-                            ? (playerA.nameCtrl.text.trim().isEmpty
-                                  ? 'Player A'
-                                  : playerA.nameCtrl.text.trim())
-                            : (playerB.nameCtrl.text.trim().isEmpty
-                                  ? 'Player B'
-                                  : playerB.nameCtrl.text.trim());
-                        return 'Winner: $winnerName ($setsA-$setsB)';
-                      }(),
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        color: accent,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            _ProgressiveSetPanel(
+              match: match,
+              canEdit: canEdit,
+              accent: accent,
+              sportKey: sportKey,
+              isVolleyballAdvanced: isVolleyballAdvanced,
+              teamALabel: playerA.nameCtrl.text.trim().isEmpty
+                  ? 'Player A'
+                  : playerA.nameCtrl.text.trim(),
+              teamBLabel: playerB.nameCtrl.text.trim().isEmpty
+                  ? 'Player B'
+                  : playerB.nameCtrl.text.trim(),
+              onChanged: onAnyStatChanged,
             ),
             const SizedBox(height: 10),
           ],
@@ -2601,6 +2748,7 @@ class _SinglesMatchCard extends StatelessWidget {
             isBasketballAdvanced: isBasketballAdvanced,
             isVolleyballAdvanced: isVolleyballAdvanced,
             isBadmintonAdvanced: isBadmintonAdvanced,
+            showResultSelector: !isSetLike,
             onChanged: onAnyStatChanged,
             onResultChanged: (result) =>
                 onTeamResultSelected(isFromTeamA: true, selected: result),
@@ -2626,6 +2774,7 @@ class _SinglesMatchCard extends StatelessWidget {
             isBasketballAdvanced: isBasketballAdvanced,
             isVolleyballAdvanced: isVolleyballAdvanced,
             isBadmintonAdvanced: isBadmintonAdvanced,
+            showResultSelector: !isSetLike,
             onChanged: onAnyStatChanged,
             onResultChanged: (result) =>
                 onTeamResultSelected(isFromTeamA: false, selected: result),

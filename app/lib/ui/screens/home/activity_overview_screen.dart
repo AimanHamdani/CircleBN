@@ -171,17 +171,6 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
                     onCancelTicket: _cancelTicket,
                     isCancellingEvent: (eventId) =>
                         _cancellingEventIds.contains(eventId),
-                    onSendTicketMock: (event) {
-                      final message = [
-                        'Send Email/PDF (mock)',
-                        'Title: ${event.title}',
-                        'Fee: ${event.entryFeeLabel}',
-                        'Duration: ${_formatDurationLabel(event.duration)}',
-                      ].join('\n');
-                      ScaffoldMessenger.of(
-                        context,
-                      ).showSnackBar(SnackBar(content: Text(message)));
-                    },
                   ),
                 ),
               ],
@@ -255,20 +244,6 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
       }
     }
   }
-}
-
-String _formatDurationLabel(Duration d) {
-  final minutes = d.inMinutes;
-  if (minutes <= 60) return '1 Hour';
-  if (minutes == 90) return '1.5 Hours';
-  if (minutes == 120) return '2 Hours';
-  if (minutes == 150) return '2.5 Hours';
-  if (minutes == 180) return '3 Hours';
-  if (minutes == 210) return '3.5 Hours';
-  if (minutes == 240) return '4 Hours';
-  if (minutes == 270) return '4.5 Hours';
-  if (minutes == 300) return '5 Hours';
-  return '$minutes Min';
 }
 
 class _ActivityTabHeader extends StatelessWidget {
@@ -360,7 +335,6 @@ class _ActivityTabBody extends StatelessWidget {
   onOpenEvent;
   final Future<void> Function(Event event) onCancelTicket;
   final bool Function(String eventId) isCancellingEvent;
-  final void Function(Event event) onSendTicketMock;
 
   const _ActivityTabBody({
     required this.tab,
@@ -372,7 +346,6 @@ class _ActivityTabBody extends StatelessWidget {
     required this.onOpenEvent,
     required this.onCancelTicket,
     required this.isCancellingEvent,
-    required this.onSendTicketMock,
   });
 
   String _fmtTime(DateTime dt) {
@@ -574,10 +547,16 @@ class _ActivityTabBody extends StatelessWidget {
                       final ticketCode = ticketId != null
                           ? ticketId.toString().padLeft(5, '0')
                           : '-----';
-                      final qrData =
-                          ticketId?.toString() ?? '${e.id}_$currentUserId';
+                      final qrData = ticketId != null
+                          ? TicketService.buildTicketQrData(
+                              event: e,
+                              userId: currentUserId,
+                              ticketId: ticketId,
+                            )
+                          : '${e.id}_$currentUserId';
                       final eventDate = _fmtTemplateDate(e.startAt);
                       final eventTime = _fmtTime(e.startAt);
+                      final validUntil = _fmtTime(e.startAt.add(e.duration));
                       final location = e.location.trim().isEmpty
                           ? 'TBA'
                           : e.location;
@@ -700,6 +679,26 @@ class _ActivityTabBody extends StatelessWidget {
                                             ],
                                           ),
                                           const SizedBox(height: 16),
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Expanded(
+                                                child: _buildTemplateField(
+                                                  label: 'SPORT',
+                                                  value: e.sport,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: _buildTemplateField(
+                                                  label: 'VALID UNTIL',
+                                                  value: validUntil,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 16),
                                           Center(
                                             child: Container(
                                               color: Colors.white,
@@ -724,6 +723,15 @@ class _ActivityTabBody extends StatelessWidget {
                                             style: TextStyle(
                                               fontSize: 12,
                                               color: Colors.black,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            'Valid until ${_fmtTime(e.startAt.add(e.duration))}',
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              color: Color(0xFF666666),
                                             ),
                                           ),
                                           const SizedBox(height: 14),
@@ -784,11 +792,6 @@ class _ActivityTabBody extends StatelessWidget {
                                           : 'Cancel',
                                     ),
                                   ),
-                                const Spacer(),
-                                OutlinedButton(
-                                  onPressed: () => onSendTicketMock(e),
-                                  child: const Text('Send Email/PDF →'),
-                                ),
                               ],
                             ),
                           ],

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -6,8 +7,10 @@ import 'package:appwrite/appwrite.dart';
 
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
+import '../../../data/height_display_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/user_profile.dart';
+import '../../../utils/height_display.dart';
 
 class EditProfileScreen extends StatefulWidget {
   static const routeName = '/profile/edit';
@@ -21,12 +24,15 @@ class EditProfileScreen extends StatefulWidget {
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameCtrl;
-  late final TextEditingController _heightCtrl;
+  late final TextEditingController _heightCmCtrl;
+  late final TextEditingController _heightFeetCtrl;
+  late final TextEditingController _heightInchesCtrl;
   late final TextEditingController _emergencyCtrl;
   late final TextEditingController _bioCtrl;
 
   UserProfile? _profile;
   String _skillLevel = 'Beginner';
+  bool? _useImperialHeight;
   bool _hasInit = false;
   bool _isSaving = false;
   Uint8List? _avatarPreviewBytes;
@@ -40,38 +46,70 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _hasInit = true;
 
     final args = ModalRoute.of(context)?.settings.arguments;
+    _nameCtrl = TextEditingController();
+    _heightCmCtrl = TextEditingController();
+    _heightFeetCtrl = TextEditingController();
+    _heightInchesCtrl = TextEditingController();
+    _emergencyCtrl = TextEditingController();
+    _bioCtrl = TextEditingController();
+
     if (args is UserProfile) {
       _profile = args;
-      _nameCtrl = TextEditingController(text: args.username);
-      _heightCtrl = TextEditingController(text: args.heightCm?.toString() ?? '');
-      _emergencyCtrl = TextEditingController(text: args.emergencyContact);
-      _bioCtrl = TextEditingController(text: args.bio);
+      _nameCtrl.text = args.username;
+      _heightCmCtrl.text = args.heightCm?.toString() ?? '';
+      _emergencyCtrl.text = args.emergencyContact;
+      _bioCtrl.text = args.bio;
       _skillLevel = _normalizeSkillLevelLabel(args.skillLevel);
+      _avatarFileId = args.avatarFileId;
+      unawaited(_applyHeightPreferenceFromProfile(args));
     } else {
-      _nameCtrl = TextEditingController();
-      _heightCtrl = TextEditingController();
-      _emergencyCtrl = TextEditingController();
-      _bioCtrl = TextEditingController();
-      _load();
+      unawaited(_load());
     }
+  }
+
+  Future<void> _applyHeightPreferenceFromProfile(UserProfile p) async {
+    final imperial = await heightDisplayRepository().getUseImperial();
+    if (!mounted) {
+      return;
+    }
+    if (imperial && p.heightCm != null) {
+      final parts = cmToFeetInchParts(p.heightCm!);
+      _heightFeetCtrl.text = '${parts.feet}';
+      _heightInchesCtrl.text = '${parts.inches}';
+    }
+    setState(() => _useImperialHeight = imperial);
   }
 
   Future<void> _load() async {
     final p = await profileRepository().getMyProfile();
-    if (!mounted) return;
+    final imperial = await heightDisplayRepository().getUseImperial();
+    if (!mounted) {
+      return;
+    }
     setState(() => _profile = p);
     _nameCtrl.text = p.username;
-    _heightCtrl.text = p.heightCm?.toString() ?? '';
+    _heightCmCtrl.text = p.heightCm?.toString() ?? '';
     _emergencyCtrl.text = p.emergencyContact;
     _bioCtrl.text = p.bio;
     _avatarFileId = p.avatarFileId;
     _skillLevel = _normalizeSkillLevelLabel(p.skillLevel);
+    if (imperial && p.heightCm != null) {
+      final parts = cmToFeetInchParts(p.heightCm!);
+      _heightFeetCtrl.text = '${parts.feet}';
+      _heightInchesCtrl.text = '${parts.inches}';
+    } else {
+      _heightFeetCtrl.clear();
+      _heightInchesCtrl.clear();
+    }
+    setState(() => _useImperialHeight = imperial);
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
-    _heightCtrl.dispose();
+    _heightCmCtrl.dispose();
+    _heightFeetCtrl.dispose();
+    _heightInchesCtrl.dispose();
     _emergencyCtrl.dispose();
     _bioCtrl.dispose();
     super.dispose();
@@ -117,22 +155,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 validator: (v) => (v == null || v.trim().isEmpty) ? 'Please enter your username' : null,
               ),
               const SizedBox(height: 14),
-              const Text('Height (cm)', style: TextStyle(color: Color(0xFF4A5A66), fontSize: 16)),
-              const SizedBox(height: 6),
-              TextFormField(
-                controller: _heightCtrl,
-                decoration: const InputDecoration(hintText: 'e.g. 175'),
-                keyboardType: TextInputType.number,
-                validator: (v) {
-                  final txt = (v ?? '').trim();
-                  if (txt.isEmpty) return null;
-                  final n = int.tryParse(txt);
-                  if (n == null) return 'Invalid height';
-                  if (n < 50 || n > 250) return '50–250';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 14),
+              ..._buildHeightSection(),
               const Text('Skill Level', style: TextStyle(color: Color(0xFF4A5A66), fontSize: 16)),
               const SizedBox(height: 6),
               InkWell(
@@ -194,7 +217,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               ),
               const SizedBox(height: 22),
               FilledButton(
-                onPressed: _isSaving ? null : _onEdit,
+                onPressed:
+                    _isSaving || _useImperialHeight == null ? null : _onEdit,
                 child: _isSaving
                     ? const SizedBox(
                         width: 18,
@@ -210,6 +234,122 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
+  static const TextStyle _heightLabelStyle = TextStyle(
+    color: Color(0xFF4A5A66),
+    fontSize: 16,
+  );
+
+  List<Widget> _buildHeightSection() {
+    if (_useImperialHeight == null) {
+      return [
+        const Text('Height', style: _heightLabelStyle),
+        const SizedBox(height: 6),
+        const SizedBox(
+          height: 52,
+          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        ),
+        const SizedBox(height: 14),
+      ];
+    }
+    if (_useImperialHeight!) {
+      return [
+        const Text('Height (ft / in)', style: _heightLabelStyle),
+        const SizedBox(height: 6),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: _heightFeetCtrl,
+                decoration: const InputDecoration(hintText: 'ft'),
+                keyboardType: TextInputType.number,
+                validator: _validateFeetInchesPair,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextFormField(
+                controller: _heightInchesCtrl,
+                decoration: const InputDecoration(hintText: 'in'),
+                keyboardType: TextInputType.number,
+                validator: _validateFeetInchesPair,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+      ];
+    }
+    return [
+      const Text('Height (cm)', style: _heightLabelStyle),
+      const SizedBox(height: 6),
+      TextFormField(
+        controller: _heightCmCtrl,
+        decoration: const InputDecoration(hintText: 'e.g. 175'),
+        keyboardType: TextInputType.number,
+        validator: _validateHeightCm,
+      ),
+      const SizedBox(height: 14),
+    ];
+  }
+
+  String? _validateHeightCm(String? v) {
+    final txt = (v ?? '').trim();
+    if (txt.isEmpty) {
+      return null;
+    }
+    final n = int.tryParse(txt);
+    if (n == null) {
+      return 'Invalid height';
+    }
+    if (n < 50 || n > 250) {
+      return '50–250';
+    }
+    return null;
+  }
+
+  String? _validateFeetInchesPair(String? _) {
+    final ft = _heightFeetCtrl.text.trim();
+    final inch = _heightInchesCtrl.text.trim();
+    if (ft.isEmpty && inch.isEmpty) {
+      return null;
+    }
+    final fi = int.tryParse(ft);
+    final ii = int.tryParse(inch);
+    if (fi == null || ii == null) {
+      return 'Enter feet and inches (whole numbers)';
+    }
+    if (ii < 0 || ii > 11) {
+      return 'Inches must be 0–11';
+    }
+    final cm = feetInchPartsToCm(fi, ii);
+    if (cm == null || cm < 50 || cm > 250) {
+      return 'Height must be between 50 and 250 cm';
+    }
+    return null;
+  }
+
+  int? _resolveHeightCmForSave() {
+    if (_useImperialHeight != true) {
+      final t = _heightCmCtrl.text.trim();
+      if (t.isEmpty) {
+        return null;
+      }
+      return int.tryParse(t);
+    }
+    final ft = _heightFeetCtrl.text.trim();
+    final inch = _heightInchesCtrl.text.trim();
+    if (ft.isEmpty && inch.isEmpty) {
+      return null;
+    }
+    final fi = int.tryParse(ft);
+    final ii = int.tryParse(inch);
+    if (fi == null || ii == null) {
+      return null;
+    }
+    return feetInchPartsToCm(fi, ii);
+  }
+
   Future<void> _onEdit() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -218,7 +358,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final base = _profile ?? await profileRepository().getMyProfile();
     final updated = base.copyWith(
       username: _nameCtrl.text.trim(),
-      heightCm: _heightCtrl.text.trim().isEmpty ? null : int.tryParse(_heightCtrl.text.trim()),
+      heightCm: _resolveHeightCmForSave(),
       skillLevel: _skillLevel,
       emergencyContact: _emergencyCtrl.text.trim(),
       bio: _bioCtrl.text.trim(),

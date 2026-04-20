@@ -171,7 +171,7 @@ class _MembershipScreenState extends State<MembershipScreen> {
           isPremium: true,
           planLabel: status.planLabel,
           renewsText: renews == null
-              ? 'Active (demo)'
+              ? 'Active until canceled'
               : 'Renews ${_formatRenewal(renews)}',
         ),
         const SizedBox(height: 20),

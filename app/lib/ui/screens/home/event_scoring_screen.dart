@@ -683,14 +683,145 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
   Future<void> _submitScores(Event event, _SportScoringRules rules) async {
     _recomputeAutoStreaks();
     final awardedByUser = <String, int>{};
-    for (final match in _matches) {
-      for (final stat in [...match.teamA, ...match.teamB]) {
+    final deltaWins = <String, int>{};
+    final deltaDraws = <String, int>{};
+    final deltaLosses = <String, int>{};
+    final newMatchRowsByUser = <String, List<ProfileMatchRecord>>{};
+    final trackOutcomes = rules.isBadmintonAdvanced ||
+        rules.isVolleyballAdvanced ||
+        rules.isFootballAdvanced ||
+        rules.isBasketballAdvanced;
+    final recordedAt = DateTime.now().toUtc();
+    final sportKey =
+        event.sport.trim().isEmpty ? 'General' : event.sport.trim();
+
+    Map<String, num> buildStatValues({
+      required _PlayerStatEntry stat,
+      required _MatchEntry match,
+      required bool isTeamA,
+    }) {
+      int readInt(TextEditingController c) {
+        return int.tryParse(c.text.trim()) ?? 0;
+      }
+
+      final key = sportKey.toLowerCase();
+      if (rules.isFootballAdvanced) {
+        return <String, num>{
+          'goals': readInt(stat.pointsCtrl),
+          'assists': readInt(stat.assistsCtrl),
+          'passes': readInt(stat.reboundsCtrl),
+          'tackles': readInt(stat.stealsCtrl),
+          'saves': readInt(stat.blocksCtrl),
+        };
+      }
+      if (rules.isBasketballAdvanced) {
+        return <String, num>{
+          'points': readInt(stat.pointsCtrl),
+          'assists': readInt(stat.assistsCtrl),
+          'rebounds': readInt(stat.reboundsCtrl),
+          'steals': readInt(stat.stealsCtrl),
+          'blocks': readInt(stat.blocksCtrl),
+          'turnovers': readInt(stat.turnoversCtrl),
+        };
+      }
+      if (rules.isVolleyballAdvanced) {
+        return <String, num>{
+          'points': readInt(stat.pointsCtrl),
+          'assists': readInt(stat.assistsCtrl),
+          'blocks': readInt(stat.blocksCtrl),
+          'digs': readInt(stat.reboundsCtrl),
+        };
+      }
+      if (rules.isBadmintonAdvanced) {
+        final gamesWon = _savedUnitWins(match, forTeamA: isTeamA);
+        final pointsWon = readInt(stat.badmintonPointsCtrl);
+        final aces = readInt(stat.badmintonAceCtrl);
+        if (key.contains('tennis') &&
+            !key.contains('table tennis') &&
+            !key.contains('ping pong')) {
+          return <String, num>{
+            'setsWon': gamesWon,
+            'gamesWon': pointsWon,
+            'aces': aces,
+          };
+        }
+        return <String, num>{
+          'gamesWon': gamesWon,
+          'pointsWon': pointsWon,
+          'aces': aces,
+        };
+      }
+      return <String, num>{
+        'points': readInt(stat.pointsCtrl),
+        'assists': readInt(stat.assistsCtrl),
+      };
+    }
+
+    String? buildFormatLabel(_MatchEntry match) {
+      if (rules.isBadmintonAdvanced) {
+        return match.isSingles ? 'Singles' : 'Doubles';
+      }
+      return null;
+    }
+
+    void processStatForUser({
+      required _PlayerStatEntry stat,
+      required _MatchEntry match,
+      required bool isTeamA,
+    }) {
         final userId = stat.selectedUserId;
         if (userId == null || userId.trim().isEmpty) {
-          continue;
+          return;
         }
+        final uid = userId.trim();
         final awarded = _awardForStat(stat, rules);
-        awardedByUser[userId] = (awardedByUser[userId] ?? 0) + awarded;
+        awardedByUser[uid] = (awardedByUser[uid] ?? 0) + awarded;
+
+        if (trackOutcomes) {
+          switch (stat.footballResult) {
+            case _FootballResult.win:
+              deltaWins[uid] = (deltaWins[uid] ?? 0) + 1;
+              break;
+            case _FootballResult.draw:
+              deltaDraws[uid] = (deltaDraws[uid] ?? 0) + 1;
+              break;
+            case _FootballResult.loss:
+              deltaLosses[uid] = (deltaLosses[uid] ?? 0) + 1;
+              break;
+          }
+          final outcomeStr = switch (stat.footballResult) {
+            _FootballResult.win => 'win',
+            _FootballResult.draw => 'draw',
+            _FootballResult.loss => 'loss',
+          };
+          newMatchRowsByUser
+              .putIfAbsent(uid, () => <ProfileMatchRecord>[])
+              .add(
+                ProfileMatchRecord(
+                  eventId: event.id,
+                  eventTitle: event.title,
+                  sport: sportKey,
+                  outcome: outcomeStr,
+                  pointsAwarded: awarded,
+                  recordedAt: recordedAt,
+                  statSnippet: _awardLabelForStat(stat, rules),
+                  formatLabel: buildFormatLabel(match),
+                  statValues: buildStatValues(
+                    stat: stat,
+                    match: match,
+                    isTeamA: isTeamA,
+                  ),
+                ),
+              );
+        }
+    }
+
+    for (final match in _matches) {
+      for (final stat in match.teamA) {
+        processStatForUser(stat: stat, match: match, isTeamA: true);
+      }
+      for (final stat in match.teamB) {
+        processStatForUser(stat: stat, match: match, isTeamA: false);
       }
     }
 
@@ -711,9 +842,6 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
 
     var updatedCount = 0;
     final failedUsers = <String>[];
-    final sportKey = event.sport.trim().isEmpty
-        ? 'General'
-        : event.sport.trim();
     for (final player in _players) {
       final awarded = awardedByUser[player.userId];
       if (awarded == null) {
@@ -740,9 +868,18 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
         sportSkills: nextSportSkills,
       );
       final nextSkillLevel = _skillLabelFromTierLevel(overall.level);
+      final uid = player.userId.trim();
+      final batch = newMatchRowsByUser[uid];
+      final mergedHistory = (batch != null && batch.isNotEmpty)
+          ? [...batch.reversed, ...player.matchHistory].take(50).toList()
+          : player.matchHistory;
       final nextProfile = player.copyWith(
         skillLevel: nextSkillLevel,
         sportSkills: nextSportSkills,
+        matchWins: player.matchWins + (deltaWins[uid] ?? 0),
+        matchDraws: player.matchDraws + (deltaDraws[uid] ?? 0),
+        matchLosses: player.matchLosses + (deltaLosses[uid] ?? 0),
+        matchHistory: mergedHistory,
       );
       try {
         await profileRepository().saveProfileByUserId(

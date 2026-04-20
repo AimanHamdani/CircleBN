@@ -18,6 +18,8 @@ import 'achievements_screen.dart';
 import '../login_screen.dart';
 import 'edit_profile_screen.dart';
 import 'membership_screen.dart';
+import 'free_stats_screen.dart';
+import 'pro_stats_screen.dart';
 import 'change_password_screen.dart';
 import '../../../auth/current_user.dart';
 import '../../../auth/session_persistence.dart';
@@ -676,6 +678,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             title: 'SETTINGS',
                             child: Column(
                               children: [
+                                _MenuRow(
+                                  label: 'Stats',
+                                  onTap: () {
+                                    if (membership.isPremium) {
+                                      Navigator.of(context).pushNamed(
+                                        ProStatsHubScreen.routeName,
+                                      );
+                                    } else {
+                                      Navigator.of(context).pushNamed(
+                                        FreeStatsScreen.routeName,
+                                      );
+                                    }
+                                  },
+                                ),
+                                const Divider(height: 1),
                                 Row(
                                   children: [
                                     const Expanded(

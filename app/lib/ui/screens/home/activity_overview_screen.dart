@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
@@ -7,6 +8,7 @@ import '../../../data/event_registration_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
+import '../../../services/ticket_service.dart';
 import '../../../auth/current_user.dart';
 import '../../theme/app_theme.dart';
 
@@ -169,17 +171,6 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
                     onCancelTicket: _cancelTicket,
                     isCancellingEvent: (eventId) =>
                         _cancellingEventIds.contains(eventId),
-                    onSendTicketMock: (event) {
-                      final message = [
-                        'Send Email/PDF (mock)',
-                        'Title: ${event.title}',
-                        'Fee: ${event.entryFeeLabel}',
-                        'Duration: ${_formatDurationLabel(event.duration)}',
-                      ].join('\n');
-                      ScaffoldMessenger.of(
-                        context,
-                      ).showSnackBar(SnackBar(content: Text(message)));
-                    },
                   ),
                 ),
               ],
@@ -253,20 +244,6 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
       }
     }
   }
-}
-
-String _formatDurationLabel(Duration d) {
-  final minutes = d.inMinutes;
-  if (minutes <= 60) return '1 Hour';
-  if (minutes == 90) return '1.5 Hours';
-  if (minutes == 120) return '2 Hours';
-  if (minutes == 150) return '2.5 Hours';
-  if (minutes == 180) return '3 Hours';
-  if (minutes == 210) return '3.5 Hours';
-  if (minutes == 240) return '4 Hours';
-  if (minutes == 270) return '4.5 Hours';
-  if (minutes == 300) return '5 Hours';
-  return '$minutes Min';
 }
 
 class _ActivityTabHeader extends StatelessWidget {
@@ -358,7 +335,6 @@ class _ActivityTabBody extends StatelessWidget {
   onOpenEvent;
   final Future<void> Function(Event event) onCancelTicket;
   final bool Function(String eventId) isCancellingEvent;
-  final void Function(Event event) onSendTicketMock;
 
   const _ActivityTabBody({
     required this.tab,
@@ -370,7 +346,6 @@ class _ActivityTabBody extends StatelessWidget {
     required this.onOpenEvent,
     required this.onCancelTicket,
     required this.isCancellingEvent,
-    required this.onSendTicketMock,
   });
 
   String _fmtTime(DateTime dt) {
@@ -398,6 +373,92 @@ class _ActivityTabBody extends StatelessWidget {
     final match = RegExp(r'(\d+)').firstMatch(label);
     final hours = int.tryParse(match?.group(1) ?? '');
     return (hours ?? 12).clamp(0, 240);
+  }
+
+  String _fmtTemplateDate(DateTime dt) {
+    const months = <String>[
+      'JANUARY',
+      'FEBRUARY',
+      'MARCH',
+      'APRIL',
+      'MAY',
+      'JUNE',
+      'JULY',
+      'AUGUST',
+      'SEPTEMBER',
+      'OCTOBER',
+      'NOVEMBER',
+      'DECEMBER',
+    ];
+
+    return '${_ordinalDay(dt.day)} ${months[dt.month - 1]} ${dt.year}';
+  }
+
+  String _ordinalDay(int day) {
+    if (day >= 11 && day <= 13) {
+      return '${day}th';
+    }
+
+    switch (day % 10) {
+      case 1:
+        return '${day}st';
+      case 2:
+        return '${day}nd';
+      case 3:
+        return '${day}rd';
+      default:
+        return '${day}th';
+    }
+  }
+
+  Widget _buildTemplateField({required String label, required String value}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            color: Color(0xFF666666),
+            letterSpacing: 0.2,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Colors.black,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTemplateTearLine() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final count = (constraints.maxWidth / 12).floor().clamp(16, 42);
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List<Widget>.generate(
+            count,
+            (index) => Container(
+              width: 8,
+              height: 2,
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.8),
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -474,99 +535,269 @@ class _ActivityTabBody extends StatelessWidget {
               );
             },
             child: tab == _ActivityTab.ticket
-                ? Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                ? FutureBuilder<int>(
+                    future: TicketService.generateTicketId(
+                      eventId: e.id,
+                      userId: currentUserId,
+                    ),
+                    builder: (context, ticketSnap) {
+                      final ticketId = ticketSnap.hasData
+                          ? ticketSnap.data
+                          : null;
+                      final ticketCode = ticketId != null
+                          ? ticketId.toString().padLeft(5, '0')
+                          : '-----';
+                      final qrData = ticketId != null
+                          ? TicketService.buildTicketQrData(
+                              event: e,
+                              userId: currentUserId,
+                              ticketId: ticketId,
+                            )
+                          : '${e.id}_$currentUserId';
+                      final eventDate = _fmtTemplateDate(e.startAt);
+                      final eventTime = _fmtTime(e.startAt);
+                      final validUntil = _fmtTime(e.startAt.add(e.duration));
+                      final location = e.location.trim().isEmpty
+                          ? 'TBA'
+                          : e.location;
+
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: Text(
-                                e.title,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                ),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.black,
+                                borderRadius: BorderRadius.circular(24),
+                              ),
+                              padding: const EdgeInsets.all(10),
+                              child: Column(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(18),
+                                    child: Container(
+                                      color: const Color(0xFFF2F2F2),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          Container(
+                                            height: 44,
+                                            color: const Color(0xFF00701F),
+                                            alignment: Alignment.center,
+                                            child: const Text(
+                                              'CIRCLE.BN',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 18,
+                                                letterSpacing: 1,
+                                              ),
+                                            ),
+                                          ),
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 14,
+                                              vertical: 26,
+                                            ),
+                                            child: Text(
+                                              e.title.toUpperCase(),
+                                              textAlign: TextAlign.center,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: Colors.black,
+                                                fontSize: 32,
+                                                height: 1,
+                                                letterSpacing: 0.4,
+                                                fontWeight: FontWeight.w400,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 4,
+                                    ),
+                                    child: _buildTemplateTearLine(),
+                                  ),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(18),
+                                    child: Container(
+                                      width: double.infinity,
+                                      color: const Color(0xFFF2F2F2),
+                                      padding: const EdgeInsets.fromLTRB(
+                                        16,
+                                        18,
+                                        16,
+                                        18,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Expanded(
+                                                child: _buildTemplateField(
+                                                  label: 'NAME',
+                                                  value: fullName,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: _buildTemplateField(
+                                                  label: 'DATE',
+                                                  value: eventDate,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 16),
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Expanded(
+                                                child: _buildTemplateField(
+                                                  label: 'TICKET ID',
+                                                  value: ticketCode,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: _buildTemplateField(
+                                                  label: 'TIME',
+                                                  value: eventTime,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 16),
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Expanded(
+                                                child: _buildTemplateField(
+                                                  label: 'SPORT',
+                                                  value: e.sport,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: _buildTemplateField(
+                                                  label: 'VALID UNTIL',
+                                                  value: validUntil,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 16),
+                                          Center(
+                                            child: Container(
+                                              color: Colors.white,
+                                              padding: const EdgeInsets.all(8),
+                                              child: QrImageView(
+                                                data: qrData,
+                                                version: QrVersions.auto,
+                                                size: 190,
+                                                backgroundColor: Colors.white,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 10),
+                                          Container(
+                                            height: 2,
+                                            color: Colors.black,
+                                          ),
+                                          const SizedBox(height: 8),
+                                          const Text(
+                                            'Present this QR code at the entrance',
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.black,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            'Valid until ${_fmtTime(e.startAt.add(e.duration))}',
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              color: Color(0xFF666666),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 14),
+                                          const Text(
+                                            'LOCATION',
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Color(0xFF666666),
+                                              letterSpacing: 0.2,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            location.toUpperCase(),
+                                            textAlign: TextAlign.center,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 20,
+                                              color: Colors.black,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            if (canCancelNow)
-                              TextButton(
-                                onPressed: isCancellingEvent(e.id)
-                                    ? null
-                                    : () => onCancelTicket(e),
-                                style: TextButton.styleFrom(
-                                  foregroundColor: Colors.red.shade400,
-                                ),
-                                child: Text(
-                                  isCancellingEvent(e.id)
-                                      ? 'Cancelling...'
-                                      : 'Cancel',
-                                ),
+                            const SizedBox(height: 8),
+                            Text(
+                              canCancelNow
+                                  ? 'Cancellation allowed until ${_fmtTime(cancellationCutoff)}'
+                                  : 'Cancellation freeze started (${e.cancellationFreeze})',
+                              style: TextStyle(
+                                color: canCancelNow
+                                    ? Colors.black54
+                                    : Colors.red.shade300,
+                                fontSize: 12,
                               ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                if (canCancelNow)
+                                  TextButton(
+                                    onPressed: isCancellingEvent(e.id)
+                                        ? null
+                                        : () => onCancelTicket(e),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: Colors.red.shade400,
+                                    ),
+                                    child: Text(
+                                      isCancellingEvent(e.id)
+                                          ? 'Cancelling...'
+                                          : 'Cancel',
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ],
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Name: $fullName',
-                          style: const TextStyle(
-                            color: Colors.black54,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Location: ${e.location}',
-                          style: const TextStyle(
-                            color: Colors.black54,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Date: $dateTimeStr  Time: $timeStr',
-                          style: const TextStyle(
-                            color: Colors.black54,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Duration: $durationStr',
-                          style: const TextStyle(
-                            color: Colors.black54,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Fee: ${e.entryFeeLabel}',
-                          style: const TextStyle(
-                            color: Colors.black54,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          canCancelNow
-                              ? 'Cancellation allowed until ${_fmtTime(cancellationCutoff)}'
-                              : 'Cancellation freeze started (${e.cancellationFreeze})',
-                          style: TextStyle(
-                            color: canCancelNow
-                                ? Colors.black54
-                                : Colors.red.shade300,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: OutlinedButton(
-                            onPressed: () => onSendTicketMock(e),
-                            child: const Text('Send Email/PDF →'),
-                          ),
-                        ),
-                      ],
-                    ),
+                      );
+                    },
                   )
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,

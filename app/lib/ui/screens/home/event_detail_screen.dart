@@ -4,20 +4,25 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:appwrite/appwrite.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:printing/printing.dart';
 
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
 import '../../../utils/web_storage.dart';
 import '../../../data/event_repository.dart';
+import '../../../data/club_repository.dart';
 import '../../../data/event_invite_repository.dart';
 import '../../../data/event_registration_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
+import '../../../services/attendance_service.dart';
+import '../../../services/ticket_service.dart';
 import '../profile/user_profile_view_screen.dart';
 import 'create_event_screen.dart';
 import 'event_scoring_screen.dart';
+import 'scan_qr_screen.dart';
 import '../../theme/app_theme.dart';
 
 class EventDetailArgs {
@@ -40,12 +45,16 @@ class _ParticipantItem {
   final String username;
   final Color color;
   final String? avatarFileId;
+  final bool isAttended;
+  final bool isHostVerified;
 
   const _ParticipantItem({
     required this.userId,
     required this.username,
     required this.color,
     this.avatarFileId,
+    this.isAttended = false,
+    this.isHostVerified = false,
   });
 }
 
@@ -65,6 +74,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   EventDetailArgs? _argsOverride;
   String? _activeEventId;
   bool? _isRegisteredByMe;
+  bool _isAttendedByMe = false;
   int? _joinedCount;
   List<_ParticipantItem>? _participants;
 
@@ -233,6 +243,11 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                             args.allowCreatorActions) ...[
                           const SizedBox(width: 8),
                           _RoundIconButton(
+                            icon: Icons.qr_code_scanner,
+                            onTap: () => _openScanQr(e),
+                          ),
+                          const SizedBox(width: 8),
+                          _RoundIconButton(
                             icon: Icons.edit_outlined,
                             onTap: () => _onEditEvent(e),
                           ),
@@ -268,7 +283,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                   duration: const Duration(milliseconds: 200),
                   child: _tab == _EventDetailTab.details
                       ? _DetailsTab(
-                          key: const ValueKey('details'),
+                          key: ValueKey('details-${e.id}'),
                           event: e.copyWith(
                             joined: joinedCount,
                             joinedByMe: isRegisteredByMe,
@@ -304,6 +319,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                       joinedCount: joinedCount,
                       capacity: e.capacity,
                       onTap: () => _toggleRegistration(e),
+                      event: e,
+                      userProfile: null,
                     )
                   : null)
             : (_tab == _EventDetailTab.chat
@@ -319,6 +336,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     required int joinedCount,
     required int capacity,
     required VoidCallback onTap,
+    required Event event,
+    required UserProfile? userProfile,
   }) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     final isFull = capacity > 0 && joinedCount >= capacity;
@@ -347,6 +366,30 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                 ),
               ),
             ),
+            if (isRegistered) ...[
+              ElevatedButton.icon(
+                onPressed: () => _handleShareTicket(event),
+                icon: const Icon(Icons.share),
+                label: const Text('Share Ticket'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green.shade600,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (_canCurrentUserScan(event)) ...[
+                OutlinedButton.icon(
+                  onPressed: () => _openScanQr(event),
+                  icon: const Icon(Icons.qr_code_scanner),
+                  label: Text(
+                    (event.creatorId ?? '').trim() == currentUserId
+                        ? 'Scan Attendance'
+                        : 'Help Scan Attendance',
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ],
             FilledButton(
               onPressed: (!isRegistered && isFull) ? null : onTap,
               style: FilledButton.styleFrom(
@@ -364,6 +407,80 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _handleShareTicket(Event event) async {
+    try {
+      // Fetch current user's profile
+      final userProfile = await ProfileRepository().getMyProfile();
+
+      if (!mounted) return;
+
+      await _shareTicket(event, userProfile);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _shareTicket(Event event, UserProfile userProfile) async {
+    try {
+      // Show loading indicator
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Generating Ticket'),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Please wait while we generate your ticket...'),
+            ],
+          ),
+        ),
+      );
+
+      // Generate ticket ID
+      final ticketId = await TicketService.generateTicketId(
+        eventId: event.id,
+        userId: currentUserId,
+      );
+
+      // Generate PDF
+      final pdfBytes = await TicketService.generateTicketPdf(
+        event: event,
+        user: userProfile,
+        ticketId: ticketId,
+      );
+
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog
+
+      // Share PDF using printing package
+      await Printing.sharePdf(
+        bytes: pdfBytes,
+        filename:
+            '${event.title}_ticket_${ticketId.toString().padLeft(5, '0')}.pdf',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog if still open
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error generating ticket: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _onEditEvent(Event event) async {
@@ -389,6 +506,16 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       return;
     }
     await _refreshEvent(eventId: event.id);
+  }
+
+  Future<void> _openScanQr(Event event) async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => ScanQrScreen(event: event)));
+  }
+
+  bool _canCurrentUserScan(Event event) {
+    return (event.creatorId ?? '').trim() == currentUserId || _isAttendedByMe;
   }
 
   Widget _chatComposerBar(BuildContext context, {required bool canSendChat}) {
@@ -599,6 +726,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           _eventOverride = updated;
           _activeEventId = updated.id;
           _isRegisteredByMe = updated.joinedByMe;
+          _isAttendedByMe = false;
           _joinedCount = updated.joined;
           _participants = _participantsFromProfiles(
             _buildParticipantProfilesFromEvent(updated),
@@ -620,6 +748,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     }
     _activeEventId = event.id;
     _isRegisteredByMe = event.joinedByMe;
+    _isAttendedByMe = false;
     _joinedCount = event.joined;
     _participants = _participantsFromProfiles(
       _buildParticipantProfilesFromEvent(event),
@@ -645,7 +774,11 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     return ids.map((id) => UserProfile.empty(id)).toList();
   }
 
-  List<_ParticipantItem> _participantsFromProfiles(List<UserProfile> profiles) {
+  List<_ParticipantItem> _participantsFromProfiles(
+    List<UserProfile> profiles, {
+    Set<String> attendedUserIds = const <String>{},
+    Set<String> hostVerifiedUserIds = const <String>{},
+  }) {
     final palette = <Color>[
       const Color(0xFF1AA57A),
       const Color(0xFF4A90E2),
@@ -667,6 +800,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           username: username,
           color: palette[i % palette.length],
           avatarFileId: profile.avatarFileId,
+          isAttended: attendedUserIds.contains(profile.userId),
+          isHostVerified: hostVerifiedUserIds.contains(profile.userId),
         ),
       );
     }
@@ -686,11 +821,22 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
 
     try {
       final profiles = await profileRepository().getProfilesByIds(ids);
+      final attendance = await AttendanceService.getAttendanceList(event.id);
+      final attendedIds = attendance.map((a) => a.userId).toSet();
+      final hostId = (event.creatorId ?? '').trim();
+      final hostVerifiedIds = attendance
+          .where((a) => (a.scannerUserId ?? '').trim() == hostId)
+          .map((a) => a.userId)
+          .toSet();
       if (!mounted || _activeEventId != event.id) {
         return;
       }
       setState(() {
-        _participants = _participantsFromProfiles(profiles);
+        _participants = _participantsFromProfiles(
+          profiles,
+          attendedUserIds: attendedIds,
+          hostVerifiedUserIds: hostVerifiedIds,
+        );
       });
     } catch (_) {
       // Keep fallback participants if profile fetch fails.
@@ -701,6 +847,13 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     try {
       final repo = eventRegistrationRepository();
       final ids = await repo.listParticipantUserIds(event.id);
+      final attendance = await AttendanceService.getAttendanceList(event.id);
+      final attendedIds = attendance.map((a) => a.userId).toSet();
+      final hostId = (event.creatorId ?? '').trim();
+      final hostVerifiedIds = attendance
+          .where((a) => (a.scannerUserId ?? '').trim() == hostId)
+          .map((a) => a.userId)
+          .toSet();
       if (!mounted || _activeEventId != event.id) {
         return;
       }
@@ -715,7 +868,11 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         if (!mounted || _activeEventId != event.id) {
           return;
         }
-        items = _participantsFromProfiles(profiles);
+        items = _participantsFromProfiles(
+          profiles,
+          attendedUserIds: attendedIds,
+          hostVerifiedUserIds: hostVerifiedIds,
+        );
       }
 
       if (!mounted || _activeEventId != event.id) {
@@ -723,6 +880,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       }
       setState(() {
         _isRegisteredByMe = isRegistered;
+        _isAttendedByMe = attendedIds.contains(currentUserId);
         _joinedCount = count;
         _participants = items;
         _eventOverride = (_eventOverride ?? event).copyWith(
@@ -841,17 +999,19 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       }
     }
 
-    if (mounted && ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            currentRegistered
-                ? 'Registration cancelled.'
-                : 'Registered successfully.',
-          ),
-        ),
-      );
+    if (!mounted || !ok) {
+      return;
     }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          currentRegistered
+              ? 'Registration cancelled.'
+              : 'Registered successfully.',
+        ),
+      ),
+    );
   }
 
   bool _canAccessPrivateEvent(Event event) {
@@ -1106,16 +1266,76 @@ class _TabButton extends StatelessWidget {
   }
 }
 
-class _DetailsTab extends StatelessWidget {
+class _DetailsTab extends StatefulWidget {
   final Event event;
   const _DetailsTab({super.key, required this.event});
 
+  @override
+  State<_DetailsTab> createState() => _DetailsTabState();
+}
+
+class _DetailsTabState extends State<_DetailsTab> {
+  String _hostedByLabel = '…';
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveHostedByLabel();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DetailsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final o = oldWidget.event;
+    final n = widget.event;
+    if (o.id != n.id || o.clubId != n.clubId || o.creatorId != n.creatorId) {
+      _resolveHostedByLabel();
+    }
+  }
+
+  Future<void> _resolveHostedByLabel() async {
+    setState(() => _hostedByLabel = '…');
+    final e = widget.event;
+    final clubId = e.clubId?.trim() ?? '';
+    try {
+      if (clubId.isNotEmpty) {
+        final club = await clubRepository().getClub(clubId);
+        if (!mounted) {
+          return;
+        }
+        final name = club?.name.trim() ?? '';
+        setState(() {
+          _hostedByLabel = name.isNotEmpty ? name : 'Unknown club';
+        });
+        return;
+      }
+      final creatorId = e.creatorId?.trim() ?? '';
+      if (creatorId.isEmpty) {
+        if (!mounted) {
+          return;
+        }
+        setState(() => _hostedByLabel = '—');
+        return;
+      }
+      final profile = await profileRepository().getProfileById(creatorId);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _hostedByLabel = _hostPersonDisplayName(profile));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _hostedByLabel = '—');
+    }
+  }
+
   Future<void> _openLocationInGoogleMaps(BuildContext context) async {
-    final lat = event.lat;
-    final lng = event.lng;
+    final lat = widget.event.lat;
+    final lng = widget.event.lng;
     final query = (lat != null && lng != null)
         ? '$lat,$lng'
-        : Uri.encodeComponent(event.location.trim());
+        : Uri.encodeComponent(widget.event.location.trim());
     final uri = Uri.parse(
       'https://www.google.com/maps/search/?api=1&query=$query',
     );
@@ -1130,6 +1350,7 @@ class _DetailsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final event = widget.event;
     final privacyLabel = (() {
       final raw = event.privacy?.trim() ?? '';
       if (raw.isEmpty) {
@@ -1268,6 +1489,12 @@ class _DetailsTab extends StatelessWidget {
             ),
             child: Column(
               children: [
+                _PolicyRow(
+                  label: 'Hosted by',
+                  value: _hostedByLabel,
+                  valueMuted: _hostedByLabel == '…',
+                ),
+                const Divider(height: 1, color: Color(0xFFE3E7EE)),
                 _PolicyRow(label: "Host's role", value: hostRoleLabel),
                 const Divider(height: 1, color: Color(0xFFE3E7EE)),
                 _PolicyRow(
@@ -1293,7 +1520,9 @@ class _DetailsTab extends StatelessWidget {
   }
 }
 
-class _ParticipantsTab extends StatelessWidget {
+enum _ParticipantsFilter { all, attended, notAttended }
+
+class _ParticipantsTab extends StatefulWidget {
   final List<_ParticipantItem> participants;
   final ValueChanged<String> onOpenProfile;
   const _ParticipantsTab({
@@ -1303,10 +1532,34 @@ class _ParticipantsTab extends StatelessWidget {
   });
 
   @override
+  State<_ParticipantsTab> createState() => _ParticipantsTabState();
+}
+
+class _ParticipantsTabState extends State<_ParticipantsTab> {
+  _ParticipantsFilter _filter = _ParticipantsFilter.all;
+
+  @override
   Widget build(BuildContext context) {
+    final participants = widget.participants;
     if (participants.isEmpty) {
       return const Center(child: Text('No participants yet.'));
     }
+
+    final attendedCount = participants.where((p) => p.isAttended).length;
+    final hostVerifiedCount = participants
+        .where((p) => p.isAttended && p.isHostVerified)
+        .length;
+    final helperVerifiedCount = participants
+        .where((p) => p.isAttended && !p.isHostVerified)
+        .length;
+
+    final visibleParticipants = switch (_filter) {
+      _ParticipantsFilter.all => participants,
+      _ParticipantsFilter.attended =>
+        participants.where((p) => p.isAttended).toList(),
+      _ParticipantsFilter.notAttended =>
+        participants.where((p) => !p.isAttended).toList(),
+    };
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1318,99 +1571,342 @@ class _ParticipantsTab extends StatelessWidget {
             : width >= 520
             ? 4
             : 3;
-        return GridView.builder(
+        return ListView(
           padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: crossAxisCount,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 14,
-            childAspectRatio: 0.82,
-          ),
-          itemCount: participants.length,
-          itemBuilder: (context, index) {
-            final p = participants[index];
-            final initial = p.username.isNotEmpty
-                ? p.username[0].toUpperCase()
-                : '?';
-            return Align(
-              alignment: Alignment.topCenter,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => onOpenProfile(p.userId),
-                child: SizedBox(
-                  width: 86,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 52,
-                        height: 52,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: p.color.withValues(alpha: 0.2),
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child:
-                            (p.avatarFileId != null &&
-                                p.avatarFileId!.isNotEmpty)
-                            ? FutureBuilder<Uint8List>(
-                                future: AppwriteService.getFileViewBytes(
-                                  bucketId:
-                                      AppwriteConfig.profileImagesBucketId,
-                                  fileId: p.avatarFileId!,
+          children: [
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _AttendanceSummaryChip(
+                  label: 'Attended',
+                  value: '$attendedCount/${participants.length}',
+                  icon: Icons.check_circle_rounded,
+                  tint: const Color(0xFF16A34A),
+                  background: const Color(0xFFF0FDF4),
+                  border: const Color(0xFF86EFAC),
+                ),
+                _AttendanceSummaryChip(
+                  label: 'Host verified',
+                  value: '$hostVerifiedCount',
+                  icon: Icons.verified_rounded,
+                  tint: const Color(0xFF15803D),
+                  background: const Color(0xFFDCFCE7),
+                  border: const Color(0xFF86EFAC),
+                ),
+                _AttendanceSummaryChip(
+                  label: 'Helper verified',
+                  value: '$helperVerifiedCount',
+                  icon: Icons.groups_rounded,
+                  tint: const Color(0xFF2563EB),
+                  background: const Color(0xFFEFF6FF),
+                  border: const Color(0xFF93C5FD),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _ParticipantsFilterChip(
+                  label: 'All',
+                  selected: _filter == _ParticipantsFilter.all,
+                  onTap: () => setState(() {
+                    _filter = _ParticipantsFilter.all;
+                  }),
+                ),
+                _ParticipantsFilterChip(
+                  label: 'Attended',
+                  selected: _filter == _ParticipantsFilter.attended,
+                  onTap: () => setState(() {
+                    _filter = _ParticipantsFilter.attended;
+                  }),
+                ),
+                _ParticipantsFilterChip(
+                  label: 'Not attended',
+                  selected: _filter == _ParticipantsFilter.notAttended,
+                  onTap: () => setState(() {
+                    _filter = _ParticipantsFilter.notAttended;
+                  }),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: crossAxisCount,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 14,
+                childAspectRatio: 0.82,
+              ),
+              itemCount: visibleParticipants.length,
+              itemBuilder: (context, index) {
+                final p = visibleParticipants[index];
+                final initial = p.username.isNotEmpty
+                    ? p.username[0].toUpperCase()
+                    : '?';
+                return Align(
+                  alignment: Alignment.topCenter,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => widget.onOpenProfile(p.userId),
+                    child: SizedBox(
+                      width: 86,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Container(
+                                width: 52,
+                                height: 52,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: p.color.withValues(alpha: 0.2),
                                 ),
-                                builder: (context, snap) {
-                                  if (snap.connectionState ==
-                                          ConnectionState.done &&
-                                      snap.data != null &&
-                                      snap.data!.isNotEmpty) {
-                                    return Image.memory(
-                                      snap.data!,
-                                      fit: BoxFit.cover,
-                                    );
-                                  }
-                                  return Center(
-                                    child: Text(
-                                      initial,
-                                      style: TextStyle(
-                                        color: p.color,
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 20,
+                                clipBehavior: Clip.antiAlias,
+                                child:
+                                    (p.avatarFileId != null &&
+                                        p.avatarFileId!.isNotEmpty)
+                                    ? FutureBuilder<Uint8List>(
+                                        future:
+                                            AppwriteService.getFileViewBytes(
+                                              bucketId: AppwriteConfig
+                                                  .profileImagesBucketId,
+                                              fileId: p.avatarFileId!,
+                                            ),
+                                        builder: (context, snap) {
+                                          if (snap.connectionState ==
+                                                  ConnectionState.done &&
+                                              snap.data != null &&
+                                              snap.data!.isNotEmpty) {
+                                            return Image.memory(
+                                              snap.data!,
+                                              fit: BoxFit.cover,
+                                            );
+                                          }
+                                          return Center(
+                                            child: Text(
+                                              initial,
+                                              style: TextStyle(
+                                                color: p.color,
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 20,
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      )
+                                    : Center(
+                                        child: Text(
+                                          initial,
+                                          style: TextStyle(
+                                            color: p.color,
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 20,
+                                          ),
+                                        ),
+                                      ),
+                              ),
+                              if (p.isAttended)
+                                Positioned(
+                                  right: -2,
+                                  bottom: -2,
+                                  child: Container(
+                                    width: 18,
+                                    height: 18,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF16A34A),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 2,
                                       ),
                                     ),
-                                  );
-                                },
-                              )
-                            : Center(
-                                child: Text(
-                                  initial,
-                                  style: TextStyle(
-                                    color: p.color,
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 20,
+                                    child: const Icon(
+                                      Icons.check,
+                                      size: 11,
+                                      color: Colors.white,
+                                    ),
                                   ),
                                 ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            p.username,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          if (p.isAttended) ...[
+                            const SizedBox(height: 3),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
                               ),
+                              decoration: BoxDecoration(
+                                color: p.isHostVerified
+                                    ? const Color(0xFFDCFCE7)
+                                    : const Color(0xFFEFF6FF),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: p.isHostVerified
+                                      ? const Color(0xFF22C55E)
+                                      : const Color(0xFF60A5FA),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    p.isHostVerified
+                                        ? Icons.verified_rounded
+                                        : Icons.groups_rounded,
+                                    size: 12,
+                                    color: p.isHostVerified
+                                        ? const Color(0xFF15803D)
+                                        : const Color(0xFF2563EB),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Flexible(
+                                    child: Text(
+                                      p.isHostVerified
+                                          ? 'Host verified'
+                                          : 'Helper verified',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                        color: p.isHostVerified
+                                            ? const Color(0xFF15803D)
+                                            : const Color(0xFF2563EB),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        p.username,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
-            );
-          },
+                );
+              },
+            ),
+          ],
         );
       },
+    );
+  }
+}
+
+class _AttendanceSummaryChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color tint;
+  final Color background;
+  final Color border;
+
+  const _AttendanceSummaryChip({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.tint,
+    required this.background,
+    required this.border,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: tint),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: tint,
+                ),
+              ),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ParticipantsFilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ParticipantsFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? c.primary.withValues(alpha: 0.12) : Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected
+                ? c.primary.withValues(alpha: 0.45)
+                : c.outlineVariant,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: selected ? c.primary : Colors.black87,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1418,7 +1914,12 @@ class _ParticipantsTab extends StatelessWidget {
 class _PolicyRow extends StatelessWidget {
   final String label;
   final String value;
-  const _PolicyRow({required this.label, required this.value});
+  final bool valueMuted;
+  const _PolicyRow({
+    required this.label,
+    required this.value,
+    this.valueMuted = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1435,7 +1936,21 @@ class _PolicyRow extends StatelessWidget {
               ),
             ),
           ),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w900)),
+          Expanded(
+            flex: 2,
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                color: valueMuted
+                    ? Colors.black.withValues(alpha: 0.35)
+                    : Colors.black87,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1643,6 +2158,27 @@ class _RoundIconButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Prefer real name when set; otherwise username (skips placeholder defaults).
+String _hostPersonDisplayName(UserProfile profile) {
+  final rn = profile.realName.trim();
+  final un = profile.username.trim();
+  final hasReal = rn.isNotEmpty && rn != 'Name';
+  final hasUser = un.isNotEmpty && un != 'Username';
+  if (hasReal) {
+    return rn;
+  }
+  if (hasUser) {
+    return un;
+  }
+  if (rn.isNotEmpty) {
+    return rn;
+  }
+  if (un.isNotEmpty) {
+    return un;
+  }
+  return 'Host';
 }
 
 String _fmtDateTime(DateTime dt) {

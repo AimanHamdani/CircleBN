@@ -1,5 +1,110 @@
 import 'dart:convert';
 
+/// One scored match row persisted on the profile (newest entries first in [UserProfile.matchHistory]).
+class ProfileMatchRecord {
+  final String eventId;
+  final String eventTitle;
+  final String sport;
+  /// Lowercase: win | draw | loss
+  final String outcome;
+  final int pointsAwarded;
+  final DateTime recordedAt;
+  /// Short scoring summary for Pro stats (e.g. award label from finalize).
+  final String? statSnippet;
+  /// Optional match format (e.g. Singles/Doubles) for racket-sport splits.
+  final String? formatLabel;
+  /// Raw per-match stat values keyed by stat id (real aggregation source).
+  final Map<String, num> statValues;
+
+  const ProfileMatchRecord({
+    required this.eventId,
+    required this.eventTitle,
+    required this.sport,
+    required this.outcome,
+    required this.pointsAwarded,
+    required this.recordedAt,
+    this.statSnippet,
+    this.formatLabel,
+    this.statValues = const <String, num>{},
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'eventId': eventId,
+      'eventTitle': eventTitle,
+      'sport': sport,
+      'outcome': outcome,
+      'pointsAwarded': pointsAwarded,
+      'recordedAt': recordedAt.toIso8601String(),
+      if (statSnippet != null && statSnippet!.trim().isNotEmpty)
+        'statSnippet': statSnippet,
+      if (formatLabel != null && formatLabel!.trim().isNotEmpty)
+        'formatLabel': formatLabel,
+      if (statValues.isNotEmpty) 'statValues': statValues,
+    };
+  }
+
+  factory ProfileMatchRecord.fromJson(Map<String, dynamic> m) {
+    final at = m['recordedAt']?.toString() ?? '';
+    final sn = m['statSnippet']?.toString().trim();
+    final format = m['formatLabel']?.toString().trim();
+    final statsRaw = m['statValues'];
+    final parsedStats = <String, num>{};
+    if (statsRaw is Map) {
+      for (final entry in statsRaw.entries) {
+        final key = entry.key.toString().trim();
+        if (key.isEmpty) {
+          continue;
+        }
+        final value = entry.value;
+        if (value is num) {
+          parsedStats[key] = value;
+        } else if (value is String) {
+          final asNum = num.tryParse(value.trim());
+          if (asNum != null) {
+            parsedStats[key] = asNum;
+          }
+        }
+      }
+    }
+    return ProfileMatchRecord(
+      eventId: m['eventId']?.toString() ?? '',
+      eventTitle: m['eventTitle']?.toString() ?? '',
+      sport: m['sport']?.toString() ?? '',
+      outcome: m['outcome']?.toString().toLowerCase() ?? 'loss',
+      pointsAwarded: _parseInt(m['pointsAwarded'], fallback: 0),
+      recordedAt: DateTime.tryParse(at) ?? DateTime.now().toUtc(),
+      statSnippet: (sn != null && sn.isNotEmpty) ? sn : null,
+      formatLabel: (format != null && format.isNotEmpty) ? format : null,
+      statValues: parsedStats,
+    );
+  }
+
+  ProfileMatchRecord copyWith({
+    String? eventId,
+    String? eventTitle,
+    String? sport,
+    String? outcome,
+    int? pointsAwarded,
+    DateTime? recordedAt,
+    String? statSnippet,
+    String? formatLabel,
+    Map<String, num>? statValues,
+  }) {
+    return ProfileMatchRecord(
+      eventId: eventId ?? this.eventId,
+      eventTitle: eventTitle ?? this.eventTitle,
+      sport: sport ?? this.sport,
+      outcome: outcome ?? this.outcome,
+      pointsAwarded: pointsAwarded ?? this.pointsAwarded,
+      recordedAt: recordedAt ?? this.recordedAt,
+      statSnippet: statSnippet ?? this.statSnippet,
+      formatLabel: formatLabel ?? this.formatLabel,
+      statValues: statValues ?? this.statValues,
+    );
+  }
+}
+
 class UserProfile {
   final String userId;
   final String username;
@@ -19,6 +124,10 @@ class UserProfile {
   final String emergencyContact;
   final String bio;
   final bool notificationsEnabled;
+  final int matchWins;
+  final int matchDraws;
+  final int matchLosses;
+  final List<ProfileMatchRecord> matchHistory;
 
   const UserProfile({
     required this.userId,
@@ -38,6 +147,10 @@ class UserProfile {
     required this.emergencyContact,
     required this.bio,
     required this.notificationsEnabled,
+    this.matchWins = 0,
+    this.matchDraws = 0,
+    this.matchLosses = 0,
+    this.matchHistory = const [],
   });
 
   static UserProfile empty(String userId) {
@@ -59,6 +172,10 @@ class UserProfile {
       emergencyContact: '',
       bio: '',
       notificationsEnabled: true,
+      matchWins: 0,
+      matchDraws: 0,
+      matchLosses: 0,
+      matchHistory: const [],
     );
   }
 
@@ -98,7 +215,7 @@ class UserProfile {
     } else if (sportSkillsRaw != null) {
       sportSkillsNeedsMigration = true;
     }
-    if (sportSkillsMap != null) {
+      if (sportSkillsMap != null) {
       for (final entry in sportSkillsMap.entries) {
         final key = entry.key.trim();
         if (key.isEmpty || entry.value is! Map) {
@@ -109,6 +226,7 @@ class UserProfile {
         );
       }
     }
+    final matchHistory = _parseMatchHistoryList(data['matchHistory']);
     return UserProfile(
       userId: userId,
       username: (data['username'] ?? 'Username').toString(),
@@ -139,6 +257,10 @@ class UserProfile {
       notificationsEnabled: notif is bool
           ? notif
           : (notif is String ? notif.toLowerCase() == 'true' : true),
+      matchWins: _parseInt(data['matchWins'], fallback: 0).clamp(0, 999999),
+      matchDraws: _parseInt(data['matchDraws'], fallback: 0).clamp(0, 999999),
+      matchLosses: _parseInt(data['matchLosses'], fallback: 0).clamp(0, 999999),
+      matchHistory: matchHistory,
     );
   }
 
@@ -161,6 +283,10 @@ class UserProfile {
       'emergencyContact': emergencyContact,
       'bio': bio,
       'notificationsEnabled': notificationsEnabled,
+      'matchWins': matchWins,
+      'matchDraws': matchDraws,
+      'matchLosses': matchLosses,
+      'matchHistory': jsonEncode(matchHistory.map((e) => e.toJson()).toList()),
     };
   }
 
@@ -181,6 +307,10 @@ class UserProfile {
     String? emergencyContact,
     String? bio,
     bool? notificationsEnabled,
+    int? matchWins,
+    int? matchDraws,
+    int? matchLosses,
+    List<ProfileMatchRecord>? matchHistory,
   }) {
     return UserProfile(
       userId: userId,
@@ -201,8 +331,42 @@ class UserProfile {
       emergencyContact: emergencyContact ?? this.emergencyContact,
       bio: bio ?? this.bio,
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
+      matchWins: matchWins ?? this.matchWins,
+      matchDraws: matchDraws ?? this.matchDraws,
+      matchLosses: matchLosses ?? this.matchLosses,
+      matchHistory: matchHistory ?? this.matchHistory,
     );
   }
+}
+
+List<ProfileMatchRecord> _parseMatchHistoryList(Object? raw) {
+  if (raw == null) {
+    return const [];
+  }
+  try {
+    if (raw is String && raw.trim().isNotEmpty) {
+      final decoded = jsonDecode(raw);
+      return _matchHistoryFromDecoded(decoded);
+    }
+    return _matchHistoryFromDecoded(raw);
+  } catch (_) {
+    return const [];
+  }
+}
+
+List<ProfileMatchRecord> _matchHistoryFromDecoded(Object? decoded) {
+  if (decoded is! List) {
+    return const [];
+  }
+  final out = <ProfileMatchRecord>[];
+  for (final item in decoded) {
+    if (item is Map) {
+      out.add(
+        ProfileMatchRecord.fromJson(Map<String, dynamic>.from(item)),
+      );
+    }
+  }
+  return out;
 }
 
 class SportSkillProgress {

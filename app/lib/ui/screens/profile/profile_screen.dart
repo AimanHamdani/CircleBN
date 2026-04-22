@@ -6,17 +6,36 @@ import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
 import '../../../data/achievement_repository.dart';
 import '../../../data/badge_display_repository.dart';
+import '../../../data/height_display_repository.dart';
+import '../../../data/membership_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../data/sample_clubs.dart';
 import '../../../models/user_profile.dart';
+import '../../../utils/height_display.dart';
 import '../home/home_screen.dart';
 import '../home/streak_screen.dart';
 import 'achievements_screen.dart';
 import '../login_screen.dart';
 import 'edit_profile_screen.dart';
+import 'membership_screen.dart';
+import 'free_stats_screen.dart';
+import 'pro_stats_screen.dart';
 import 'change_password_screen.dart';
 import '../../../auth/current_user.dart';
 import '../../../auth/session_persistence.dart';
+
+/// Shown per sport when there are no scored matches yet (profile skill section).
+const String _kUnlockSportSkillLevelMessage =
+    'Play 3 matches to unlock skill level';
+
+const String _kSkillLevelRankHelpBody =
+    'Per-sport tiers (Lvl 1–10) line up with rank labels like this:\n\n'
+    '1–2 = Beginner\n'
+    '3–4 = Novice\n'
+    '5–6 = Intermediate\n'
+    '7–8 = Advanced\n'
+    '9–10 = Pro/Master\n\n'
+    'Skill thresholds and level thresholds both refer to this same ladder—how far you have progressed within each sport.';
 
 class ProfileScreen extends StatefulWidget {
   static const routeName = '/profile';
@@ -62,6 +81,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _future,
       _achievementFuture,
       _displayBadgeIdsFuture,
+      heightDisplayRepository().getUseImperial(),
+      membershipRepository().getStatus(),
     ]);
     _cachedPageData = data;
     return data;
@@ -73,6 +94,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return thresholds.last;
     }
     return thresholds[(tierLevel - 1).clamp(0, thresholds.length - 1)];
+  }
+
+  void _showSkillLevelHelpDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('How skill levels work'),
+        content: const SingleChildScrollView(
+          child: Text(_kSkillLevelRankHelpBody),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _goBack() {
@@ -238,6 +277,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             final profile = snap.data![0] as UserProfile;
             final achievements = snap.data![1] as AchievementSnapshot;
             final selectedBadgeIds = snap.data![2] as Set<String>;
+            final useImperialHeight = snap.data![3] as bool;
+            final membership = snap.data![4] as MembershipStatus;
 
             final realName = profile.realName.trim().isNotEmpty
                 ? profile.realName.trim()
@@ -255,9 +296,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             final emergency = profile.emergencyContact.trim().isNotEmpty
                 ? profile.emergencyContact.trim()
                 : '—';
-            final height = profile.heightCm != null
-                ? '${profile.heightCm} cm'
-                : '—';
+            final height = formatHeightForDisplay(
+              profile.heightCm,
+              useImperial: useImperialHeight,
+            );
             final notificationsEnabled = profile.notificationsEnabled;
             final sportsPreview = profile.preferredSports.toList()..sort();
             final sportsLabel = sportsPreview.isEmpty
@@ -333,6 +375,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               value: achievements.unlockedBadges.length,
                               suffix: 'badges',
                             ),
+                            if (membership.isPremium)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.22),
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.35),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.star_rounded,
+                                      size: 16,
+                                      color: Color(0xFFFEC84B),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      '${membership.planLabel} · Pro',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                           ],
                         ),
                       ],
@@ -413,6 +488,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           const SizedBox(height: 14),
                           _CardSection(
                             title: 'SKILL LEVEL',
+                            titleAction: IconButton(
+                              onPressed: _showSkillLevelHelpDialog,
+                              tooltip: 'About skill levels & ranks',
+                              icon: Icon(
+                                Icons.help_outline,
+                                color: Colors.black.withValues(alpha: 0.45),
+                                size: 22,
+                              ),
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 36,
+                                minHeight: 36,
+                              ),
+                            ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -447,7 +537,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 const SizedBox(height: 4),
                                 Text(
                                   _showAllSportsSkills
-                                      ? 'Showing all sports. Unplayed sports are marked as Haven\'t played.'
+                                      ? 'Showing all sports. Sports without scored matches show unlock guidance below.'
                                       : 'Showing sports with activity only.',
                                   style: TextStyle(
                                     color: Colors.black.withValues(alpha: 0.55),
@@ -588,6 +678,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             title: 'SETTINGS',
                             child: Column(
                               children: [
+                                _MenuRow(
+                                  label: 'Stats',
+                                  onTap: () {
+                                    if (membership.isPremium) {
+                                      Navigator.of(context).pushNamed(
+                                        ProStatsHubScreen.routeName,
+                                      );
+                                    } else {
+                                      Navigator.of(context).pushNamed(
+                                        FreeStatsScreen.routeName,
+                                      );
+                                    }
+                                  },
+                                ),
+                                const Divider(height: 1),
                                 Row(
                                   children: [
                                     const Expanded(
@@ -612,6 +717,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   ],
                                 ),
                                 const Divider(height: 1),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const Text(
+                                            'Height display',
+                                            style: TextStyle(fontSize: 18),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            useImperialHeight
+                                                ? 'Feet & inches'
+                                                : 'Centimeters (cm)',
+                                            style: TextStyle(
+                                              color: Colors.black.withValues(
+                                                alpha: 0.5,
+                                              ),
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Switch(
+                                      value: useImperialHeight,
+                                      activeThumbColor: Colors.white,
+                                      activeTrackColor: cs.primary,
+                                      onChanged: (v) async {
+                                        await heightDisplayRepository()
+                                            .setUseImperial(v);
+                                        if (mounted) {
+                                          _reload();
+                                        }
+                                      },
+                                    ),
+                                  ],
+                                ),
+                                const Divider(height: 1),
                                 _MenuRow(
                                   label: 'Daily Streak',
                                   onTap: () {
@@ -627,6 +775,46 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     await Navigator.of(
                                       context,
                                     ).pushNamed(AchievementsScreen.routeName);
+                                    if (mounted) {
+                                      _reload();
+                                    }
+                                  },
+                                ),
+                                const Divider(height: 1),
+                                _MenuRow(
+                                  label: 'Membership',
+                                  trailing: membership.isPremium
+                                      ? Padding(
+                                          padding: const EdgeInsets.only(
+                                            right: 6,
+                                          ),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 4,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: cs.primary.withValues(
+                                                alpha: 0.12,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                            ),
+                                            child: Text(
+                                              'Pro',
+                                              style: TextStyle(
+                                                color: cs.primary,
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ),
+                                        )
+                                      : null,
+                                  onTap: () async {
+                                    await Navigator.of(context).pushNamed(
+                                      MembershipScreen.routeName,
+                                    );
                                     if (mounted) {
                                       _reload();
                                     }
@@ -775,7 +963,13 @@ class _AnimatedCounterLabel extends StatelessWidget {
 class _CardSection extends StatelessWidget {
   final String title;
   final Widget child;
-  const _CardSection({required this.title, required this.child});
+  final Widget? titleAction;
+
+  const _CardSection({
+    required this.title,
+    required this.child,
+    this.titleAction,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -790,13 +984,21 @@ class _CardSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Color(0xFF9CA9B0),
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.7,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: Color(0xFF9CA9B0),
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.7,
+                  ),
+                ),
+              ),
+              if (titleAction != null) titleAction!,
+            ],
           ),
           const SizedBox(height: 8),
           child,
@@ -929,12 +1131,19 @@ class _SportSkillRow extends StatelessWidget {
                 ),
               ),
             ] else
-              Text(
-                'Haven\'t played',
-                style: TextStyle(
-                  color: Colors.black.withValues(alpha: 0.55),
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
+              Expanded(
+                flex: 2,
+                child: Text(
+                  _kUnlockSportSkillLevelMessage,
+                  textAlign: TextAlign.end,
+                  maxLines: 3,
+                  softWrap: true,
+                  style: TextStyle(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                    height: 1.25,
+                  ),
                 ),
               ),
           ],
@@ -978,11 +1187,13 @@ class _MenuRow extends StatelessWidget {
   final String label;
   final bool isDanger;
   final bool showChevron;
+  final Widget? trailing;
   final VoidCallback? onTap;
   const _MenuRow({
     required this.label,
     this.isDanger = false,
     this.showChevron = true,
+    this.trailing,
     this.onTap,
   });
 
@@ -1004,6 +1215,7 @@ class _MenuRow extends StatelessWidget {
                 ),
               ),
             ),
+            if (trailing != null) trailing!,
             if (showChevron)
               const Icon(Icons.chevron_right, color: Color(0xFFBCC7CC)),
           ],

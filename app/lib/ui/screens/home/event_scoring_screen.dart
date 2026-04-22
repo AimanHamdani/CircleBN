@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../auth/current_user.dart';
-import '../../../data/event_registration_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
+import '../../../services/attendance_service.dart';
 import '../../theme/app_theme.dart';
 
 class EventScoringArgs {
@@ -27,6 +27,7 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
   bool _isLoading = true;
   bool _isSubmitting = false;
   bool _forceEnableEditing = false;
+  bool _isFinalized = false;
   String? _error;
   List<UserProfile> _players = const [];
   final List<_MatchEntry> _matches = <_MatchEntry>[];
@@ -96,10 +97,9 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
     }
 
     try {
-      final ids = await eventRegistrationRepository().listParticipantUserIds(
-        event.id,
-      );
-      final profiles = await profileRepository().getProfilesByIds(ids);
+      final attendance = await AttendanceService.getAttendanceList(event.id);
+      final attendedIds = attendance.map((item) => item.userId).toList();
+      final profiles = await profileRepository().getProfilesByIds(attendedIds);
       final merged = <UserProfile>[...profiles];
       if (_isHostAndPlay(event)) {
         final hostId = (event.creatorId ?? currentUserId).trim();
@@ -113,6 +113,9 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
       setState(() {
         _players = merged;
         _isLoading = false;
+        _error = merged.isEmpty
+            ? 'No attended participants available for scoring yet.'
+            : null;
       });
     } catch (_) {
       setState(() {
@@ -123,9 +126,32 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
   }
 
   Future<void> _addMatchDialog() async {
+    final sport = _argsFromRoute(context).event.sport.trim().toLowerCase();
+    final isRacketSport =
+        sport.contains('badminton') ||
+        sport.contains('tennis') ||
+        sport.contains('pickle') ||
+        sport.contains('table tennis') ||
+        sport.contains('ping pong');
     var isSingles = true;
     var teamSize = 1;
     var bestOf = 3;
+    if (isRacketSport) {
+      if (sport.contains('pickle')) {
+        isSingles = false;
+        teamSize = 2;
+        bestOf = 3;
+      } else if (sport.contains('table tennis') ||
+          sport.contains('ping pong')) {
+        isSingles = true;
+        teamSize = 1;
+        bestOf = 5;
+      } else {
+        isSingles = true;
+        teamSize = 1;
+        bestOf = 3;
+      }
+    }
     final created = await showDialog<_MatchSetup>(
       context: context,
       builder: (context) {
@@ -159,44 +185,48 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
                         isSingles = pickedSingles;
                         if (isSingles) {
                           teamSize = 1;
+                        } else if (isRacketSport) {
+                          teamSize = 2;
                         } else if (teamSize < 2) {
                           teamSize = 2;
                         }
                       });
                     },
                   ),
-                  const SizedBox(height: 14),
-                  const Text('Players per team'),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      _CircleStepButton(
-                        icon: Icons.remove,
-                        onTap: isSingles
-                            ? null
-                            : teamSize > 2
-                            ? () => setLocal(() => teamSize--)
-                            : null,
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        '$teamSize',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 18,
+                  if (!isRacketSport) ...[
+                    const SizedBox(height: 14),
+                    const Text('Players per team'),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        _CircleStepButton(
+                          icon: Icons.remove,
+                          onTap: isSingles
+                              ? null
+                              : teamSize > 2
+                              ? () => setLocal(() => teamSize--)
+                              : null,
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      _CircleStepButton(
-                        icon: Icons.add,
-                        onTap: isSingles
-                            ? null
-                            : teamSize < 20
-                            ? () => setLocal(() => teamSize++)
-                            : null,
-                      ),
-                    ],
-                  ),
+                        const SizedBox(width: 10),
+                        Text(
+                          '$teamSize',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 18,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        _CircleStepButton(
+                          icon: Icons.add,
+                          onTap: isSingles
+                              ? null
+                              : teamSize < 20
+                              ? () => setLocal(() => teamSize++)
+                              : null,
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 14),
                   const Text('Best of'),
                   const SizedBox(height: 8),
@@ -261,12 +291,32 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
     final args = _argsFromRoute(context);
     final event = args.event;
     final sportRules = _rulesForSport(event.sport);
-    final canEditScores = _forceEnableEditing || _canEditForEventTiming(event);
+    final sportKey = event.sport.trim().toLowerCase();
+    final canEditScores =
+        !_isFinalized && (_forceEnableEditing || _canEditForEventTiming(event));
     final isAdvancedTheme =
-        sportRules.isFootballAdvanced || sportRules.isBasketballAdvanced;
+        sportRules.isFootballAdvanced ||
+        sportRules.isBasketballAdvanced ||
+        sportRules.isVolleyballAdvanced ||
+        sportRules.isBadmintonAdvanced;
     final themedPrimary = sportRules.isBasketballAdvanced
         ? const Color(0xFFE85D04)
-        : const Color(0xFF0D8A66);
+        : sportRules.isFootballAdvanced
+        ? const Color(0xFF0D8A66)
+        : sportRules.isBadmintonAdvanced && sportKey.contains('tennis')
+        ? const Color(0xFF0E9F6E)
+        : sportRules.isBadmintonAdvanced &&
+              (sportKey.contains('pickle') || sportKey.contains('paddle'))
+        ? const Color(0xFFE09C00)
+        : sportRules.isBadmintonAdvanced &&
+              (sportKey.contains('table tennis') ||
+                  sportKey.contains('ping pong'))
+        ? const Color(0xFFE11D48)
+        : sportRules.isVolleyballAdvanced
+        ? AppTheme.eventPurpleDeep
+        : sportRules.isBadmintonAdvanced
+        ? const Color(0xFF2B78C5)
+        : AppTheme.eventPurple;
 
     return Theme(
       data: AppTheme.eventFlowTheme(Theme.of(context)),
@@ -274,7 +324,11 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
         backgroundColor: isAdvancedTheme
             ? (sportRules.isBasketballAdvanced
                   ? const Color(0xFFFAF3EE)
-                  : const Color(0xFFEFF7F3))
+                  : sportRules.isFootballAdvanced
+                  ? const Color(0xFFEFF7F3)
+                  : sportRules.isBadmintonAdvanced
+                  ? const Color(0xFFF1F7FF)
+                  : const Color(0xFFF5F3FF))
             : const Color(0xFFF7F6FD),
         appBar: AppBar(
           backgroundColor: isAdvancedTheme ? themedPrimary : Colors.white,
@@ -294,198 +348,274 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
                 reason:
                     'Scoring is disabled for this activity. Running, jogging, swimming, and cycling are not score-based in this app.',
               )
-            : Column(
+            : ListView(
+                padding: const EdgeInsets.only(top: 0, bottom: 8),
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-                    child: _EventScoringHeader(
-                      title: event.title,
-                      subtitle: '${event.sport} - editable by creator only',
-                      themedPrimary: isAdvancedTheme ? themedPrimary : null,
-                      helper: canEditScores
-                          ? 'Customize match setup, teams, players, points, and assists.'
-                          : 'Match has not started yet. Score editing will unlock at event start time.',
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                    child: Column(
+                      children: [
+                        _EventScoringHeader(
+                          title: event.title,
+                          subtitle: '${event.sport} - editable by creator only',
+                          themedPrimary: isAdvancedTheme ? themedPrimary : null,
+                          helper: canEditScores
+                              ? 'Customize match setup, teams, players, points, and assists.'
+                              : 'Match has not started yet. Score editing will unlock at event start time.',
+                        ),
+                        if (isAdvancedTheme) ...[
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: _SportChip(
+                              label: sportRules.isBasketballAdvanced
+                                  ? 'Basketball'
+                                  : sportRules.isFootballAdvanced
+                                  ? 'Football'
+                                  : sportRules.isVolleyballAdvanced
+                                  ? 'Volleyball'
+                                  : sportRules.isBadmintonAdvanced
+                                  ? event.sport
+                                  : event.sport,
+                              color: themedPrimary,
+                            ),
+                          ),
+                        ],
+                        if (!_canEditForEventTiming(event)) ...[
+                          const SizedBox(height: 10),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                            decoration: BoxDecoration(
+                              color: _forceEnableEditing
+                                  ? const Color(0xFFEFFCF4)
+                                  : const Color(0xFFFFF7ED),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _forceEnableEditing
+                                    ? const Color(0xFF86EFAC)
+                                    : const Color(0xFFFCD34D),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _forceEnableEditing
+                                        ? 'Testing mode enabled: you can edit scores before start time.'
+                                        : 'Match has not started yet.',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                TextButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      _forceEnableEditing =
+                                          !_forceEnableEditing;
+                                    });
+                                  },
+                                  child: Text(
+                                    _forceEnableEditing
+                                        ? 'Disable test mode'
+                                        : 'Enable test mode',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        if (_isFinalized) ...[
+                          const SizedBox(height: 10),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEFFCF4),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: const Color(0xFF86EFAC),
+                              ),
+                            ),
+                            child: const Text(
+                              'All scores are finalized. Editing is locked.',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ],
+                        if (sportRules.showPointsSystemCard) ...[
+                          const SizedBox(height: 10),
+                          _PointsSystemCard(rules: sportRules),
+                        ],
+                      ],
                     ),
                   ),
-                  if (isAdvancedTheme)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: _SportChip(
-                          label: sportRules.isBasketballAdvanced
-                              ? 'Basketball'
-                              : 'Football',
-                          color: themedPrimary,
-                        ),
-                      ),
-                    ),
-                  if (!_canEditForEventTiming(event))
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                        decoration: BoxDecoration(
-                          color: _forceEnableEditing
-                              ? const Color(0xFFEFFCF4)
-                              : const Color(0xFFFFF7ED),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: _forceEnableEditing
-                                ? const Color(0xFF86EFAC)
-                                : const Color(0xFFFCD34D),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                _forceEnableEditing
-                                    ? 'Testing mode enabled: you can edit scores before start time.'
-                                    : 'Match has not started yet.',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            TextButton(
-                              onPressed: () {
-                                setState(() {
-                                  _forceEnableEditing = !_forceEnableEditing;
-                                });
-                              },
-                              child: Text(
-                                _forceEnableEditing
-                                    ? 'Disable test mode'
-                                    : 'Enable test mode',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  if (sportRules.showPointsSystemCard)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                      child: _PointsSystemCard(rules: sportRules),
-                    ),
-                  Expanded(
-                    child: _matches.isEmpty
-                        ? _EmptyAddMatchState(
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: Column(
+                      children: [
+                        if (_matches.isEmpty) ...[
+                          _EmptyAddMatchState(
                             enabled: canEditScores,
                             footballTheme: isAdvancedTheme,
                             themedPrimary: themedPrimary,
                             onTap: _addMatchDialog,
-                          )
-                        : ListView(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                            children: [
-                              for (var i = 0; i < _matches.length; i++) ...[
-                                _MatchCard(
-                                  match: _matches[i],
-                                  players: _players,
-                                  canEdit: canEditScores,
-                                  maxPointsPerEntry:
-                                      sportRules.maxPointsPerEntry,
-                                  isFootballAdvanced:
-                                      sportRules.isFootballAdvanced,
-                                  isBasketballAdvanced:
-                                      sportRules.isBasketballAdvanced,
-                                  onAddPlayerToTeamA: () {
-                                    setState(() {
-                                      _matches[i].teamA.add(
-                                        _PlayerStatEntry.create(),
-                                      );
-                                    });
-                                  },
-                                  onAddPlayerToTeamB: () {
-                                    setState(() {
-                                      _matches[i].teamB.add(
-                                        _PlayerStatEntry.create(),
-                                      );
-                                    });
-                                  },
-                                  onRemoveMatch: () {
-                                    setState(() {
-                                      final removed = _matches.removeAt(i);
-                                      removed.dispose();
-                                      for (
-                                        var index = 0;
-                                        index < _matches.length;
-                                        index++
-                                      ) {
-                                        _matches[index].matchNumber = index + 1;
-                                      }
-                                    });
-                                  },
-                                  onRemoveTeamAPlayer: (playerIndex) {
-                                    setState(() {
-                                      if (_matches[i].teamA.length <= 1) {
-                                        return;
-                                      }
-                                      final removed = _matches[i].teamA
-                                          .removeAt(playerIndex);
-                                      removed.dispose();
-                                    });
-                                  },
-                                  onRemoveTeamBPlayer: (playerIndex) {
-                                    setState(() {
-                                      if (_matches[i].teamB.length <= 1) {
-                                        return;
-                                      }
-                                      final removed = _matches[i].teamB
-                                          .removeAt(playerIndex);
-                                      removed.dispose();
-                                    });
-                                  },
-                                  onAnyStatChanged: () {
-                                    setState(() {});
-                                  },
+                          ),
+                        ] else ...[
+                          for (var i = 0; i < _matches.length; i++) ...[
+                            _MatchCard(
+                              match: _matches[i],
+                              players: _players,
+                              canEdit: canEditScores,
+                              accentColor: themedPrimary,
+                              sportKey: sportKey,
+                              maxPointsPerEntry: sportRules.maxPointsPerEntry,
+                              isFootballAdvanced: sportRules.isFootballAdvanced,
+                              isBasketballAdvanced:
+                                  sportRules.isBasketballAdvanced,
+                              isVolleyballAdvanced:
+                                  sportRules.isVolleyballAdvanced,
+                              isBadmintonAdvanced:
+                                  sportRules.isBadmintonAdvanced,
+                              onAddPlayerToTeamA: () {
+                                setState(() {
+                                  _matches[i].teamA.add(
+                                    _PlayerStatEntry.create(),
+                                  );
+                                });
+                              },
+                              onAddPlayerToTeamB: () {
+                                setState(() {
+                                  _matches[i].teamB.add(
+                                    _PlayerStatEntry.create(),
+                                  );
+                                });
+                              },
+                              onRemoveMatch: () {
+                                setState(() {
+                                  final removed = _matches.removeAt(i);
+                                  removed.dispose();
+                                  for (
+                                    var index = 0;
+                                    index < _matches.length;
+                                    index++
+                                  ) {
+                                    _matches[index].matchNumber = index + 1;
+                                  }
+                                });
+                              },
+                              onRemoveTeamAPlayer: (playerIndex) {
+                                setState(() {
+                                  if (_matches[i].teamA.length <= 1) {
+                                    return;
+                                  }
+                                  final removed = _matches[i].teamA.removeAt(
+                                    playerIndex,
+                                  );
+                                  removed.dispose();
+                                });
+                              },
+                              onRemoveTeamBPlayer: (playerIndex) {
+                                setState(() {
+                                  if (_matches[i].teamB.length <= 1) {
+                                    return;
+                                  }
+                                  final removed = _matches[i].teamB.removeAt(
+                                    playerIndex,
+                                  );
+                                  removed.dispose();
+                                });
+                              },
+                              onAnyStatChanged: () {
+                                _recomputeAutoStreaks();
+                                setState(() {});
+                                _matches[i].isDraftSubmitted = false;
+                              },
+                            ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _matches[i].isDraftSubmitted
+                                      ? Text(
+                                          'Match ${_matches[i].matchNumber} draft submitted (still editable)',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 12,
+                                            color: themedPrimary,
+                                          ),
+                                        )
+                                      : const SizedBox.shrink(),
                                 ),
-                                const SizedBox(height: 12),
-                              ],
-                              if (sportRules.isFootballAdvanced ||
-                                  sportRules.isBasketballAdvanced) ...[
-                                _FootballAwardPreview(
-                                  items: _buildAwardPreview(sportRules),
-                                  themedPrimary: themedPrimary,
+                                TextButton.icon(
+                                  onPressed: canEditScores && !_isSubmitting
+                                      ? () => _submitSingleMatchDraft(i)
+                                      : null,
+                                  icon: const Icon(Icons.check_circle_outline),
+                                  label: const Text('Submit match'),
                                 ),
-                                const SizedBox(height: 12),
                               ],
-                              _AddMatchButton(
-                                enabled: canEditScores,
-                                footballTheme: isAdvancedTheme,
-                                themedPrimary: themedPrimary,
-                                onTap: _addMatchDialog,
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                          if (sportRules.isFootballAdvanced ||
+                              sportRules.isBasketballAdvanced ||
+                              sportRules.isVolleyballAdvanced ||
+                              sportRules.isBadmintonAdvanced) ...[
+                            _FootballAwardPreview(
+                              items: _buildAwardPreview(sportRules),
+                              themedPrimary: themedPrimary,
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                          _AddMatchButton(
+                            enabled: canEditScores,
+                            footballTheme: isAdvancedTheme,
+                            themedPrimary: themedPrimary,
+                            onTap: _addMatchDialog,
+                          ),
+                        ],
+                        const SizedBox(height: 10),
+                        SafeArea(
+                          top: false,
+                          child: FilledButton(
+                            onPressed:
+                                !canEditScores ||
+                                    _isSubmitting ||
+                                    _matches.isEmpty
+                                ? null
+                                : () async {
+                                    final confirm =
+                                        await _confirmFinalizeAllScores();
+                                    if (!confirm) {
+                                      return;
+                                    }
+                                    if (!mounted) {
+                                      return;
+                                    }
+                                    await _submitScores(event, sportRules);
+                                  },
+                            style: FilledButton.styleFrom(
+                              backgroundColor: isAdvancedTheme
+                                  ? themedPrimary
+                                  : null,
+                              minimumSize: const Size.fromHeight(52),
+                            ),
+                            child: Text(
+                              _isSubmitting
+                                  ? 'Submitting...'
+                                  : (_isFinalized
+                                        ? 'Scores Finalized'
+                                        : 'Submit All Scores'),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 16,
                               ),
-                            ],
-                          ),
-                  ),
-                  SafeArea(
-                    top: false,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                      child: FilledButton(
-                        onPressed:
-                            !canEditScores || _isSubmitting || _matches.isEmpty
-                            ? null
-                            : () => _submitScores(event, sportRules),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: isAdvancedTheme
-                              ? themedPrimary
-                              : null,
-                          minimumSize: const Size.fromHeight(52),
-                        ),
-                        child: Text(
-                          _isSubmitting ? 'Submitting...' : 'Submit All Scores',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 16,
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ],
@@ -504,16 +634,194 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
     return role == 'host & play' || role == 'host and play';
   }
 
-  Future<void> _submitScores(Event event, _SportScoringRules rules) async {
-    final awardedByUser = <String, int>{};
+  String _streakKeyForStat(_PlayerStatEntry stat) {
+    final selectedId = (stat.selectedUserId ?? '').trim();
+    if (selectedId.isNotEmpty) {
+      return 'id:$selectedId';
+    }
+    final manualName = stat.nameCtrl.text.trim().toLowerCase();
+    if (manualName.isNotEmpty) {
+      return 'name:$manualName';
+    }
+    return '';
+  }
+
+  void _recomputeAutoStreaks() {
+    final running = <String, ({int wins, int losses})>{};
     for (final match in _matches) {
       for (final stat in [...match.teamA, ...match.teamB]) {
-        final userId = stat.selectedUserId;
-        if (userId == null || userId.trim().isEmpty) {
+        final key = _streakKeyForStat(stat);
+        if (key.isEmpty) {
+          stat.winStreak = 0;
+          stat.lossStreakCtrl.text = '0';
           continue;
         }
+        final prev = running[key] ?? (wins: 0, losses: 0);
+        var wins = prev.wins;
+        var losses = prev.losses;
+        switch (stat.footballResult) {
+          case _FootballResult.win:
+            wins += 1;
+            losses = 0;
+            break;
+          case _FootballResult.loss:
+            losses += 1;
+            wins = 0;
+            break;
+          case _FootballResult.draw:
+            wins = 0;
+            losses = 0;
+            break;
+        }
+        stat.winStreak = wins;
+        stat.lossStreakCtrl.text = '$losses';
+        running[key] = (wins: wins, losses: losses);
+      }
+    }
+  }
+
+  Future<void> _submitScores(Event event, _SportScoringRules rules) async {
+    _recomputeAutoStreaks();
+    final awardedByUser = <String, int>{};
+    final deltaWins = <String, int>{};
+    final deltaDraws = <String, int>{};
+    final deltaLosses = <String, int>{};
+    final newMatchRowsByUser = <String, List<ProfileMatchRecord>>{};
+    final trackOutcomes = rules.isBadmintonAdvanced ||
+        rules.isVolleyballAdvanced ||
+        rules.isFootballAdvanced ||
+        rules.isBasketballAdvanced;
+    final recordedAt = DateTime.now().toUtc();
+    final sportKey =
+        event.sport.trim().isEmpty ? 'General' : event.sport.trim();
+
+    Map<String, num> buildStatValues({
+      required _PlayerStatEntry stat,
+      required _MatchEntry match,
+      required bool isTeamA,
+    }) {
+      int readInt(TextEditingController c) {
+        return int.tryParse(c.text.trim()) ?? 0;
+      }
+
+      final key = sportKey.toLowerCase();
+      if (rules.isFootballAdvanced) {
+        return <String, num>{
+          'goals': readInt(stat.pointsCtrl),
+          'assists': readInt(stat.assistsCtrl),
+          'passes': readInt(stat.reboundsCtrl),
+          'tackles': readInt(stat.stealsCtrl),
+          'saves': readInt(stat.blocksCtrl),
+        };
+      }
+      if (rules.isBasketballAdvanced) {
+        return <String, num>{
+          'points': readInt(stat.pointsCtrl),
+          'assists': readInt(stat.assistsCtrl),
+          'rebounds': readInt(stat.reboundsCtrl),
+          'steals': readInt(stat.stealsCtrl),
+          'blocks': readInt(stat.blocksCtrl),
+          'turnovers': readInt(stat.turnoversCtrl),
+        };
+      }
+      if (rules.isVolleyballAdvanced) {
+        return <String, num>{
+          'points': readInt(stat.pointsCtrl),
+          'assists': readInt(stat.assistsCtrl),
+          'blocks': readInt(stat.blocksCtrl),
+          'digs': readInt(stat.reboundsCtrl),
+        };
+      }
+      if (rules.isBadmintonAdvanced) {
+        final gamesWon = _savedUnitWins(match, forTeamA: isTeamA);
+        final pointsWon = readInt(stat.badmintonPointsCtrl);
+        final aces = readInt(stat.badmintonAceCtrl);
+        if (key.contains('tennis') &&
+            !key.contains('table tennis') &&
+            !key.contains('ping pong')) {
+          return <String, num>{
+            'setsWon': gamesWon,
+            'gamesWon': pointsWon,
+            'aces': aces,
+          };
+        }
+        return <String, num>{
+          'gamesWon': gamesWon,
+          'pointsWon': pointsWon,
+          'aces': aces,
+        };
+      }
+      return <String, num>{
+        'points': readInt(stat.pointsCtrl),
+        'assists': readInt(stat.assistsCtrl),
+      };
+    }
+
+    String? buildFormatLabel(_MatchEntry match) {
+      if (rules.isBadmintonAdvanced) {
+        return match.isSingles ? 'Singles' : 'Doubles';
+      }
+      return null;
+    }
+
+    void processStatForUser({
+      required _PlayerStatEntry stat,
+      required _MatchEntry match,
+      required bool isTeamA,
+    }) {
+        final userId = stat.selectedUserId;
+        if (userId == null || userId.trim().isEmpty) {
+          return;
+        }
+        final uid = userId.trim();
         final awarded = _awardForStat(stat, rules);
-        awardedByUser[userId] = (awardedByUser[userId] ?? 0) + awarded;
+        awardedByUser[uid] = (awardedByUser[uid] ?? 0) + awarded;
+
+        if (trackOutcomes) {
+          switch (stat.footballResult) {
+            case _FootballResult.win:
+              deltaWins[uid] = (deltaWins[uid] ?? 0) + 1;
+              break;
+            case _FootballResult.draw:
+              deltaDraws[uid] = (deltaDraws[uid] ?? 0) + 1;
+              break;
+            case _FootballResult.loss:
+              deltaLosses[uid] = (deltaLosses[uid] ?? 0) + 1;
+              break;
+          }
+          final outcomeStr = switch (stat.footballResult) {
+            _FootballResult.win => 'win',
+            _FootballResult.draw => 'draw',
+            _FootballResult.loss => 'loss',
+          };
+          newMatchRowsByUser
+              .putIfAbsent(uid, () => <ProfileMatchRecord>[])
+              .add(
+                ProfileMatchRecord(
+                  eventId: event.id,
+                  eventTitle: event.title,
+                  sport: sportKey,
+                  outcome: outcomeStr,
+                  pointsAwarded: awarded,
+                  recordedAt: recordedAt,
+                  statSnippet: _awardLabelForStat(stat, rules),
+                  formatLabel: buildFormatLabel(match),
+                  statValues: buildStatValues(
+                    stat: stat,
+                    match: match,
+                    isTeamA: isTeamA,
+                  ),
+                ),
+              );
+        }
+    }
+
+    for (final match in _matches) {
+      for (final stat in match.teamA) {
+        processStatForUser(stat: stat, match: match, isTeamA: true);
+      }
+      for (final stat in match.teamB) {
+        processStatForUser(stat: stat, match: match, isTeamA: false);
       }
     }
 
@@ -534,9 +842,6 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
 
     var updatedCount = 0;
     final failedUsers = <String>[];
-    final sportKey = event.sport.trim().isEmpty
-        ? 'General'
-        : event.sport.trim();
     for (final player in _players) {
       final awarded = awardedByUser[player.userId];
       if (awarded == null) {
@@ -563,9 +868,18 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
         sportSkills: nextSportSkills,
       );
       final nextSkillLevel = _skillLabelFromTierLevel(overall.level);
+      final uid = player.userId.trim();
+      final batch = newMatchRowsByUser[uid];
+      final mergedHistory = (batch != null && batch.isNotEmpty)
+          ? [...batch.reversed, ...player.matchHistory].take(50).toList()
+          : player.matchHistory;
       final nextProfile = player.copyWith(
         skillLevel: nextSkillLevel,
         sportSkills: nextSportSkills,
+        matchWins: player.matchWins + (deltaWins[uid] ?? 0),
+        matchDraws: player.matchDraws + (deltaDraws[uid] ?? 0),
+        matchLosses: player.matchLosses + (deltaLosses[uid] ?? 0),
+        matchHistory: mergedHistory,
       );
       try {
         await profileRepository().saveProfileByUserId(
@@ -592,14 +906,17 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
     });
 
     if (failedUsers.isEmpty) {
+      setState(() {
+        _isFinalized = true;
+        _forceEnableEditing = false;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Saved scorecards for ${_matches.length} match${_matches.length == 1 ? '' : 'es'}. Updated $updatedCount profile${updatedCount == 1 ? '' : 's'}.',
+            'All scores finalized. Updated $updatedCount profile${updatedCount == 1 ? '' : 's'}. Editing is now locked.',
           ),
         ),
       );
-      Navigator.of(context).maybePop('scores_submitted');
       return;
     }
 
@@ -607,6 +924,89 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
       SnackBar(
         content: Text(
           'Updated $updatedCount, failed ${failedUsers.length}: ${failedUsers.join(', ')}',
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _confirmFinalizeAllScores() async {
+    final first = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Submit all scores?'),
+        content: const Text(
+          'This will finalize all submitted match data and lock score editing.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    if (first != true) {
+      return false;
+    }
+    if (!mounted) {
+      return false;
+    }
+
+    final second = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Final confirmation'),
+        content: const Text(
+          'After final submission, scores cannot be changed in this session. Are you sure?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Go back'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Submit all'),
+          ),
+        ],
+      ),
+    );
+
+    return second == true;
+  }
+
+  void _submitSingleMatchDraft(int index) {
+    if (index < 0 || index >= _matches.length) {
+      return;
+    }
+    final match = _matches[index];
+    final selectedCount = [
+      ...match.teamA.map((e) => e.selectedUserId),
+      ...match.teamB.map((e) => e.selectedUserId),
+    ].where((id) => (id ?? '').trim().isNotEmpty).length;
+
+    if (selectedCount == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Match ${match.matchNumber} has no selected players yet.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      match.isDraftSubmitted = true;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Match ${match.matchNumber} submitted as draft. You can still edit it before final submit.',
         ),
       ),
     );
@@ -672,6 +1072,48 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
   }
 
   int _awardForStat(_PlayerStatEntry stat, _SportScoringRules rules) {
+    if (rules.isBadmintonAdvanced) {
+      var points = 0;
+      switch (stat.footballResult) {
+        case _FootballResult.win:
+          points = 3;
+          break;
+        case _FootballResult.draw:
+          points = 0;
+          break;
+        case _FootballResult.loss:
+          points = 0;
+          break;
+      }
+      final streak = int.tryParse(stat.lossStreakCtrl.text.trim()) ?? 0;
+      points += _footballStreakPenalty(streak);
+      if (stat.isMvp) {
+        points += 1;
+      }
+      return points;
+    }
+    if (rules.isVolleyballAdvanced) {
+      var points = 0;
+      switch (stat.footballResult) {
+        case _FootballResult.win:
+          points = 3;
+          break;
+        case _FootballResult.draw:
+          points = 1;
+          break;
+        case _FootballResult.loss:
+          points = 0;
+          break;
+      }
+      final streak = int.tryParse(stat.lossStreakCtrl.text.trim()) ?? 0;
+      if (streak >= 3) {
+        points -= 1;
+      }
+      if (stat.isMvp) {
+        points += 1;
+      }
+      return points;
+    }
     if (rules.isFootballAdvanced || rules.isBasketballAdvanced) {
       var points = 0;
       switch (stat.footballResult) {
@@ -686,9 +1128,7 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
           break;
       }
 
-      final lossStreak = rules.isBasketballAdvanced
-          ? (stat.hasFiveLossStreak ? 5 : 0)
-          : (int.tryParse(stat.lossStreakCtrl.text.trim()) ?? 0);
+      final lossStreak = int.tryParse(stat.lossStreakCtrl.text.trim()) ?? 0;
       points += rules.isFootballAdvanced
           ? _footballStreakPenalty(lossStreak)
           : _basketballStreakPenalty(lossStreak);
@@ -717,9 +1157,7 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
   }
 
   int _basketballStreakPenalty(int streak) {
-    if (streak >= 5) {
-      return -2;
-    }
+    // Basketball no longer applies streak penalties.
     return 0;
   }
 
@@ -757,6 +1195,40 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
   }
 
   String _awardLabelForStat(_PlayerStatEntry stat, _SportScoringRules rules) {
+    if (rules.isBadmintonAdvanced) {
+      final base = switch (stat.footballResult) {
+        _FootballResult.win => 'WIN',
+        _FootballResult.draw => 'LOSS',
+        _FootballResult.loss => 'LOSS',
+      };
+      final streak = int.tryParse(stat.lossStreakCtrl.text.trim()) ?? 0;
+      final streakLabel = streak >= 7
+          ? '7L'
+          : streak >= 5
+          ? '5L'
+          : streak >= 3
+          ? '3L'
+          : '';
+      final withPenalty = streakLabel.isEmpty ? base : '$base+$streakLabel';
+      if (stat.isMvp) {
+        return '$withPenalty+MVP';
+      }
+      return withPenalty;
+    }
+    if (rules.isVolleyballAdvanced) {
+      final base = switch (stat.footballResult) {
+        _FootballResult.win => 'WIN',
+        _FootballResult.draw => 'DRAW',
+        _FootballResult.loss => 'LOSS',
+      };
+      final streak = int.tryParse(stat.lossStreakCtrl.text.trim()) ?? 0;
+      final streakLabel = streak >= 3 ? '3L' : '';
+      final withPenalty = streakLabel.isEmpty ? base : '$base+$streakLabel';
+      if (stat.isMvp) {
+        return '$withPenalty+MVP';
+      }
+      return withPenalty;
+    }
     final base = switch (stat.footballResult) {
       _FootballResult.win => 'WIN',
       _FootballResult.draw => rules.isFootballAdvanced ? 'DRAW' : 'LOSS',
@@ -771,7 +1243,7 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
               : streak >= 3
               ? '3x'
               : '')
-        : (stat.hasFiveLossStreak ? '5x' : '');
+        : (streak >= 5 ? '5x' : '');
     final withPenalty = streakLabel.isEmpty ? base : '$base+$streakLabel';
     if (stat.isMvp) {
       return '$withPenalty+MVP';
@@ -794,12 +1266,17 @@ class _MatchSetup {
 
 class _MatchEntry {
   int matchNumber;
-  final bool isSingles;
+  bool isSingles;
   int bestOf;
   final TextEditingController teamANameCtrl;
   final TextEditingController teamBNameCtrl;
+  final TextEditingController activeSetScoreACtrl;
+  final TextEditingController activeSetScoreBCtrl;
   final List<_PlayerStatEntry> teamA;
   final List<_PlayerStatEntry> teamB;
+  final List<_SavedSetScore?> savedSets;
+  int activeSetIndex;
+  int? editingSetIndex;
 
   _MatchEntry({
     required this.matchNumber,
@@ -807,9 +1284,17 @@ class _MatchEntry {
     required this.bestOf,
     required this.teamANameCtrl,
     required this.teamBNameCtrl,
+    required this.activeSetScoreACtrl,
+    required this.activeSetScoreBCtrl,
     required this.teamA,
     required this.teamB,
+    required this.savedSets,
+    required this.activeSetIndex,
+    required this.editingSetIndex,
+    this.isDraftSubmitted = false,
   });
+
+  bool isDraftSubmitted;
 
   factory _MatchEntry.create({
     required int matchNumber,
@@ -824,14 +1309,22 @@ class _MatchEntry {
       bestOf: bestOf,
       teamANameCtrl: TextEditingController(text: 'Team A'),
       teamBNameCtrl: TextEditingController(text: 'Team B'),
+      activeSetScoreACtrl: TextEditingController(text: '0'),
+      activeSetScoreBCtrl: TextEditingController(text: '0'),
       teamA: List.generate(effectiveTeamSize, (_) => _PlayerStatEntry.create()),
       teamB: List.generate(effectiveTeamSize, (_) => _PlayerStatEntry.create()),
+      savedSets: List<_SavedSetScore?>.filled(bestOf, null),
+      activeSetIndex: 0,
+      editingSetIndex: null,
+      isDraftSubmitted: false,
     );
   }
 
   void dispose() {
     teamANameCtrl.dispose();
     teamBNameCtrl.dispose();
+    activeSetScoreACtrl.dispose();
+    activeSetScoreBCtrl.dispose();
     for (final p in teamA) {
       p.dispose();
     }
@@ -841,16 +1334,33 @@ class _MatchEntry {
   }
 }
 
+class _SavedSetScore {
+  final int index;
+  int scoreA;
+  int scoreB;
+
+  _SavedSetScore({
+    required this.index,
+    required this.scoreA,
+    required this.scoreB,
+  });
+}
+
 class _PlayerStatEntry {
   String? selectedUserId;
   final TextEditingController nameCtrl;
   final TextEditingController pointsCtrl;
   final TextEditingController assistsCtrl;
+  final TextEditingController badmintonSet1Ctrl;
+  final TextEditingController badmintonSet2Ctrl;
+  final TextEditingController badmintonPointsCtrl;
+  final TextEditingController badmintonAceCtrl;
   final TextEditingController reboundsCtrl;
   final TextEditingController stealsCtrl;
   final TextEditingController blocksCtrl;
   final TextEditingController turnoversCtrl;
   final TextEditingController lossStreakCtrl;
+  int winStreak;
   _FootballResult footballResult;
   bool isMvp;
   bool hasFiveLossStreak;
@@ -860,11 +1370,16 @@ class _PlayerStatEntry {
     required this.nameCtrl,
     required this.pointsCtrl,
     required this.assistsCtrl,
+    required this.badmintonSet1Ctrl,
+    required this.badmintonSet2Ctrl,
+    required this.badmintonPointsCtrl,
+    required this.badmintonAceCtrl,
     required this.reboundsCtrl,
     required this.stealsCtrl,
     required this.blocksCtrl,
     required this.turnoversCtrl,
     required this.lossStreakCtrl,
+    required this.winStreak,
     required this.footballResult,
     required this.isMvp,
     required this.hasFiveLossStreak,
@@ -876,11 +1391,16 @@ class _PlayerStatEntry {
       nameCtrl: TextEditingController(),
       pointsCtrl: TextEditingController(text: '0'),
       assistsCtrl: TextEditingController(text: '0'),
+      badmintonSet1Ctrl: TextEditingController(text: '0'),
+      badmintonSet2Ctrl: TextEditingController(text: '0'),
+      badmintonPointsCtrl: TextEditingController(text: '0'),
+      badmintonAceCtrl: TextEditingController(text: '0'),
       reboundsCtrl: TextEditingController(text: '0'),
       stealsCtrl: TextEditingController(text: '0'),
       blocksCtrl: TextEditingController(text: '0'),
       turnoversCtrl: TextEditingController(text: '0'),
       lossStreakCtrl: TextEditingController(text: '0'),
+      winStreak: 0,
       footballResult: _FootballResult.draw,
       isMvp: false,
       hasFiveLossStreak: false,
@@ -891,6 +1411,10 @@ class _PlayerStatEntry {
     nameCtrl.dispose();
     pointsCtrl.dispose();
     assistsCtrl.dispose();
+    badmintonSet1Ctrl.dispose();
+    badmintonSet2Ctrl.dispose();
+    badmintonPointsCtrl.dispose();
+    badmintonAceCtrl.dispose();
     reboundsCtrl.dispose();
     stealsCtrl.dispose();
     blocksCtrl.dispose();
@@ -900,6 +1424,96 @@ class _PlayerStatEntry {
 }
 
 enum _FootballResult { win, draw, loss }
+
+bool _isSetLikeSport({
+  required bool isVolleyballAdvanced,
+  required bool isBadmintonAdvanced,
+}) {
+  return isVolleyballAdvanced || isBadmintonAdvanced;
+}
+
+bool _usesSetTerm({
+  required String sportKey,
+  required bool isVolleyballAdvanced,
+}) {
+  final normalized = sportKey.trim().toLowerCase();
+  return isVolleyballAdvanced ||
+      (normalized.contains('tennis') &&
+          !normalized.contains('table tennis') &&
+          !normalized.contains('ping pong'));
+}
+
+String _setUnitLabel({
+  required String sportKey,
+  required bool isVolleyballAdvanced,
+  required int index,
+}) {
+  final usesSet = _usesSetTerm(
+    sportKey: sportKey,
+    isVolleyballAdvanced: isVolleyballAdvanced,
+  );
+  return '${usesSet ? 'Set' : 'Game'} ${index + 1}';
+}
+
+String _setSectionTitle({
+  required String sportKey,
+  required bool isVolleyballAdvanced,
+}) {
+  return _usesSetTerm(
+        sportKey: sportKey,
+        isVolleyballAdvanced: isVolleyballAdvanced,
+      )
+      ? 'SETS — PROGRESSIVE SAVE'
+      : 'GAMES — PROGRESSIVE SAVE';
+}
+
+int _savedUnitWins(_MatchEntry match, {required bool forTeamA}) {
+  var wins = 0;
+  for (final item in match.savedSets) {
+    if (item == null) {
+      continue;
+    }
+    if (forTeamA && item.scoreA > item.scoreB) {
+      wins += 1;
+    } else if (!forTeamA && item.scoreB > item.scoreA) {
+      wins += 1;
+    }
+  }
+  return wins;
+}
+
+void _syncResultsFromSavedSets(
+  _MatchEntry match, {
+  required bool allowDraw,
+  required bool syncPointField,
+}) {
+  final winsA = _savedUnitWins(match, forTeamA: true);
+  final winsB = _savedUnitWins(match, forTeamA: false);
+  _FootballResult resultA;
+  _FootballResult resultB;
+  if (winsA > winsB) {
+    resultA = _FootballResult.win;
+    resultB = _FootballResult.loss;
+  } else if (winsB > winsA) {
+    resultA = _FootballResult.loss;
+    resultB = _FootballResult.win;
+  } else {
+    resultA = allowDraw ? _FootballResult.draw : _FootballResult.loss;
+    resultB = allowDraw ? _FootballResult.draw : _FootballResult.loss;
+  }
+  for (final stat in match.teamA) {
+    stat.footballResult = resultA;
+    if (syncPointField) {
+      stat.pointsCtrl.text = resultA == _FootballResult.win ? '1' : '0';
+    }
+  }
+  for (final stat in match.teamB) {
+    stat.footballResult = resultB;
+    if (syncPointField) {
+      stat.pointsCtrl.text = resultB == _FootballResult.win ? '1' : '0';
+    }
+  }
+}
 
 class _EventScoringHeader extends StatelessWidget {
   final String title;
@@ -959,15 +1573,6 @@ class _EventScoringHeader extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Skill thresholds map directly to ranks: Beginner -> Novice -> Intermediate -> Advanced -> Pro/Master.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.88),
-              fontWeight: FontWeight.w700,
-              fontSize: 12,
-            ),
-          ),
         ],
       ),
     );
@@ -997,15 +1602,465 @@ class _SportChip extends StatelessWidget {
   }
 }
 
+class _RacketFormatToggle extends StatelessWidget {
+  final bool isSingles;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  const _RacketFormatToggle({
+    required this.isSingles,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final borderColor = const Color(0xFFC9D2DC);
+    final selectedColor = const Color(0xFF42A5F5);
+    final unselectedColor = const Color(0xFFE9ECEF);
+    final selectedText = Colors.white;
+    final unselectedText = const Color(0xFF6B7280);
+
+    Widget pill({
+      required String label,
+      required bool selected,
+      required VoidCallback onTap,
+    }) {
+      return Expanded(
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            height: 30,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: selected ? selectedColor : unselectedColor,
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 11,
+                color: selected ? selectedText : unselectedText,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Opacity(
+      opacity: enabled ? 1 : 0.6,
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: borderColor, width: 1.1),
+        ),
+        child: Row(
+          children: [
+            pill(
+              label: 'Singles',
+              selected: isSingles,
+              onTap: () => onChanged(true),
+            ),
+            const SizedBox(width: 4),
+            pill(
+              label: 'Doubles',
+              selected: !isSingles,
+              onTap: () => onChanged(false),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProgressiveSetPanel extends StatelessWidget {
+  final _MatchEntry match;
+  final bool canEdit;
+  final Color accent;
+  final String sportKey;
+  final bool isVolleyballAdvanced;
+  final String teamALabel;
+  final String teamBLabel;
+  final VoidCallback onChanged;
+
+  const _ProgressiveSetPanel({
+    required this.match,
+    required this.canEdit,
+    required this.accent,
+    required this.sportKey,
+    required this.isVolleyballAdvanced,
+    required this.teamALabel,
+    required this.teamBLabel,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final sectionTitle = _setSectionTitle(
+      sportKey: sportKey,
+      isVolleyballAdvanced: isVolleyballAdvanced,
+    );
+
+    void loadSetIntoEditor(int index) {
+      final existing = match.savedSets[index];
+      match.activeSetIndex = index;
+      match.editingSetIndex = index;
+      match.activeSetScoreACtrl.text = '${existing?.scoreA ?? 0}';
+      match.activeSetScoreBCtrl.text = '${existing?.scoreB ?? 0}';
+    }
+
+    void stageNextUnsavedSet() {
+      match.editingSetIndex = null;
+      var nextIndex = match.bestOf;
+      for (var i = 0; i < match.savedSets.length; i++) {
+        if (match.savedSets[i] == null) {
+          nextIndex = i;
+          break;
+        }
+      }
+      match.activeSetIndex = nextIndex.clamp(0, match.bestOf - 1);
+      match.activeSetScoreACtrl.text = '0';
+      match.activeSetScoreBCtrl.text = '0';
+    }
+
+    void adjustScore(TextEditingController ctrl, int delta) {
+      final current = int.tryParse(ctrl.text.trim()) ?? 0;
+      final next = (current + delta).clamp(0, 99);
+      ctrl.value = TextEditingValue(
+        text: '$next',
+        selection: TextSelection.collapsed(offset: '$next'.length),
+      );
+      onChanged();
+    }
+
+    void saveCurrentSet() {
+      final index = match.editingSetIndex ?? match.activeSetIndex;
+      final scoreA = int.tryParse(match.activeSetScoreACtrl.text.trim()) ?? 0;
+      final scoreB = int.tryParse(match.activeSetScoreBCtrl.text.trim()) ?? 0;
+      match.savedSets[index] = _SavedSetScore(
+        index: index,
+        scoreA: scoreA,
+        scoreB: scoreB,
+      );
+      stageNextUnsavedSet();
+      onChanged();
+    }
+
+    final visibleIndices = <int>{};
+    for (var i = 0; i < match.savedSets.length; i++) {
+      if (match.savedSets[i] != null) {
+        visibleIndices.add(i);
+      }
+    }
+    if (match.editingSetIndex != null) {
+      visibleIndices.add(match.editingSetIndex!);
+    } else if (match.activeSetIndex < match.bestOf) {
+      visibleIndices.add(match.activeSetIndex);
+    }
+    final ordered = visibleIndices.toList()..sort();
+    final winsA = _savedUnitWins(match, forTeamA: true);
+    final winsB = _savedUnitWins(match, forTeamA: false);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withValues(alpha: 0.32)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            sectionTitle,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 11,
+              letterSpacing: 0.5,
+              color: accent.withValues(alpha: 0.85),
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final index in ordered) ...[
+            if (match.savedSets[index] != null &&
+                match.editingSetIndex != index)
+              Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: accent.withValues(alpha: 0.22)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${_setUnitLabel(sportKey: sportKey, isVolleyballAdvanced: isVolleyballAdvanced, index: index)}: ${match.savedSets[index]!.scoreA} - ${match.savedSets[index]!.scoreB}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: accent,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: canEdit
+                          ? () {
+                              loadSetIntoEditor(index);
+                              onChanged();
+                            }
+                          : null,
+                      child: const Text('Edit set'),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: accent.withValues(alpha: 0.22)),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _setUnitLabel(
+                              sportKey: sportKey,
+                              isVolleyballAdvanced: isVolleyballAdvanced,
+                              index: index,
+                            ),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: accent,
+                            ),
+                          ),
+                        ),
+                        FilledButton.tonal(
+                          onPressed: canEdit ? saveCurrentSet : null,
+                          child: const Text('Save set'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _SetScoreEditor(
+                            label: teamALabel,
+                            controller: match.activeSetScoreACtrl,
+                            accent: accent,
+                            canEdit: canEdit,
+                            onMinus: () =>
+                                adjustScore(match.activeSetScoreACtrl, -1),
+                            onPlus: () =>
+                                adjustScore(match.activeSetScoreACtrl, 1),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _SetScoreEditor(
+                            label: teamBLabel,
+                            controller: match.activeSetScoreBCtrl,
+                            accent: accent,
+                            canEdit: canEdit,
+                            onMinus: () =>
+                                adjustScore(match.activeSetScoreBCtrl, -1),
+                            onPlus: () =>
+                                adjustScore(match.activeSetScoreBCtrl, 1),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+          ],
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: accent.withValues(alpha: 0.28)),
+            ),
+            child: Text(
+              winsA == winsB
+                  ? 'Winner: not decided'
+                  : 'Winner: ${winsA > winsB ? teamALabel : teamBLabel} ($winsA-$winsB)',
+              style: TextStyle(fontWeight: FontWeight.w800, color: accent),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SetScoreEditor extends StatelessWidget {
+  final String label;
+  final TextEditingController controller;
+  final Color accent;
+  final bool canEdit;
+  final VoidCallback onMinus;
+  final VoidCallback onPlus;
+
+  const _SetScoreEditor({
+    required this.label,
+    required this.controller,
+    required this.accent,
+    required this.canEdit,
+    required this.onMinus,
+    required this.onPlus,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          label,
+          style: TextStyle(fontWeight: FontWeight.w700, color: accent),
+        ),
+        const SizedBox(height: 6),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _CircleStepButton(
+              icon: Icons.remove,
+              onTap: canEdit ? onMinus : null,
+            ),
+            const SizedBox(width: 8),
+            Container(
+              width: 44,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                controller.text.trim().isEmpty ? '0' : controller.text.trim(),
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: accent,
+                  fontSize: 20,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            _CircleStepButton(icon: Icons.add, onTap: canEdit ? onPlus : null),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _PointsSystemCard extends StatelessWidget {
   final _SportScoringRules rules;
 
   const _PointsSystemCard({required this.rules});
 
+  List<TextSpan> _buildColoredSpans(String line, {bool isValue = false}) {
+    final defaultStyle = TextStyle(
+      color: Colors.black.withValues(alpha: isValue ? 0.7 : 0.78),
+      fontWeight: FontWeight.w700,
+    );
+    final pointPattern = RegExp(
+      r'(\+\d+\s*pts?|\+\d+\s*pt|-\d+|0\s*pts?|MVP|no draw|draw)',
+      caseSensitive: false,
+    );
+    final spans = <TextSpan>[];
+    var cursor = 0;
+    for (final match in pointPattern.allMatches(line)) {
+      if (match.start > cursor) {
+        spans.add(
+          TextSpan(
+            text: line.substring(cursor, match.start),
+            style: defaultStyle,
+          ),
+        );
+      }
+      final token = line.substring(match.start, match.end);
+      final normalized = token.toLowerCase();
+      Color tokenColor;
+      if (normalized.contains('mvp') || normalized.contains('draw')) {
+        tokenColor = const Color(0xFFD97706);
+      } else if (normalized.startsWith('+')) {
+        tokenColor = const Color(0xFF15803D);
+      } else if (normalized.startsWith('-')) {
+        tokenColor = const Color(0xFFB91C1C);
+      } else {
+        tokenColor = const Color(0xFF6B7280);
+      }
+      spans.add(
+        TextSpan(
+          text: token,
+          style: defaultStyle.copyWith(
+            color: tokenColor,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      );
+      cursor = match.end;
+    }
+    if (cursor < line.length) {
+      spans.add(TextSpan(text: line.substring(cursor), style: defaultStyle));
+    }
+    return spans;
+  }
+
+  (String left, String? right) _splitLine(String line) {
+    final colonIndex = line.indexOf(':');
+    if (colonIndex == -1) {
+      return (line.trim(), null);
+    }
+    final left = line.substring(0, colonIndex).trim();
+    final right = line.substring(colonIndex + 1).trim();
+    return (left, right);
+  }
+
+  String _symbolForLabel(String label) {
+    final normalized = label.toLowerCase();
+    if (normalized.contains('win')) {
+      return '🏆';
+    }
+    if (normalized.contains('lose') || normalized.contains('loss')) {
+      return '❌';
+    }
+    if (normalized.contains('streak')) {
+      return '🔴';
+    }
+    if (normalized.contains('mvp')) {
+      return '⭐';
+    }
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
     final accent = rules.isBasketballAdvanced
         ? const Color(0xFFC2410C)
+        : rules.isBadmintonAdvanced
+        ? const Color(0xFF2B78C5)
+        : rules.isVolleyballAdvanced
+        ? AppTheme.eventPurpleDeep
         : const Color(0xFF0F766E);
     return Container(
       width: double.infinity,
@@ -1019,29 +2074,118 @@ class _PointsSystemCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            rules.pointsSystemTitle,
-            style: TextStyle(fontWeight: FontWeight.w900, color: accent),
+            rules.pointsSystemTitle.toUpperCase(),
+            style: const TextStyle(
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF8A8F98),
+              letterSpacing: 0.4,
+            ),
           ),
           const SizedBox(height: 8),
           for (final line in rules.pointsSystemLines) ...[
-            Text(
-              line,
-              style: TextStyle(
-                color: Colors.black.withValues(alpha: 0.78),
-                fontWeight: FontWeight.w700,
-              ),
+            Builder(
+              builder: (_) {
+                final (left, right) = _splitLine(line);
+                if (right == null) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 1),
+                    child: Text(
+                      left.toUpperCase(),
+                      style: TextStyle(
+                        color: const Color(0xFF8A8F98),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                        letterSpacing: 0.35,
+                      ),
+                    ),
+                  );
+                }
+                final symbol = _symbolForLabel(left);
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    final stackOnNarrow = constraints.maxWidth < 460;
+                    if (stackOnNarrow) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              if (symbol.isNotEmpty) ...[
+                                Text(
+                                  symbol,
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                                const SizedBox(width: 6),
+                              ],
+                              Expanded(
+                                child: Text.rich(
+                                  TextSpan(children: _buildColoredSpans(left)),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Text.rich(
+                              TextSpan(
+                                children: _buildColoredSpans(
+                                  right,
+                                  isValue: true,
+                                ),
+                              ),
+                              textAlign: TextAlign.right,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        Expanded(
+                          flex: 6,
+                          child: Row(
+                            children: [
+                              if (symbol.isNotEmpty) ...[
+                                Text(
+                                  symbol,
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                                const SizedBox(width: 6),
+                              ],
+                              Expanded(
+                                child: Text.rich(
+                                  TextSpan(children: _buildColoredSpans(left)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          flex: 4,
+                          child: Text.rich(
+                            TextSpan(
+                              children: _buildColoredSpans(
+                                right,
+                                isValue: true,
+                              ),
+                            ),
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
             ),
             const SizedBox(height: 4),
           ],
-          const SizedBox(height: 6),
-          Text(
-            'Level threshold means rank tier progression (Beginner to Pro/Master).',
-            style: TextStyle(
-              color: accent,
-              fontWeight: FontWeight.w800,
-              fontSize: 12,
-            ),
-          ),
         ],
       ),
     );
@@ -1154,9 +2298,13 @@ class _MatchCard extends StatelessWidget {
   final _MatchEntry match;
   final List<UserProfile> players;
   final bool canEdit;
+  final Color accentColor;
+  final String sportKey;
   final int? maxPointsPerEntry;
   final bool isFootballAdvanced;
   final bool isBasketballAdvanced;
+  final bool isVolleyballAdvanced;
+  final bool isBadmintonAdvanced;
   final VoidCallback onAddPlayerToTeamA;
   final VoidCallback onAddPlayerToTeamB;
   final VoidCallback onRemoveMatch;
@@ -1168,9 +2316,13 @@ class _MatchCard extends StatelessWidget {
     required this.match,
     required this.players,
     required this.canEdit,
+    required this.accentColor,
+    required this.sportKey,
     required this.maxPointsPerEntry,
     required this.isFootballAdvanced,
     required this.isBasketballAdvanced,
+    required this.isVolleyballAdvanced,
+    required this.isBadmintonAdvanced,
     required this.onAddPlayerToTeamA,
     required this.onAddPlayerToTeamB,
     required this.onRemoveMatch,
@@ -1205,14 +2357,114 @@ class _MatchCard extends StatelessWidget {
       }
       for (final stat in ownTeam) {
         stat.footballResult = ownResult;
+        if (isBadmintonAdvanced) {
+          stat.pointsCtrl.text = ownResult == _FootballResult.win ? '1' : '0';
+        }
       }
       for (final stat in opposingTeam) {
         stat.footballResult = opposingResult;
+        if (isBadmintonAdvanced) {
+          stat.pointsCtrl.text = opposingResult == _FootballResult.win
+              ? '1'
+              : '0';
+        }
       }
       onAnyStatChanged();
     }
 
+    int teamTotalScore(List<_PlayerStatEntry> team) {
+      if (_isSetLikeSport(
+        isVolleyballAdvanced: isVolleyballAdvanced,
+        isBadmintonAdvanced: isBadmintonAdvanced,
+      )) {
+        return identical(team, match.teamA)
+            ? _savedUnitWins(match, forTeamA: true)
+            : _savedUnitWins(match, forTeamA: false);
+      }
+      return team.fold<int>(0, (sum, stat) {
+        return sum + (int.tryParse(stat.pointsCtrl.text.trim()) ?? 0);
+      });
+    }
+
+    _FootballResult teamResult(List<_PlayerStatEntry> team) {
+      if (team.isEmpty) {
+        return _FootballResult.draw;
+      }
+      return team.first.footballResult;
+    }
+
+    _FootballResult autoTeamResult({
+      required int ownTotal,
+      required int opponentTotal,
+    }) {
+      if (ownTotal > opponentTotal) {
+        return _FootballResult.win;
+      }
+      if (ownTotal < opponentTotal) {
+        return _FootballResult.loss;
+      }
+      return isFootballAdvanced || isVolleyballAdvanced
+          ? _FootballResult.draw
+          : _FootballResult.loss;
+    }
+
+    void syncTeamResultsFromTotals() {
+      if (_isSetLikeSport(
+        isVolleyballAdvanced: isVolleyballAdvanced,
+        isBadmintonAdvanced: isBadmintonAdvanced,
+      )) {
+        _syncResultsFromSavedSets(
+          match,
+          allowDraw: isVolleyballAdvanced,
+          syncPointField: isBadmintonAdvanced,
+        );
+        return;
+      }
+      final totalA = teamTotalScore(match.teamA);
+      final totalB = teamTotalScore(match.teamB);
+      final resultA = autoTeamResult(ownTotal: totalA, opponentTotal: totalB);
+      final resultB = autoTeamResult(ownTotal: totalB, opponentTotal: totalA);
+      for (final player in match.teamA) {
+        player.footballResult = resultA;
+      }
+      for (final player in match.teamB) {
+        player.footballResult = resultB;
+      }
+    }
+
+    void applyRacketFormat(bool singles) {
+      if (!isBadmintonAdvanced || match.isSingles == singles) {
+        return;
+      }
+      match.isSingles = singles;
+      final targetSize = singles ? 1 : 2;
+      while (match.teamA.length > targetSize) {
+        match.teamA.removeLast().dispose();
+      }
+      while (match.teamB.length > targetSize) {
+        match.teamB.removeLast().dispose();
+      }
+      while (match.teamA.length < targetSize) {
+        match.teamA.add(_PlayerStatEntry.create());
+      }
+      while (match.teamB.length < targetSize) {
+        match.teamB.add(_PlayerStatEntry.create());
+      }
+      onAnyStatChanged();
+    }
+
+    final accent = isFootballAdvanced
+        ? const Color(0xFF0F766E)
+        : (isBasketballAdvanced
+              ? const Color(0xFFC2410C)
+              : isBadmintonAdvanced
+              ? accentColor
+              : isVolleyballAdvanced
+              ? AppTheme.eventPurpleDeep
+              : const Color(0xFF6D28D9));
+
     if (match.isSingles) {
+      syncTeamResultsFromTotals();
       return _SinglesMatchCard(
         match: match,
         players: players,
@@ -1220,23 +2472,26 @@ class _MatchCard extends StatelessWidget {
         maxPointsPerEntry: maxPointsPerEntry,
         isFootballAdvanced: isFootballAdvanced,
         isBasketballAdvanced: isBasketballAdvanced,
+        isVolleyballAdvanced: isVolleyballAdvanced,
+        isBadmintonAdvanced: isBadmintonAdvanced,
+        accentColor: accent,
+        sportKey: sportKey,
         onRemoveMatch: onRemoveMatch,
         onAnyStatChanged: onAnyStatChanged,
         onTeamResultSelected: applyTeamResult,
+        onSwitchRacketFormat: isBadmintonAdvanced
+            ? (isSingles) => applyRacketFormat(isSingles)
+            : null,
       );
     }
 
+    syncTeamResultsFromTotals();
+
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: accent.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isFootballAdvanced
-              ? const Color(0xFF67C7A5)
-              : (isBasketballAdvanced
-                    ? const Color(0xFFF59E66)
-                    : const Color(0xFFCFB6F6)),
-        ),
+        border: Border.all(color: accent.withValues(alpha: 0.45)),
       ),
       child: Column(
         children: [
@@ -1246,28 +2501,19 @@ class _MatchCard extends StatelessWidget {
               children: [
                 Text(
                   'Match ${match.matchNumber}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    color: isFootballAdvanced
-                        ? const Color(0xFF0F766E)
-                        : (isBasketballAdvanced
-                              ? const Color(0xFFC2410C)
-                              : const Color(0xFF6D28D9)),
-                  ),
+                  style: TextStyle(fontWeight: FontWeight.w900, color: accent),
                 ),
                 const Spacer(),
-                Text(
-                  'Best of ${match.bestOf}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: isFootballAdvanced
-                        ? const Color(0xFF0F766E)
-                        : (isBasketballAdvanced
-                              ? const Color(0xFFC2410C)
-                              : const Color(0xFF8B5CF6)),
+                if (!isFootballAdvanced && !isBasketballAdvanced) ...[
+                  Text(
+                    'Best of ${match.bestOf}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: accent,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
+                  const SizedBox(width: 8),
+                ],
                 IconButton(
                   onPressed: canEdit ? onRemoveMatch : null,
                   icon: const Icon(Icons.delete_outline),
@@ -1275,38 +2521,130 @@ class _MatchCard extends StatelessWidget {
               ],
             ),
           ),
+          if (isBadmintonAdvanced) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              child: _RacketFormatToggle(
+                isSingles: match.isSingles,
+                enabled: canEdit,
+                onChanged: applyRacketFormat,
+              ),
+            ),
+          ],
+          if (_isSetLikeSport(
+            isVolleyballAdvanced: isVolleyballAdvanced,
+            isBadmintonAdvanced: isBadmintonAdvanced,
+          )) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              child: _ProgressiveSetPanel(
+                match: match,
+                canEdit: canEdit,
+                accent: accent,
+                sportKey: sportKey,
+                isVolleyballAdvanced: isVolleyballAdvanced,
+                teamALabel: 'Team A',
+                teamBLabel: 'Team B',
+                onChanged: onAnyStatChanged,
+              ),
+            ),
+          ],
           const Divider(height: 1),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
             child: Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: match.teamANameCtrl,
-                    readOnly: !canEdit,
-                    decoration: const InputDecoration(
-                      labelText: 'Team A name',
-                      isDense: true,
+                  child: Text(
+                    'Team A',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: accent,
                     ),
                   ),
                 ),
                 const SizedBox(width: 10),
-                const Text(
-                  'vs',
+                const Text('vs', style: TextStyle(fontWeight: FontWeight.w900)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Team B',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: accent,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    children: [
+                      Text(
+                        'Team A',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          color: accent,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${teamTotalScore(match.teamA)}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 30,
+                          color: accent,
+                          height: 1.0,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _SmallResultBadge(result: teamResult(match.teamA)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  '-',
                   style: TextStyle(
                     fontWeight: FontWeight.w900,
-                    color: Color(0xFF8B5CF6),
+                    fontSize: 26,
+                    color: accent.withValues(alpha: 0.55),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: TextField(
-                    controller: match.teamBNameCtrl,
-                    readOnly: !canEdit,
-                    decoration: const InputDecoration(
-                      labelText: 'Team B name',
-                      isDense: true,
-                    ),
+                  child: Column(
+                    children: [
+                      Text(
+                        'Team B',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          color: accent,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${teamTotalScore(match.teamB)}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 30,
+                          color: accent,
+                          height: 1.0,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _SmallResultBadge(result: teamResult(match.teamB)),
+                    ],
                   ),
                 ),
               ],
@@ -1319,9 +2657,17 @@ class _MatchCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  match.teamANameCtrl.text.trim().isNotEmpty
-                      ? match.teamANameCtrl.text.trim()
-                      : 'Team A',
+                  'PLAYERS — RESULT + STATS',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11,
+                    letterSpacing: 0.6,
+                    color: accent.withValues(alpha: 0.85),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Team A',
                   style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 8),
@@ -1330,33 +2676,41 @@ class _MatchCard extends StatelessWidget {
                     entry: match.teamA[i],
                     players: players,
                     canEdit: canEdit,
+                    accentColor: accent,
+                    sportKey: sportKey,
                     maxPointsPerEntry: maxPointsPerEntry,
                     isFootballAdvanced: isFootballAdvanced,
                     isBasketballAdvanced: isBasketballAdvanced,
+                    isVolleyballAdvanced: isVolleyballAdvanced,
+                    isBadmintonAdvanced: isBadmintonAdvanced,
+                    showResultSelector: isBadmintonAdvanced,
                     onChanged: onAnyStatChanged,
-                    onResultChanged: (result) =>
-                        applyTeamResult(isFromTeamA: true, selected: result),
+                    onResultChanged: isBadmintonAdvanced
+                        ? (result) => applyTeamResult(
+                            isFromTeamA: true,
+                            selected: result,
+                          )
+                        : null,
                     onRemove: canEdit && match.teamA.length > 1
                         ? () => onRemoveTeamAPlayer(i)
                         : null,
                   ),
                   const SizedBox(height: 8),
                 ],
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    onPressed: canEdit ? onAddPlayerToTeamA : null,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add player'),
+                if (!isBadmintonAdvanced)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: canEdit ? onAddPlayerToTeamA : null,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add player'),
+                    ),
                   ),
-                ),
                 const SizedBox(height: 6),
                 const Divider(height: 1),
                 const SizedBox(height: 10),
                 Text(
-                  match.teamBNameCtrl.text.trim().isNotEmpty
-                      ? match.teamBNameCtrl.text.trim()
-                      : 'Team B',
+                  'Team B',
                   style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 8),
@@ -1365,26 +2719,36 @@ class _MatchCard extends StatelessWidget {
                     entry: match.teamB[i],
                     players: players,
                     canEdit: canEdit,
+                    accentColor: accent,
+                    sportKey: sportKey,
                     maxPointsPerEntry: maxPointsPerEntry,
                     isFootballAdvanced: isFootballAdvanced,
                     isBasketballAdvanced: isBasketballAdvanced,
+                    isVolleyballAdvanced: isVolleyballAdvanced,
+                    isBadmintonAdvanced: isBadmintonAdvanced,
+                    showResultSelector: isBadmintonAdvanced,
                     onChanged: onAnyStatChanged,
-                    onResultChanged: (result) =>
-                        applyTeamResult(isFromTeamA: false, selected: result),
+                    onResultChanged: isBadmintonAdvanced
+                        ? (result) => applyTeamResult(
+                            isFromTeamA: false,
+                            selected: result,
+                          )
+                        : null,
                     onRemove: canEdit && match.teamB.length > 1
                         ? () => onRemoveTeamBPlayer(i)
                         : null,
                   ),
                   const SizedBox(height: 8),
                 ],
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    onPressed: canEdit ? onAddPlayerToTeamB : null,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add player'),
+                if (!isBadmintonAdvanced)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: canEdit ? onAddPlayerToTeamB : null,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add player'),
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -1398,9 +2762,13 @@ class _SinglesMatchCard extends StatelessWidget {
   final _MatchEntry match;
   final List<UserProfile> players;
   final bool canEdit;
+  final String sportKey;
   final int? maxPointsPerEntry;
   final bool isFootballAdvanced;
   final bool isBasketballAdvanced;
+  final bool isVolleyballAdvanced;
+  final bool isBadmintonAdvanced;
+  final Color accentColor;
   final VoidCallback onRemoveMatch;
   final VoidCallback onAnyStatChanged;
   final void Function({
@@ -1408,35 +2776,56 @@ class _SinglesMatchCard extends StatelessWidget {
     required _FootballResult selected,
   })
   onTeamResultSelected;
+  final ValueChanged<bool>? onSwitchRacketFormat;
 
   const _SinglesMatchCard({
     required this.match,
     required this.players,
     required this.canEdit,
+    required this.sportKey,
     required this.maxPointsPerEntry,
     required this.isFootballAdvanced,
     required this.isBasketballAdvanced,
+    required this.isVolleyballAdvanced,
+    required this.isBadmintonAdvanced,
+    required this.accentColor,
     required this.onRemoveMatch,
     required this.onAnyStatChanged,
     required this.onTeamResultSelected,
+    this.onSwitchRacketFormat,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isSetLike = _isSetLikeSport(
+      isVolleyballAdvanced: isVolleyballAdvanced,
+      isBadmintonAdvanced: isBadmintonAdvanced,
+    );
     final playerA = match.teamA.first;
     final playerB = match.teamB.first;
+    final accent = isFootballAdvanced
+        ? const Color(0xFF0F766E)
+        : isBasketballAdvanced
+        ? const Color(0xFFC2410C)
+        : isBadmintonAdvanced
+        ? accentColor
+        : isVolleyballAdvanced
+        ? AppTheme.eventPurpleDeep
+        : const Color(0xFF6D28D9);
+
+    if (isSetLike) {
+      _syncResultsFromSavedSets(
+        match,
+        allowDraw: isVolleyballAdvanced,
+        syncPointField: isBadmintonAdvanced,
+      );
+    }
 
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isFootballAdvanced
-              ? const Color(0xFF67C7A5)
-              : (isBasketballAdvanced
-                    ? const Color(0xFFF59E66)
-                    : const Color(0xFFCFB6F6)),
-        ),
+        border: Border.all(color: accent.withValues(alpha: 0.45)),
       ),
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
       child: Column(
@@ -1444,41 +2833,59 @@ class _SinglesMatchCard extends StatelessWidget {
           Row(
             children: [
               Text(
-                'Match ${match.matchNumber} - 1v1',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                  color: isFootballAdvanced
-                      ? const Color(0xFF0F766E)
-                      : (isBasketballAdvanced
-                            ? const Color(0xFFC2410C)
-                            : const Color(0xFF6D28D9)),
-                ),
+                'Match ${match.matchNumber}',
+                style: TextStyle(fontWeight: FontWeight.w900, color: accent),
               ),
               const Spacer(),
-              Text(
-                'Best of ${match.bestOf}',
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: isFootballAdvanced
-                      ? const Color(0xFF0F766E)
-                      : (isBasketballAdvanced
-                            ? const Color(0xFFC2410C)
-                            : const Color(0xFF8B5CF6)),
+              if (!isFootballAdvanced && !isBasketballAdvanced)
+                Text(
+                  'Best of ${match.bestOf}',
+                  style: TextStyle(fontWeight: FontWeight.w700, color: accent),
                 ),
-              ),
               IconButton(
                 onPressed: canEdit ? onRemoveMatch : null,
                 icon: const Icon(Icons.delete_outline),
               ),
             ],
           ),
+          if (isBadmintonAdvanced) ...[
+            const SizedBox(height: 6),
+            _RacketFormatToggle(
+              isSingles: match.isSingles,
+              enabled: canEdit && onSwitchRacketFormat != null,
+              onChanged: (selected) => onSwitchRacketFormat!(selected),
+            ),
+          ],
+          if (isSetLike) ...[
+            const SizedBox(height: 6),
+            _ProgressiveSetPanel(
+              match: match,
+              canEdit: canEdit,
+              accent: accent,
+              sportKey: sportKey,
+              isVolleyballAdvanced: isVolleyballAdvanced,
+              teamALabel: playerA.nameCtrl.text.trim().isEmpty
+                  ? 'Player A'
+                  : playerA.nameCtrl.text.trim(),
+              teamBLabel: playerB.nameCtrl.text.trim().isEmpty
+                  ? 'Player B'
+                  : playerB.nameCtrl.text.trim(),
+              onChanged: onAnyStatChanged,
+            ),
+            const SizedBox(height: 10),
+          ],
           _PlayerStatRow(
             entry: playerA,
             players: players,
             canEdit: canEdit,
+            accentColor: accent,
+            sportKey: sportKey,
             maxPointsPerEntry: maxPointsPerEntry,
             isFootballAdvanced: isFootballAdvanced,
             isBasketballAdvanced: isBasketballAdvanced,
+            isVolleyballAdvanced: isVolleyballAdvanced,
+            isBadmintonAdvanced: isBadmintonAdvanced,
+            showResultSelector: !isSetLike,
             onChanged: onAnyStatChanged,
             onResultChanged: (result) =>
                 onTeamResultSelected(isFromTeamA: true, selected: result),
@@ -1497,9 +2904,14 @@ class _SinglesMatchCard extends StatelessWidget {
             entry: playerB,
             players: players,
             canEdit: canEdit,
+            accentColor: accent,
+            sportKey: sportKey,
             maxPointsPerEntry: maxPointsPerEntry,
             isFootballAdvanced: isFootballAdvanced,
             isBasketballAdvanced: isBasketballAdvanced,
+            isVolleyballAdvanced: isVolleyballAdvanced,
+            isBadmintonAdvanced: isBadmintonAdvanced,
+            showResultSelector: !isSetLike,
             onChanged: onAnyStatChanged,
             onResultChanged: (result) =>
                 onTeamResultSelected(isFromTeamA: false, selected: result),
@@ -1517,9 +2929,14 @@ class _PlayerStatRow extends StatelessWidget {
   final _PlayerStatEntry entry;
   final List<UserProfile> players;
   final bool canEdit;
+  final Color accentColor;
+  final String sportKey;
   final int? maxPointsPerEntry;
   final bool isFootballAdvanced;
   final bool isBasketballAdvanced;
+  final bool isVolleyballAdvanced;
+  final bool isBadmintonAdvanced;
+  final bool showResultSelector;
   final VoidCallback? onChanged;
   final ValueChanged<_FootballResult>? onResultChanged;
   final String? playerLabel;
@@ -1529,9 +2946,14 @@ class _PlayerStatRow extends StatelessWidget {
     required this.entry,
     required this.players,
     required this.canEdit,
+    required this.accentColor,
+    required this.sportKey,
     required this.maxPointsPerEntry,
     required this.isFootballAdvanced,
     required this.isBasketballAdvanced,
+    required this.isVolleyballAdvanced,
+    required this.isBadmintonAdvanced,
+    this.showResultSelector = true,
     this.onChanged,
     this.onResultChanged,
     this.playerLabel,
@@ -1540,13 +2962,78 @@ class _PlayerStatRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = isFootballAdvanced
+        ? const Color(0xFF0F766E)
+        : isBasketballAdvanced
+        ? const Color(0xFFC2410C)
+        : isBadmintonAdvanced
+        ? accentColor
+        : isVolleyballAdvanced
+        ? AppTheme.eventPurpleDeep
+        : const Color(0xFF6D28D9);
     final dropdownValue = entry.selectedUserId ?? _manualUserValue;
     final selectedResult =
         (!isFootballAdvanced &&
-            isBasketballAdvanced &&
+            !isVolleyballAdvanced &&
+            (isBasketballAdvanced || isBadmintonAdvanced) &&
             entry.footballResult == _FootballResult.draw)
         ? _FootballResult.loss
         : entry.footballResult;
+    final lossStreak = int.tryParse(entry.lossStreakCtrl.text.trim()) ?? 0;
+    final isTennis =
+        sportKey.contains('tennis') &&
+        !sportKey.contains('table tennis') &&
+        !sportKey.contains('ping pong');
+    final isTableTennis =
+        sportKey.contains('table tennis') || sportKey.contains('ping pong');
+    final primaryWinLabel = isTennis ? 'SETS W' : 'GAMES W';
+    final pointsWonLabel = isTennis ? 'GAMES W' : 'PTS WON';
+    final acesLabel = isTableTennis ? 'SERVE W' : 'ACES';
+    final currentLossStreak =
+        int.tryParse(entry.lossStreakCtrl.text.trim()) ?? 0;
+    final currentWinStreak = entry.winStreak;
+    var awardPreview = 0;
+    if (isVolleyballAdvanced) {
+      awardPreview = switch (selectedResult) {
+        _FootballResult.win => 3,
+        _FootballResult.draw => 1,
+        _FootballResult.loss => 0,
+      };
+      if (lossStreak >= 3) {
+        awardPreview -= 1;
+      }
+      if (entry.isMvp) {
+        awardPreview += 1;
+      }
+    } else if (isFootballAdvanced ||
+        isBasketballAdvanced ||
+        isBadmintonAdvanced) {
+      awardPreview = switch (selectedResult) {
+        _FootballResult.win => 3,
+        _FootballResult.draw => isFootballAdvanced ? 1 : 0,
+        _FootballResult.loss => 0,
+      };
+      if (isBadmintonAdvanced) {
+        if (lossStreak >= 7) {
+          awardPreview -= 3;
+        } else if (lossStreak >= 5) {
+          awardPreview -= 2;
+        } else if (lossStreak >= 3) {
+          awardPreview -= 1;
+        }
+      } else {
+        if (lossStreak >= 7) {
+          awardPreview -= 3;
+        } else if (lossStreak >= 5) {
+          awardPreview -= 2;
+        } else if (lossStreak >= 3) {
+          awardPreview -= 1;
+        }
+      }
+      if (entry.isMvp) {
+        awardPreview += 1;
+      }
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1597,15 +3084,17 @@ class _PlayerStatRow extends StatelessWidget {
             ),
             if (playerLabel != null) ...[
               const SizedBox(width: 8),
-              SizedBox(
-                width: 24,
+              Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(999),
+                ),
                 child: Text(
                   playerLabel!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.black.withValues(alpha: 0.62),
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: TextStyle(color: accent, fontWeight: FontWeight.w900),
                 ),
               ),
             ],
@@ -1621,113 +3110,70 @@ class _PlayerStatRow extends StatelessWidget {
                 ),
               ),
             ),
-            if (isFootballAdvanced) ...[
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 58,
-                child: TextField(
-                  controller: entry.pointsCtrl,
-                  readOnly: !canEdit,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(4),
-                  ],
-                  onChanged: (_) {
-                    _clampScoreController(
-                      entry.pointsCtrl,
-                      max: maxPointsPerEntry,
-                    );
-                    onChanged?.call();
-                  },
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    labelText: 'Pts',
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 58,
-                child: TextField(
-                  controller: entry.assistsCtrl,
-                  readOnly: !canEdit,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(3),
-                  ],
-                  onChanged: (_) {
-                    _clampScoreController(entry.assistsCtrl, max: 200);
-                    onChanged?.call();
-                  },
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    labelText: 'Ast',
-                  ),
-                ),
-              ),
-            ],
             if (onRemove != null) ...[
               const SizedBox(width: 4),
               IconButton(onPressed: onRemove, icon: const Icon(Icons.close)),
             ],
           ],
         ),
-        if (isFootballAdvanced || isBasketballAdvanced) ...[
+        if (isFootballAdvanced ||
+            isBasketballAdvanced ||
+            isVolleyballAdvanced ||
+            isBadmintonAdvanced) ...[
           const SizedBox(height: 8),
           Row(
             children: [
-              if (isFootballAdvanced) ...[
-                SizedBox(
-                  width: 82,
-                  child: TextField(
-                    controller: entry.lossStreakCtrl,
-                    readOnly: !canEdit,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(2),
-                    ],
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      labelText: 'L-Stk',
-                    ),
-                    onChanged: (_) => onChanged?.call(),
+              if (isFootballAdvanced ||
+                  isBasketballAdvanced ||
+                  isVolleyballAdvanced ||
+                  isBadmintonAdvanced) ...[
+                if (currentWinStreak > 0) ...[
+                  _StreakBadge(
+                    label: '$currentWinStreak W-streak',
+                    bg: const Color(0xFFDCFCE7),
+                    fg: const Color(0xFF166534),
                   ),
+                  const SizedBox(width: 8),
+                ] else if (currentLossStreak > 0) ...[
+                  _StreakBadge(
+                    label: '$currentLossStreak L-streak',
+                    bg: const Color(0xFFFEE2E2),
+                    fg: const Color(0xFF991B1B),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+              ],
+              if (showResultSelector) ...[
+                _ResultSelector(
+                  selected: selectedResult,
+                  showDraw: isFootballAdvanced || isVolleyballAdvanced,
+                  enabled: canEdit,
+                  onSelected: (value) {
+                    if (onResultChanged != null) {
+                      onResultChanged!(value);
+                    } else {
+                      entry.footballResult = value;
+                      if (isBadmintonAdvanced) {
+                        entry.pointsCtrl.text = value == _FootballResult.win
+                            ? '1'
+                            : '0';
+                      }
+                      onChanged?.call();
+                    }
+                  },
                 ),
                 const SizedBox(width: 8),
               ],
-              if (isBasketballAdvanced) ...[
-                FilterChip(
-                  selected: entry.hasFiveLossStreak,
-                  label: const Text('5-loss streak'),
-                  onSelected: canEdit
-                      ? (selected) {
-                          entry.hasFiveLossStreak = selected;
-                          onChanged?.call();
-                        }
-                      : null,
-                ),
-                const SizedBox(width: 10),
-              ],
-              _ResultSelector(
-                selected: selectedResult,
-                showDraw: isFootballAdvanced,
-                enabled: canEdit,
-                onSelected: (value) {
-                  if (onResultChanged != null) {
-                    onResultChanged!(value);
-                  } else {
-                    entry.footballResult = value;
-                    onChanged?.call();
-                  }
-                },
-              ),
-              const SizedBox(width: 8),
               FilterChip(
                 selected: entry.isMvp,
                 label: const Text('MVP'),
+                selectedColor: const Color(0xFFFFF3C4),
+                checkmarkColor: const Color(0xFFD97706),
+                side: BorderSide(
+                  color: entry.isMvp
+                      ? const Color(0xFFF59E0B)
+                      : const Color(0xFFE5E7EB),
+                ),
                 onSelected: canEdit
                     ? (selected) {
                         entry.isMvp = selected;
@@ -1735,61 +3181,218 @@ class _PlayerStatRow extends StatelessWidget {
                       }
                     : null,
               ),
+              if (isFootballAdvanced ||
+                  isBasketballAdvanced ||
+                  isVolleyballAdvanced ||
+                  isBadmintonAdvanced) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: awardPreview >= 0
+                        ? const Color(0xFFDCFCE7)
+                        : const Color(0xFFFEE2E2),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    awardPreview > 0
+                        ? '+$awardPreview'
+                        : awardPreview.toString(),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: awardPreview >= 0
+                          ? const Color(0xFF15803D)
+                          : const Color(0xFFB91C1C),
+                    ),
+                  ),
+                ),
+              ],
               const Spacer(),
             ],
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              _BasketballStatField(
-                label: 'PTS',
-                controller: entry.pointsCtrl,
-                canEdit: canEdit,
-                max: maxPointsPerEntry,
-                onChanged: onChanged,
-              ),
-              const SizedBox(width: 6),
-              _BasketballStatField(
-                label: 'AST',
-                controller: entry.assistsCtrl,
-                canEdit: canEdit,
-                max: 200,
-                onChanged: onChanged,
-              ),
-              const SizedBox(width: 6),
-              _BasketballStatField(
-                label: 'REB',
-                controller: entry.reboundsCtrl,
-                canEdit: canEdit,
-                max: 200,
-                onChanged: onChanged,
-              ),
-              const SizedBox(width: 6),
-              _BasketballStatField(
-                label: 'STL',
-                controller: entry.stealsCtrl,
-                canEdit: canEdit,
-                max: 200,
-                onChanged: onChanged,
-              ),
-              const SizedBox(width: 6),
-              _BasketballStatField(
-                label: 'BLK',
-                controller: entry.blocksCtrl,
-                canEdit: canEdit,
-                max: 200,
-                onChanged: onChanged,
-              ),
-              const SizedBox(width: 6),
-              _BasketballStatField(
-                label: 'TO',
-                controller: entry.turnoversCtrl,
-                canEdit: canEdit,
-                max: 200,
-                onChanged: onChanged,
-              ),
-            ],
-          ),
+          if (isVolleyballAdvanced)
+            Row(
+              children: [
+                _BasketballStatField(
+                  label: 'PTS',
+                  controller: entry.pointsCtrl,
+                  canEdit: canEdit,
+                  max: maxPointsPerEntry,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+                const SizedBox(width: 6),
+                _BasketballStatField(
+                  label: 'AST',
+                  controller: entry.assistsCtrl,
+                  canEdit: canEdit,
+                  max: 200,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+                const SizedBox(width: 6),
+                _BasketballStatField(
+                  label: 'BLK',
+                  controller: entry.blocksCtrl,
+                  canEdit: canEdit,
+                  max: 200,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+                const SizedBox(width: 6),
+                // Volleyball: store digs in reboundsCtrl (same entry as REB in basketball).
+                _BasketballStatField(
+                  label: 'DIG',
+                  controller: entry.reboundsCtrl,
+                  canEdit: canEdit,
+                  max: 200,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+              ],
+            )
+          else if (isFootballAdvanced)
+            Row(
+              children: [
+                _BasketballStatField(
+                  label: 'G',
+                  controller: entry.pointsCtrl,
+                  canEdit: canEdit,
+                  max: maxPointsPerEntry,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+                const SizedBox(width: 6),
+                _BasketballStatField(
+                  label: 'AST',
+                  controller: entry.assistsCtrl,
+                  canEdit: canEdit,
+                  max: 200,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+                const SizedBox(width: 6),
+                _BasketballStatField(
+                  label: 'PASS',
+                  controller: entry.reboundsCtrl,
+                  canEdit: canEdit,
+                  max: 200,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+                const SizedBox(width: 6),
+                _BasketballStatField(
+                  label: 'TKL',
+                  controller: entry.stealsCtrl,
+                  canEdit: canEdit,
+                  max: 200,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+                const SizedBox(width: 6),
+                _BasketballStatField(
+                  label: 'SAV',
+                  controller: entry.blocksCtrl,
+                  canEdit: canEdit,
+                  max: 200,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+              ],
+            )
+          else if (isBadmintonAdvanced)
+            Row(
+              children: [
+                _BasketballStatField(
+                  label: primaryWinLabel,
+                  controller: entry.pointsCtrl,
+                  canEdit: canEdit,
+                  max: 1,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+                const SizedBox(width: 6),
+                _BasketballStatField(
+                  label: pointsWonLabel,
+                  controller: entry.badmintonPointsCtrl,
+                  canEdit: canEdit,
+                  max: 200,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+                const SizedBox(width: 6),
+                _BasketballStatField(
+                  label: acesLabel,
+                  controller: entry.badmintonAceCtrl,
+                  canEdit: canEdit,
+                  max: 200,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+              ],
+            )
+          else
+            Row(
+              children: [
+                _BasketballStatField(
+                  label: 'PTS',
+                  controller: entry.pointsCtrl,
+                  canEdit: canEdit,
+                  max: maxPointsPerEntry,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+                const SizedBox(width: 6),
+                _BasketballStatField(
+                  label: 'AST',
+                  controller: entry.assistsCtrl,
+                  canEdit: canEdit,
+                  max: 200,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+                const SizedBox(width: 6),
+                _BasketballStatField(
+                  label: 'REB',
+                  controller: entry.reboundsCtrl,
+                  canEdit: canEdit,
+                  max: 200,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+                const SizedBox(width: 6),
+                _BasketballStatField(
+                  label: 'STL',
+                  controller: entry.stealsCtrl,
+                  canEdit: canEdit,
+                  max: 200,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+                const SizedBox(width: 6),
+                _BasketballStatField(
+                  label: 'BLK',
+                  controller: entry.blocksCtrl,
+                  canEdit: canEdit,
+                  max: 200,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+                const SizedBox(width: 6),
+                _BasketballStatField(
+                  label: 'TO',
+                  controller: entry.turnoversCtrl,
+                  canEdit: canEdit,
+                  max: 200,
+                  accent: accent,
+                  onChanged: onChanged,
+                ),
+              ],
+            ),
         ],
       ],
     );
@@ -1801,6 +3404,7 @@ class _BasketballStatField extends StatelessWidget {
   final TextEditingController controller;
   final bool canEdit;
   final int? max;
+  final Color accent;
   final VoidCallback? onChanged;
 
   const _BasketballStatField({
@@ -1808,6 +3412,7 @@ class _BasketballStatField extends StatelessWidget {
     required this.controller,
     required this.canEdit,
     required this.max,
+    required this.accent,
     this.onChanged,
   });
 
@@ -1838,7 +3443,23 @@ class _BasketballStatField extends StatelessWidget {
               _clampScoreController(controller, max: max);
               onChanged?.call();
             },
-            decoration: const InputDecoration(isDense: true),
+            decoration: InputDecoration(
+              isDense: true,
+              filled: true,
+              fillColor: accent.withValues(alpha: 0.05),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 10,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: accent.withValues(alpha: 0.45)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: accent, width: 1.4),
+              ),
+            ),
           ),
         ],
       ),
@@ -1901,6 +3522,69 @@ class _ResultSelector extends StatelessWidget {
   }
 }
 
+class _SmallResultBadge extends StatelessWidget {
+  final _FootballResult result;
+
+  const _SmallResultBadge({required this.result});
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, bg, fg) = switch (result) {
+      _FootballResult.win => (
+        'W',
+        const Color(0xFFDCFCE7),
+        const Color(0xFF15803D),
+      ),
+      _FootballResult.draw => (
+        'D',
+        const Color(0xFFFFF3C4),
+        const Color(0xFFD97706),
+      ),
+      _FootballResult.loss => (
+        'L',
+        const Color(0xFFFEE2E2),
+        const Color(0xFFB91C1C),
+      ),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: fg.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(color: fg, fontWeight: FontWeight.w900, fontSize: 12),
+      ),
+    );
+  }
+}
+
+class _StreakBadge extends StatelessWidget {
+  final String label;
+  final Color bg;
+  final Color fg;
+
+  const _StreakBadge({required this.label, required this.bg, required this.fg});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: fg.withValues(alpha: 0.22)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 11),
+      ),
+    );
+  }
+}
+
 class _ResultPill extends StatelessWidget {
   final String label;
   final bool isSelected;
@@ -1928,12 +3612,15 @@ class _ResultPill extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        width: 34,
+        width: 36,
         height: 34,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? bg : fg.withValues(alpha: 0.45),
+          ),
         ),
         child: Text(
           label,
@@ -2166,6 +3853,8 @@ class _SportScoringRules {
   final int? maxPointsPerEntry;
   final bool isFootballAdvanced;
   final bool isBasketballAdvanced;
+  final bool isVolleyballAdvanced;
+  final bool isBadmintonAdvanced;
   final bool showPointsSystemCard;
   final String pointsSystemTitle;
   final List<String> pointsSystemLines;
@@ -2176,6 +3865,8 @@ class _SportScoringRules {
     required this.maxPointsPerEntry,
     this.isFootballAdvanced = false,
     this.isBasketballAdvanced = false,
+    this.isVolleyballAdvanced = false,
+    this.isBadmintonAdvanced = false,
     this.showPointsSystemCard = false,
     this.pointsSystemTitle = 'Points system',
     this.pointsSystemLines = const <String>[],
@@ -2196,6 +3887,8 @@ _SportScoringRules _rulesForSport(String rawSport) {
       maxPointsPerEntry: null,
       isFootballAdvanced: false,
       isBasketballAdvanced: false,
+      isVolleyballAdvanced: false,
+      isBadmintonAdvanced: false,
       showPointsSystemCard: false,
       skillFromPoints: _defaultSkillByPoints,
     );
@@ -2204,10 +3897,22 @@ _SportScoringRules _rulesForSport(String rawSport) {
   if (sport.contains('volley')) {
     return const _SportScoringRules(
       disableScoring: false,
-      maxPointsPerEntry: 25,
+      maxPointsPerEntry: null,
       isFootballAdvanced: false,
       isBasketballAdvanced: false,
-      showPointsSystemCard: false,
+      isVolleyballAdvanced: true,
+      isBadmintonAdvanced: false,
+      showPointsSystemCard: true,
+      pointsSystemTitle: 'Volleyball points system',
+      pointsSystemLines: <String>[
+        'Set target: 25 pts',
+        'Win by 2 required (deuce can go beyond 25)',
+        'Win: +3 pts',
+        'Draw: +1 pt',
+        'Loss: 0 pt',
+        '3-loss streak: -1 pt',
+        'MVP bonus: +1 pt',
+      ],
       skillFromPoints: _volleyballSkillByPoints,
     );
   }
@@ -2215,10 +3920,20 @@ _SportScoringRules _rulesForSport(String rawSport) {
   if (sport.contains('badminton')) {
     return const _SportScoringRules(
       disableScoring: false,
-      maxPointsPerEntry: 21,
+      maxPointsPerEntry: null,
       isFootballAdvanced: false,
       isBasketballAdvanced: false,
-      showPointsSystemCard: false,
+      isVolleyballAdvanced: false,
+      isBadmintonAdvanced: true,
+      showPointsSystemCard: true,
+      pointsSystemTitle: 'Badminton points system',
+      pointsSystemLines: <String>[
+        'Rally point to 21, win by 2',
+        'Win match: +3 pts',
+        'Lose match: 0 pts',
+        '3/5/7-loss streak: -1/-2/-3',
+        'MVP bonus: +1 pt (no draw)',
+      ],
       skillFromPoints: _badmintonSkillByPoints,
     );
   }
@@ -2226,10 +3941,20 @@ _SportScoringRules _rulesForSport(String rawSport) {
   if (sport.contains('table tennis') || sport.contains('ping pong')) {
     return const _SportScoringRules(
       disableScoring: false,
-      maxPointsPerEntry: 11,
+      maxPointsPerEntry: null,
       isFootballAdvanced: false,
       isBasketballAdvanced: false,
-      showPointsSystemCard: false,
+      isVolleyballAdvanced: false,
+      isBadmintonAdvanced: true,
+      showPointsSystemCard: true,
+      pointsSystemTitle: 'Table Tennis points system',
+      pointsSystemLines: <String>[
+        'Rally point to 11, win by 2',
+        'Win match: +3 pts',
+        'Lose match: 0 pts',
+        '3/5/7-loss streak: -1/-2/-3',
+        'MVP bonus: +1 pt (no draw)',
+      ],
       skillFromPoints: _tableTennisSkillByPoints,
     );
   }
@@ -2240,12 +3965,13 @@ _SportScoringRules _rulesForSport(String rawSport) {
       maxPointsPerEntry: 999,
       isFootballAdvanced: false,
       isBasketballAdvanced: true,
+      isVolleyballAdvanced: false,
+      isBadmintonAdvanced: false,
       showPointsSystemCard: true,
       pointsSystemTitle: 'Basketball points system',
       pointsSystemLines: <String>[
         'Win: +3 pts',
         'Loss: 0 pt',
-        '5-loss streak: -2 pts',
         'MVP bonus: +1 pt',
       ],
       skillFromPoints: _basketballSkillByPoints,
@@ -2260,13 +3986,15 @@ _SportScoringRules _rulesForSport(String rawSport) {
       maxPointsPerEntry: 99,
       isFootballAdvanced: true,
       isBasketballAdvanced: false,
+      isVolleyballAdvanced: false,
+      isBadmintonAdvanced: false,
       showPointsSystemCard: true,
       pointsSystemTitle: 'Football points system',
       pointsSystemLines: <String>[
         'Win: +3 pts',
         'Draw: +1 pt',
         'Loss: 0 pt',
-        'Losing streak penalties: 3L=-1, 5L=-2, 7L=-3 (milestone-based)',
+        'Losing streak penalties: 3L=-1, 5L=-2, 7L=-3',
         'MVP bonus: +1 pt',
       ],
       skillFromPoints: _footballSkillByPoints,
@@ -2279,7 +4007,17 @@ _SportScoringRules _rulesForSport(String rawSport) {
       maxPointsPerEntry: null,
       isFootballAdvanced: false,
       isBasketballAdvanced: false,
-      showPointsSystemCard: false,
+      isVolleyballAdvanced: false,
+      isBadmintonAdvanced: true,
+      showPointsSystemCard: true,
+      pointsSystemTitle: 'Pickleball points system',
+      pointsSystemLines: <String>[
+        'Rally point to 11, win by 2',
+        'Win match: +3 pts',
+        'Lose match: 0 pts',
+        '3/5/7-loss streak: -1/-2/-3',
+        'MVP bonus: +1 pt (no draw)',
+      ],
       skillFromPoints: _defaultSkillByPoints,
     );
   }
@@ -2290,7 +4028,18 @@ _SportScoringRules _rulesForSport(String rawSport) {
       maxPointsPerEntry: null,
       isFootballAdvanced: false,
       isBasketballAdvanced: false,
-      showPointsSystemCard: false,
+      isVolleyballAdvanced: false,
+      isBadmintonAdvanced: true,
+      showPointsSystemCard: true,
+      pointsSystemTitle: 'Tennis points system',
+      pointsSystemLines: <String>[
+        'Best of 3 sets, 6 games per set',
+        'Win by 2 games, tiebreak at 6-6',
+        'Win match: +3 pts',
+        'Lose match: 0 pts',
+        '3/5/7-loss streak: -1/-2/-3',
+        'MVP bonus: +1 pt (no draw)',
+      ],
       skillFromPoints: _defaultSkillByPoints,
     );
   }
@@ -2300,6 +4049,8 @@ _SportScoringRules _rulesForSport(String rawSport) {
     maxPointsPerEntry: 200,
     isFootballAdvanced: false,
     isBasketballAdvanced: false,
+    isVolleyballAdvanced: false,
+    isBadmintonAdvanced: false,
     showPointsSystemCard: false,
     skillFromPoints: _defaultSkillByPoints,
   );

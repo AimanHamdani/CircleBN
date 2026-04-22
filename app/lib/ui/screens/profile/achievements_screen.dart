@@ -22,6 +22,58 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
   bool _selectedLoaded = false;
   bool _checkedNewUnlocks = false;
 
+  Map<String, String?> _buildPrerequisiteMap(List<BadgeProgress> allBadges) {
+    final byCategory = <BadgeCategory, List<BadgeProgress>>{};
+    for (final badge in allBadges) {
+      byCategory.putIfAbsent(badge.badge.category, () => <BadgeProgress>[]);
+      byCategory[badge.badge.category]!.add(badge);
+    }
+    final prerequisiteById = <String, String?>{};
+    for (final entry in byCategory.entries) {
+      final list = entry.value
+        ..sort((a, b) {
+          final targetCompare = a.badge.target.compareTo(b.badge.target);
+          if (targetCompare != 0) {
+            return targetCompare;
+          }
+          return a.badge.id.compareTo(b.badge.id);
+        });
+      for (var i = 0; i < list.length; i++) {
+        prerequisiteById[list[i].badge.id] = i == 0 ? null : list[i - 1].badge.id;
+      }
+    }
+    return prerequisiteById;
+  }
+
+  int _badgePoints(String badgeId) {
+    switch (badgeId) {
+      case 'events_joined_1':
+        return 50;
+      case 'events_created_1':
+        return 75;
+      case 'clubs_created_1':
+      case 'clubs_joined_3':
+        return 100;
+      case 'streak_7':
+      case 'events_joined_5':
+        return 150;
+      case 'events_created_5':
+        return 200;
+      case 'events_joined_15':
+        return 300;
+      case 'streak_14':
+        return 350;
+      case 'events_created_10':
+        return 500;
+      case 'events_joined_30':
+        return 600;
+      case 'streak_30':
+        return 750;
+      default:
+        return 0;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -214,7 +266,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     const headerTop = Color(0xFF3E3DA8);
     const headerBottom = Color(0xFF5D5AE8);
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         backgroundColor: const Color(0xFFEDEFF4),
         body: FutureBuilder<AchievementSnapshot>(
@@ -222,13 +274,34 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
           initialData: _cachedSnapshot,
           builder: (context, snapshot) {
             final data = snapshot.data;
-            final unlocked = data?.unlockedBadges.length ?? 0;
+            final unlockedBadges = data?.unlockedBadges ?? const <BadgeProgress>[];
+            final unlocked = unlockedBadges.length;
             final total = data?.allBadges.length ?? 0;
             final progress = total == 0 ? 0.0 : unlocked / total;
+            final earnedPoints = unlockedBadges.fold<int>(
+              0,
+              (sum, badge) => sum + _badgePoints(badge.badge.id),
+            );
             final unlockedIds =
                 (data?.unlockedBadges ?? const <BadgeProgress>[])
                     .map((e) => e.badge.id)
                     .toSet();
+            final allBadges = data?.allBadges ?? const <BadgeProgress>[];
+            final prerequisites = _buildPrerequisiteMap(allBadges);
+            final availableInProgress = allBadges.where((badge) {
+              if (badge.isUnlocked) {
+                return false;
+              }
+              final prerequisiteId = prerequisites[badge.badge.id];
+              return prerequisiteId == null || unlockedIds.contains(prerequisiteId);
+            }).toList();
+            final lockedBadges = allBadges.where((badge) {
+              if (badge.isUnlocked) {
+                return false;
+              }
+              final prerequisiteId = prerequisites[badge.badge.id];
+              return prerequisiteId != null && !unlockedIds.contains(prerequisiteId);
+            }).toList();
             if (snapshot.connectionState == ConnectionState.done &&
                 _selectedLoaded &&
                 _selectedBadgeIds.any((id) => !unlockedIds.contains(id))) {
@@ -379,6 +452,41 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                                 ],
                               ),
                             ),
+                            const SizedBox(width: 12),
+                            Container(
+                              width: 72,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.16),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.25),
+                                ),
+                              ),
+                              child: Column(
+                                children: [
+                                  Text(
+                                    '$earnedPoints',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 32 / 1.6,
+                                    ),
+                                  ),
+                                  Text(
+                                    'pts earned',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.88),
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
                       ],
@@ -394,6 +502,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                       tabs: [
                         Tab(text: 'Earned'),
                         Tab(text: 'In progress'),
+                        Tab(text: 'Locked'),
                       ],
                     ),
                   ),
@@ -404,11 +513,10 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                         ? const Center(child: CircularProgressIndicator())
                         : TabBarView(
                             children: [
-                              _BadgeList(
-                                badges:
-                                    data?.unlockedBadges ??
-                                    const <BadgeProgress>[],
-                                emptyLabel: 'No earned badges yet.',
+                              _AllBadgeSections(
+                                earnedBadges: unlockedBadges,
+                                inProgressBadges: availableInProgress,
+                                lockedBadges: lockedBadges,
                                 selectedBadgeIds: _selectedBadgeIds,
                                 onToggleSelected: (badge) {
                                   _toggleDisplayedBadge(
@@ -416,13 +524,20 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                                     unlockedIds: unlockedIds,
                                   );
                                 },
+                                pointsForBadge: _badgePoints,
                               ),
                               _BadgeList(
-                                badges:
-                                    data?.inProgressBadges ??
-                                    const <BadgeProgress>[],
+                                badges: availableInProgress,
                                 emptyLabel: 'No in-progress badges yet.',
                                 selectedBadgeIds: _selectedBadgeIds,
+                                pointsForBadge: _badgePoints,
+                              ),
+                              _BadgeList(
+                                badges: lockedBadges,
+                                emptyLabel: 'No locked badges.',
+                                selectedBadgeIds: _selectedBadgeIds,
+                                isLockedList: true,
+                                pointsForBadge: _badgePoints,
                               ),
                             ],
                           ),
@@ -515,17 +630,99 @@ class _AchievementCelebrationDialog extends StatelessWidget {
   }
 }
 
+class _AllBadgeSections extends StatelessWidget {
+  final List<BadgeProgress> earnedBadges;
+  final List<BadgeProgress> inProgressBadges;
+  final List<BadgeProgress> lockedBadges;
+  final Set<String> selectedBadgeIds;
+  final ValueChanged<BadgeProgress>? onToggleSelected;
+  final int Function(String badgeId) pointsForBadge;
+
+  const _AllBadgeSections({
+    required this.earnedBadges,
+    required this.inProgressBadges,
+    required this.lockedBadges,
+    required this.selectedBadgeIds,
+    this.onToggleSelected,
+    required this.pointsForBadge,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 20),
+      children: [
+        _SectionLabel(label: 'Earned'),
+        const SizedBox(height: 10),
+        _BadgeList(
+          badges: earnedBadges,
+          emptyLabel: 'No earned badges yet.',
+          selectedBadgeIds: selectedBadgeIds,
+          onToggleSelected: onToggleSelected,
+          pointsForBadge: pointsForBadge,
+          embedded: true,
+        ),
+        const SizedBox(height: 14),
+        _SectionLabel(label: 'In progress'),
+        const SizedBox(height: 10),
+        _BadgeList(
+          badges: inProgressBadges,
+          emptyLabel: 'No in-progress badges yet.',
+          selectedBadgeIds: selectedBadgeIds,
+          pointsForBadge: pointsForBadge,
+          embedded: true,
+        ),
+        const SizedBox(height: 14),
+        _SectionLabel(label: 'Locked'),
+        const SizedBox(height: 10),
+        _BadgeList(
+          badges: lockedBadges,
+          emptyLabel: 'No locked badges.',
+          selectedBadgeIds: selectedBadgeIds,
+          isLockedList: true,
+          pointsForBadge: pointsForBadge,
+          embedded: true,
+        ),
+      ],
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  final String label;
+
+  const _SectionLabel({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label.toUpperCase(),
+      style: const TextStyle(
+        color: Color(0xFF2F3DAA),
+        letterSpacing: 0.8,
+        fontWeight: FontWeight.w900,
+      ),
+    );
+  }
+}
+
 class _BadgeList extends StatelessWidget {
   final List<BadgeProgress> badges;
   final String emptyLabel;
   final Set<String> selectedBadgeIds;
   final ValueChanged<BadgeProgress>? onToggleSelected;
+  final bool isLockedList;
+  final int Function(String badgeId) pointsForBadge;
+  final bool embedded;
 
   const _BadgeList({
     required this.badges,
     required this.emptyLabel,
     required this.selectedBadgeIds,
     this.onToggleSelected,
+    this.isLockedList = false,
+    required this.pointsForBadge,
+    this.embedded = false,
   });
 
   @override
@@ -542,6 +739,27 @@ class _BadgeList extends StatelessWidget {
       );
     }
 
+    if (embedded) {
+      return Column(
+        children: [
+          for (int index = 0; index < badges.length; index++) ...[
+            _BadgeCard(
+              item: badges[index],
+              isLocked: isLockedList,
+              points: pointsForBadge(badges[index].badge.id),
+              isSelectedForProfile: selectedBadgeIds.contains(
+                badges[index].badge.id,
+              ),
+              onToggleSelected: onToggleSelected == null
+                  ? null
+                  : () => onToggleSelected!(badges[index]),
+            ),
+            if (index != badges.length - 1) const SizedBox(height: 10),
+          ],
+        ],
+      );
+    }
+
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 20),
       itemCount: badges.length,
@@ -550,6 +768,8 @@ class _BadgeList extends StatelessWidget {
         final item = badges[index];
         return _BadgeCard(
           item: item,
+          isLocked: isLockedList,
+          points: pointsForBadge(item.badge.id),
           isSelectedForProfile: selectedBadgeIds.contains(item.badge.id),
           onToggleSelected: onToggleSelected == null
               ? null
@@ -562,11 +782,15 @@ class _BadgeList extends StatelessWidget {
 
 class _BadgeCard extends StatelessWidget {
   final BadgeProgress item;
+  final bool isLocked;
+  final int points;
   final bool isSelectedForProfile;
   final VoidCallback? onToggleSelected;
 
   const _BadgeCard({
     required this.item,
+    this.isLocked = false,
+    required this.points,
     required this.isSelectedForProfile,
     this.onToggleSelected,
   });
@@ -574,9 +798,15 @@ class _BadgeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final earned = item.isUnlocked;
-    final softBg = earned ? const Color(0xFFF1F5F2) : const Color(0xFFF5F3F0);
-    final badgeBg = earned ? const Color(0xFFCEE7DA) : const Color(0xFFEAE7E3);
-    final chipBg = earned ? const Color(0xFFD9ECE2) : const Color(0xFFE9E8E6);
+    final softBg = isLocked
+        ? const Color(0xFFF1F2F4)
+        : (earned ? const Color(0xFFF1F5F2) : const Color(0xFFF5F3F0));
+    final badgeBg = isLocked
+        ? const Color(0xFFE5E7EB)
+        : (earned ? const Color(0xFFCEE7DA) : const Color(0xFFEAE7E3));
+    final chipBg = isLocked
+        ? const Color(0xFFE5E7EB)
+        : (earned ? const Color(0xFFD9ECE2) : const Color(0xFFE9E8E6));
     final progressColor = earned
         ? const Color(0xFF3AA36B)
         : const Color(0xFFE2751D);
@@ -587,7 +817,9 @@ class _BadgeCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: softBg,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFF96A4F9)),
+          border: Border.all(
+            color: isLocked ? const Color(0xFFD6DAE2) : const Color(0xFF96A4F9),
+          ),
         ),
         child: Column(
           children: [
@@ -630,28 +862,47 @@ class _BadgeCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: chipBg,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    item.progressLabel,
-                    style: TextStyle(
-                      color: earned
-                          ? const Color(0xFF2E8A5D)
-                          : const Color(0xFF8D7E6D),
-                      fontWeight: FontWeight.w800,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: chipBg,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        isLocked ? 'Locked' : item.progressLabel,
+                        style: TextStyle(
+                          color: isLocked
+                              ? const Color(0xFF7A828D)
+                              : earned
+                              ? const Color(0xFF2E8A5D)
+                              : const Color(0xFF8D7E6D),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '+$points pts',
+                      style: TextStyle(
+                        color: isLocked
+                            ? const Color(0xFFA6AFBC)
+                            : earned
+                            ? const Color(0xFF0F8D53)
+                            : const Color(0xFF0F8D53),
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-            if (earned) ...[
+            if (earned && !isLocked) ...[
               const SizedBox(height: 10),
               Align(
                 alignment: Alignment.centerRight,
@@ -671,7 +922,7 @@ class _BadgeCard extends StatelessWidget {
                 ),
               ),
             ],
-            if (!earned) ...[
+            if (!earned && !isLocked) ...[
               const SizedBox(height: 10),
               _SmoothLinearProgress(
                 value: item.progress,

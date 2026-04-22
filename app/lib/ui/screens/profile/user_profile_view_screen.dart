@@ -7,8 +7,10 @@ import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
 import '../../../data/achievement_repository.dart';
 import '../../../data/badge_display_repository.dart';
+import '../../../data/height_display_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/user_profile.dart';
+import '../../../utils/height_display.dart';
 
 class UserProfileViewArgs {
   final String userId;
@@ -255,28 +257,47 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                             ),
                             child: Column(
                               children: [
-                                _InfoCard(
-                                  title: 'PERSONAL INFO',
-                                  rows: [
-                                    _InfoLine(label: 'Name', value: name),
-                                    _InfoLine(
-                                      label: 'Age',
-                                      value: profile.age?.toString() ?? '—',
-                                    ),
-                                    _InfoLine(
-                                      label: 'Gender',
-                                      value: profile.gender.trim().isNotEmpty
-                                          ? profile.gender
-                                          : '—',
-                                    ),
-                                    _InfoLine(
-                                      label: 'Skill Level',
-                                      value:
-                                          profile.skillLevel.trim().isNotEmpty
-                                          ? profile.skillLevel
-                                          : '—',
-                                    ),
-                                  ],
+                                FutureBuilder<bool>(
+                                  future: heightDisplayRepository()
+                                      .getUseImperial(),
+                                  builder: (context, imperialSnap) {
+                                    final useImperial = imperialSnap.data ?? false;
+                                    final heightLabel = formatHeightForDisplay(
+                                      profile.heightCm,
+                                      useImperial: useImperial,
+                                    );
+                                    return _InfoCard(
+                                      title: 'PERSONAL INFO',
+                                      rows: [
+                                        _InfoLine(label: 'Name', value: name),
+                                        _InfoLine(
+                                          label: 'Age',
+                                          value:
+                                              profile.age?.toString() ?? '—',
+                                        ),
+                                        _InfoLine(
+                                          label: 'Gender',
+                                          value: profile.gender
+                                                  .trim()
+                                                  .isNotEmpty
+                                              ? profile.gender
+                                              : '—',
+                                        ),
+                                        _InfoLine(
+                                          label: 'Height',
+                                          value: heightLabel,
+                                        ),
+                                        _InfoLine(
+                                          label: 'Skill Level',
+                                          value: profile.skillLevel
+                                                  .trim()
+                                                  .isNotEmpty
+                                              ? profile.skillLevel
+                                              : '—',
+                                        ),
+                                      ],
+                                    );
+                                  },
                                 ),
                                 const SizedBox(height: 14),
                                 _InfoCard(

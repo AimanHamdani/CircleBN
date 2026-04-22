@@ -14,12 +14,16 @@ import 'screens/home/event_scoring_screen.dart';
 import 'screens/home/map_picker_screen.dart';
 import 'screens/home/activity_overview_screen.dart';
 import 'screens/home/notifications_screen.dart';
+import 'screens/home/redeem_points_screen.dart';
 import 'screens/home/streak_screen.dart';
 import 'screens/home/private_events_screen.dart';
 import 'screens/profile/edit_profile_screen.dart';
 import 'screens/profile/change_password_screen.dart';
 import 'screens/profile/achievements_screen.dart';
+import 'screens/profile/membership_screen.dart';
 import 'screens/profile/profile_screen.dart';
+import 'screens/profile/free_stats_screen.dart';
+import 'screens/profile/pro_stats_screen.dart';
 import 'screens/profile/user_profile_view_screen.dart';
 import 'screens/reset_password_screen.dart';
 import 'screens/signup/signup_screen.dart';
@@ -79,9 +83,14 @@ class AppRoot extends StatelessWidget {
         ActivityOverviewScreen.routeName: (_) => const ActivityOverviewScreen(),
         NotificationsScreen.routeName: (_) => const NotificationsScreen(),
         StreakScreen.routeName: (_) => const StreakScreen(),
+        RedeemPointsScreen.routeName: (_) => const RedeemPointsScreen(),
         PrivateEventsScreen.routeName: (_) => const PrivateEventsScreen(),
         AchievementsScreen.routeName: (_) => const AchievementsScreen(),
         ProfileScreen.routeName: (_) => const ProfileScreen(),
+        FreeStatsScreen.routeName: (_) => const FreeStatsScreen(),
+        ProStatsHubScreen.routeName: (_) => const ProStatsHubScreen(),
+        ProMatchHistoryScreen.routeName: (_) => const ProMatchHistoryScreen(),
+        MembershipScreen.routeName: (_) => const MembershipScreen(),
         UserProfileViewScreen.routeName: (_) => const UserProfileViewScreen(),
         EditProfileScreen.routeName: (_) => const EditProfileScreen(),
         ChangePasswordScreen.routeName: (_) => const ChangePasswordScreen(),

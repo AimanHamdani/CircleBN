@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import '../appwrite/appwrite_config.dart';
 import '../appwrite/appwrite_service.dart';
 import '../auth/current_user.dart';
@@ -39,6 +41,7 @@ class ProfileRepository {
             : null,
       );
       _tryMigrateSportSkillsField(hydratedProfile);
+      _tryMigrateLegacyMatchHistory(hydratedProfile);
       return hydratedProfile;
     } catch (_) {
       return UserProfile.empty(userId).copyWith(
@@ -157,6 +160,153 @@ class ProfileRepository {
         data: profile.copyWith(sportSkillsNeedsMigration: false).toMap(),
       );
     } catch (_) {}
+  }
+
+  Future<void> _tryMigrateLegacyMatchHistory(UserProfile profile) async {
+    if (profile.matchHistory.isEmpty) {
+      return;
+    }
+    if (!AppwriteService.isConfigured ||
+        AppwriteConfig.databaseId.isEmpty ||
+        AppwriteConfig.profilesCollectionId.isEmpty) {
+      return;
+    }
+
+    var changed = false;
+    var statValuesBackfilled = 0;
+    var formatBackfilled = 0;
+    final migrated = <ProfileMatchRecord>[];
+
+    for (final row in profile.matchHistory) {
+      var next = row;
+      final sport = row.sport.trim().toLowerCase();
+      if (row.statValues.isEmpty) {
+        changed = true;
+        statValuesBackfilled++;
+        final inferred = _inferLegacyStatValues(row, sport);
+        next = next.copyWith(statValues: inferred);
+      }
+      if ((next.formatLabel ?? '').trim().isEmpty &&
+          _sportUsesSinglesDoubles(sport)) {
+        final inferredFormat = _inferFormatLabelFromTitle(next.eventTitle);
+        if (inferredFormat != null) {
+          changed = true;
+          formatBackfilled++;
+          next = next.copyWith(formatLabel: inferredFormat);
+        }
+      }
+      migrated.add(next);
+    }
+
+    if (!changed) {
+      return;
+    }
+
+    try {
+      await AppwriteService.createOrUpdateDocument(
+        collectionId: AppwriteConfig.profilesCollectionId,
+        documentId: profile.userId,
+        data: profile.copyWith(matchHistory: migrated).toMap(),
+      );
+      developer.log(
+        'Legacy matchHistory migration applied for ${profile.userId}: '
+        '$statValuesBackfilled statValues backfilled, '
+        '$formatBackfilled format labels inferred.',
+        name: 'ProfileRepository',
+      );
+    } catch (_) {}
+  }
+
+  bool _sportUsesSinglesDoubles(String sport) {
+    return sport.contains('badminton') ||
+        sport.contains('tennis') ||
+        sport.contains('table tennis') ||
+        sport.contains('ping pong') ||
+        sport.contains('pickle');
+  }
+
+  String? _inferFormatLabelFromTitle(String title) {
+    final t = title.trim().toLowerCase();
+    if (t.isEmpty) {
+      return null;
+    }
+    if (t.contains('singles')) {
+      return 'Singles';
+    }
+    if (t.contains('doubles')) {
+      return 'Doubles';
+    }
+    return null;
+  }
+
+  Map<String, num> _inferLegacyStatValues(
+    ProfileMatchRecord row,
+    String sport,
+  ) {
+    final outcome = row.outcome.toLowerCase();
+    final awarded = row.pointsAwarded;
+    final winBaseline = outcome == 'win' ? 1 : 0;
+    final safeAwarded = awarded < 0 ? 0 : awarded;
+
+    if (sport.contains('football')) {
+      return <String, num>{
+        'goals': safeAwarded > 0 ? safeAwarded : winBaseline,
+        'assists': 0,
+        'passes': 0,
+        'tackles': 0,
+        'saves': 0,
+      };
+    }
+    if (sport.contains('basketball')) {
+      return <String, num>{
+        'points': safeAwarded,
+        'assists': 0,
+        'rebounds': 0,
+        'steals': 0,
+        'blocks': 0,
+        'turnovers': 0,
+      };
+    }
+    if (sport.contains('volleyball')) {
+      return <String, num>{
+        'points': safeAwarded,
+        'assists': 0,
+        'blocks': 0,
+        'digs': 0,
+      };
+    }
+    if (sport.contains('table tennis') || sport.contains('ping pong')) {
+      return <String, num>{
+        'gamesWon': outcome == 'win' ? 2 : 0,
+        'pointsWon': safeAwarded,
+        'aces': 0,
+      };
+    }
+    if (sport.contains('pickle')) {
+      return <String, num>{
+        'gamesWon': outcome == 'win' ? 2 : 0,
+        'pointsWon': safeAwarded,
+        'aces': 0,
+      };
+    }
+    if (sport.contains('tennis')) {
+      return <String, num>{
+        'setsWon': outcome == 'win' ? 2 : 0,
+        'gamesWon': safeAwarded,
+        'aces': 0,
+      };
+    }
+    if (sport.contains('badminton')) {
+      return <String, num>{
+        'gamesWon': outcome == 'win' ? 2 : 0,
+        'pointsWon': safeAwarded,
+        'aces': 0,
+      };
+    }
+    return <String, num>{
+      'points': safeAwarded,
+      'assists': 0,
+    };
   }
 }
 

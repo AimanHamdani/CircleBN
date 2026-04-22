@@ -7,6 +7,8 @@ import '../../../auth/current_user.dart';
 import '../../../data/event_invite_repository.dart';
 import '../../../data/event_registration_repository.dart';
 import '../../../data/event_repository.dart';
+import '../../../data/notification_repository.dart';
+import '../../../models/app_notification.dart';
 import '../../../models/event.dart';
 import 'event_detail_screen.dart';
 
@@ -20,9 +22,9 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  static const _knownEventIdsKey = 'notifications_known_event_ids_v1';
-  late final Future<List<_AppNotificationItem>> _notificationsFuture;
-  final Set<String> _readIds = <String>{};
+  static const _knownEventIdsKeyPrefix = 'notifications_known_event_ids_v2_';
+
+  late Future<_NotificationPayload> _notificationsFuture;
   Timer? _clockTimer;
 
   @override
@@ -42,41 +44,50 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     super.dispose();
   }
 
-  Future<List<_AppNotificationItem>> _loadNotifications() async {
+  String _knownKeyForUser(String userId) {
+    return '$_knownEventIdsKeyPrefix$userId';
+  }
+
+  Future<_NotificationPayload> _loadNotifications() async {
+    final myId = currentUserId.trim();
+    if (myId.isEmpty) {
+      return const _NotificationPayload(
+        items: <AppNotification>[],
+        eventById: <String, Event>{},
+      );
+    }
+
     final events = await eventRepository().listEvents();
+    final eventById = <String, Event>{for (final e in events) e.id: e};
+    final now = DateTime.now();
     final prefs = await SharedPreferences.getInstance();
     final previousKnownEventIds =
-        prefs.getStringList(_knownEventIdsKey)?.toSet() ?? <String>{};
-    final myId = currentUserId.trim();
+        prefs.getStringList(_knownKeyForUser(myId))?.toSet() ?? <String>{};
+    final currentEventIds = eventById.keys.toSet();
+    final disappearedEventIds = previousKnownEventIds.difference(currentEventIds);
+
     final joinedIds = <String>{
       ...events.where((e) => e.joinedByMe).map((e) => e.id),
     };
-    if (myId.isNotEmpty) {
-      final registrations = await eventRegistrationRepository()
-          .listMyRegisteredEventIds(myId);
-      joinedIds.addAll(registrations);
-    }
+    final registrations = await eventRegistrationRepository()
+        .listMyRegisteredEventIds(myId);
+    joinedIds.addAll(registrations);
 
-    final now = DateTime.now();
-    final eventById = <String, Event>{for (final e in events) e.id: e};
-    final currentEventIds = eventById.keys.toSet();
-    final disappearedEventIds = previousKnownEventIds.difference(
-      currentEventIds,
-    );
-
-    final items = <_AppNotificationItem>[];
+    final generated = <AppNotification>[];
 
     for (final eventId in joinedIds) {
       final event = eventById[eventId];
       if (event == null) {
         if (disappearedEventIds.contains(eventId)) {
-          items.add(
-            _AppNotificationItem(
+          generated.add(
+            AppNotification(
               id: 'gone_$eventId',
-              type: _AppNotificationType.cancelledOrDeleted,
+              userId: myId,
+              type: AppNotificationType.eventCancelledOrDeleted,
               title: 'Event cancelled',
               message: 'An event you joined is no longer available.',
               createdAt: now,
+              targetEventId: eventId,
             ),
           );
         }
@@ -85,14 +96,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       final startsIn = event.startAt.difference(now);
       if (startsIn.inMinutes >= 0 && startsIn <= const Duration(hours: 1)) {
-        items.add(
-          _AppNotificationItem(
+        generated.add(
+          AppNotification(
             id: 'soon_${event.id}',
-            type: _AppNotificationType.startingSoon,
+            userId: myId,
+            type: AppNotificationType.eventStartingSoon,
             title: 'Event starting soon',
             message: '${event.title} starts in ${_timeUntilLabel(startsIn)}.',
             createdAt: now.subtract(const Duration(minutes: 1)),
-            event: event,
+            targetEventId: event.id,
           ),
         );
       }
@@ -107,32 +119,55 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       if (!isPrivateInvite) {
         continue;
       }
-      items.add(
-        _AppNotificationItem(
+      generated.add(
+        AppNotification(
           id: 'invite_${event.id}',
-          type: _AppNotificationType.eventInvite,
+          userId: myId,
+          type: AppNotificationType.eventInvite,
           title: 'Private event invite',
           message: 'You were invited to ${event.title}.',
           createdAt: now.subtract(const Duration(minutes: 2)),
-          event: event,
+          targetEventId: event.id,
         ),
       );
     }
 
-    await prefs.setStringList(_knownEventIdsKey, currentEventIds.toList());
-    items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return items;
+    await notificationRepository().upsertMany(myId, generated);
+    await prefs.setStringList(_knownKeyForUser(myId), currentEventIds.toList());
+    final stored = await notificationRepository().listForUser(myId);
+    return _NotificationPayload(items: stored, eventById: eventById);
   }
 
-  Future<void> _openNotification(_AppNotificationItem item) async {
-    setState(() => _readIds.add(item.id));
-    if (item.event == null) {
+  Future<void> _reload() async {
+    setState(() {
+      _notificationsFuture = _loadNotifications();
+    });
+  }
+
+  Future<void> _openNotification(
+    AppNotification item,
+    Map<String, Event> eventById,
+  ) async {
+    await notificationRepository().markRead(
+      userId: currentUserId,
+      notificationId: item.id,
+    );
+    if (!mounted) {
       return;
     }
-    await Navigator.of(context).pushNamed(
-      EventDetailScreen.routeName,
-      arguments: EventDetailArgs(event: item.event!, showRegisterButton: true),
-    );
+    final eventId = item.targetEventId?.trim();
+    if (eventId == null || eventId.isEmpty) {
+      await _reload();
+      return;
+    }
+    final event = eventById[eventId];
+    if (event != null) {
+      await Navigator.of(context).pushNamed(
+        EventDetailScreen.routeName,
+        arguments: EventDetailArgs(event: event, showRegisterButton: true),
+      );
+    }
+    await _reload();
   }
 
   @override
@@ -157,20 +192,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         actions: [
           TextButton(
             onPressed: () async {
-              final items = await _notificationsFuture;
+              await notificationRepository().markAllRead(currentUserId);
               if (!mounted) {
                 return;
               }
-              setState(() {
-                _readIds.addAll(items.map((e) => e.id));
-              });
+              await _reload();
             },
             child: const Text(
               'Mark all read',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
             ),
           ),
         ],
@@ -179,10 +209,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           child: SizedBox.shrink(),
         ),
       ),
-      body: FutureBuilder<List<_AppNotificationItem>>(
+      body: FutureBuilder<_NotificationPayload>(
         future: _notificationsFuture,
         builder: (context, snap) {
-          final items = snap.data ?? const <_AppNotificationItem>[];
+          final payload =
+              snap.data ??
+              const _NotificationPayload(
+                items: <AppNotification>[],
+                eventById: <String, Event>{},
+              );
+          final items = payload.items;
           if (snap.connectionState != ConnectionState.done && items.isEmpty) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -191,7 +227,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               child: Padding(
                 padding: EdgeInsets.all(20),
                 child: Text(
-                  'No notifications yet.\nYou will see joined-event alerts here.',
+                  'No notifications yet.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.black54,
@@ -207,11 +243,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               final item = items[index];
-              final unread = !_readIds.contains(item.id);
               return _NotificationTile(
                 item: item,
-                unread: unread,
-                onTap: () => _openNotification(item),
+                unread: !item.isRead,
+                onTap: () => _openNotification(item, payload.eventById),
               );
             },
           );
@@ -221,28 +256,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 }
 
-enum _AppNotificationType { startingSoon, cancelledOrDeleted, eventInvite }
+class _NotificationPayload {
+  final List<AppNotification> items;
+  final Map<String, Event> eventById;
 
-class _AppNotificationItem {
-  final String id;
-  final _AppNotificationType type;
-  final String title;
-  final String message;
-  final DateTime createdAt;
-  final Event? event;
-
-  const _AppNotificationItem({
-    required this.id,
-    required this.type,
-    required this.title,
-    required this.message,
-    required this.createdAt,
-    this.event,
-  });
+  const _NotificationPayload({required this.items, required this.eventById});
 }
 
 class _NotificationTile extends StatelessWidget {
-  final _AppNotificationItem item;
+  final AppNotification item;
   final bool unread;
   final VoidCallback onTap;
 
@@ -254,17 +276,22 @@ class _NotificationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isSoon = item.type == _AppNotificationType.startingSoon;
-    final isInvite = item.type == _AppNotificationType.eventInvite;
+    final isSoon = item.type == AppNotificationType.eventStartingSoon;
+    final isInvite = item.type == AppNotificationType.eventInvite;
+    final isUpdated = item.type == AppNotificationType.eventUpdated;
     final iconBackground = isSoon
         ? const Color(0xFFDFF0E7)
         : isInvite
         ? const Color(0xFFEAE8FF)
+        : isUpdated
+        ? const Color(0xFFE7F2FF)
         : const Color(0xFFF1F2F7);
     final iconColor = isSoon
         ? const Color(0xFF4A8D64)
         : isInvite
         ? const Color(0xFF5E62E8)
+        : isUpdated
+        ? const Color(0xFF2A73C9)
         : const Color(0xFFB05A76);
     final borderColor = unread
         ? const Color(0xFF6B6FF0)
@@ -296,6 +323,8 @@ class _NotificationTile extends StatelessWidget {
                     ? Icons.schedule
                     : isInvite
                     ? Icons.mail_outline
+                    : isUpdated
+                    ? Icons.edit_calendar_outlined
                     : Icons.close,
                 color: iconColor,
               ),
@@ -309,7 +338,7 @@ class _NotificationTile extends StatelessWidget {
                     item.title,
                     style: const TextStyle(
                       fontWeight: FontWeight.w900,
-                      fontSize: 20 - 3,
+                      fontSize: 17,
                     ),
                   ),
                   const SizedBox(height: 2),

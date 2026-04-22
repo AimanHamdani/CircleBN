@@ -4,6 +4,7 @@ import '../../../appwrite/appwrite_service.dart';
 import '../../../data/achievement_repository.dart';
 import '../../../data/club_repository.dart';
 import '../../../data/event_repository.dart';
+import '../../../data/notification_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
@@ -20,6 +21,7 @@ import 'activity_overview_screen.dart';
 import 'clubs_screen.dart';
 import 'calendar_screen.dart';
 import 'notifications_screen.dart';
+import 'redeem_points_screen.dart';
 import 'streak_screen.dart';
 import 'private_events_screen.dart';
 import '../../widgets/event_thumbnail_header.dart';
@@ -370,11 +372,28 @@ class _HomeBody extends StatefulWidget {
 
 class _HomeBodyState extends State<_HomeBody> {
   late Future<UserProfile> _profileFuture;
+  late Future<int> _unreadNotificationsFuture;
 
   @override
   void initState() {
     super.initState();
     _profileFuture = profileRepository().getMyProfile();
+    _unreadNotificationsFuture = _loadUnreadNotificationsCount();
+  }
+
+  Future<int> _loadUnreadNotificationsCount() async {
+    final items = await notificationRepository().listForUser(currentUserId);
+    return items.where((n) => !n.isRead).length;
+  }
+
+  Future<void> _openNotifications() async {
+    await Navigator.of(context).pushNamed(NotificationsScreen.routeName);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _unreadNotificationsFuture = _loadUnreadNotificationsCount();
+    });
   }
 
   String _displayName(UserProfile? profile) {
@@ -505,7 +524,7 @@ class _HomeBodyState extends State<_HomeBody> {
                       InkWell(
                         onTap: () => Navigator.of(
                           context,
-                        ).pushNamed(NotificationsScreen.routeName),
+                        ).pushNamed(RedeemPointsScreen.routeName),
                         borderRadius: BorderRadius.circular(14),
                         child: Container(
                           width: 44,
@@ -518,9 +537,73 @@ class _HomeBodyState extends State<_HomeBody> {
                             ),
                           ),
                           child: Icon(
-                            Icons.notifications_none,
+                            Icons.card_giftcard,
                             color: Colors.white.withValues(alpha: 0.95),
                           ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      InkWell(
+                        onTap: _openNotifications,
+                        borderRadius: BorderRadius.circular(14),
+                        child: FutureBuilder<int>(
+                          future: _unreadNotificationsFuture,
+                          builder: (context, snapshot) {
+                            final unreadCount = snapshot.data ?? 0;
+                            return Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.22),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(alpha: 0.35),
+                                    ),
+                                  ),
+                                  child: Icon(
+                                    Icons.notifications_none,
+                                    color: Colors.white.withValues(alpha: 0.95),
+                                  ),
+                                ),
+                                if (unreadCount > 0)
+                                  Positioned(
+                                    right: -2,
+                                    top: -2,
+                                    child: Container(
+                                      constraints: const BoxConstraints(
+                                        minWidth: 18,
+                                        minHeight: 18,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                      ),
+                                      alignment: Alignment.center,
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFF4D4F),
+                                        borderRadius: BorderRadius.circular(99),
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        unreadCount > 99
+                                            ? '99+'
+                                            : unreadCount.toString(),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            );
+                          },
                         ),
                       ),
                     ],

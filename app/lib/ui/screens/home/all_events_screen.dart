@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../data/event_repository.dart';
 import '../../../data/profile_repository.dart';
+import '../../../data/sample_clubs.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
 import 'event_detail_screen.dart';
@@ -18,6 +19,17 @@ class AllEventsScreen extends StatefulWidget {
 }
 
 enum _AllEventsTimeBand { morning, afternoon, night }
+enum _AllEventsAvailability { open, full }
+enum _AllEventsFeeType { free, paid }
+
+const List<String> _allEventsSkillOptions = <String>[
+  'Any',
+  'Beginner',
+  'Novice',
+  'Intermediate',
+  'Advanced',
+  'Pro/Master',
+];
 
 class _AllEventsScreenState extends State<AllEventsScreen> {
   DateTime? _selectedDate;
@@ -27,6 +39,9 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
 
   String? _filterSport;
   _AllEventsTimeBand? _filterTimeBand;
+  String? _filterSkillLevel;
+  _AllEventsAvailability? _filterAvailability;
+  _AllEventsFeeType? _filterFeeType;
 
   late Future<List<Object?>> _screenDataFuture;
 
@@ -71,6 +86,7 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
   Future<void> _showAllEventsFilterDialog(
     BuildContext context,
     List<String> sportOptions,
+    List<String> skillOptions,
   ) async {
     final result = await showDialog<_AllEventsFilterDialogResult>(
       context: context,
@@ -78,8 +94,12 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
       builder: (ctx) {
         return _AllEventsFilterDialog(
           sportOptions: sportOptions,
+          skillOptions: skillOptions,
           initialSport: _filterSport,
           initialTimeBand: _filterTimeBand,
+          initialSkillLevel: _filterSkillLevel,
+          initialAvailability: _filterAvailability,
+          initialFeeType: _filterFeeType,
         );
       },
     );
@@ -90,12 +110,18 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
       setState(() {
         _filterSport = null;
         _filterTimeBand = null;
+        _filterSkillLevel = null;
+        _filterAvailability = null;
+        _filterFeeType = null;
       });
       return;
     }
     setState(() {
       _filterSport = result.sport;
       _filterTimeBand = result.timeBand;
+      _filterSkillLevel = result.skillLevel;
+      _filterAvailability = result.availability;
+      _filterFeeType = result.feeType;
     });
   }
 
@@ -125,13 +151,8 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
             final all = prioritized.where(_isUpcomingOrOngoing).toList();
             // Sports from all loaded events so the menu stays useful even if the
             // visible week/day has no matches (DropdownButton/Picker still needs options).
-            final sportOptions =
-                prioritized
-                    .map((e) => e.sport.trim())
-                    .where((s) => s.isNotEmpty)
-                    .toSet()
-                    .toList()
-                  ..sort();
+            final sportOptions = [...SampleData.sports]..sort();
+            final skillOptions = [..._allEventsSkillOptions];
             var events = selected == null
                 ? all
                 : all
@@ -150,6 +171,36 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
                     ),
                   )
                   .toList();
+            }
+            if (_filterSkillLevel != null) {
+              final level = _filterSkillLevel!.toLowerCase();
+              events = events
+                  .where(
+                    (e) =>
+                        _normalizeSkillLevelLabel(e.skillLevel)
+                            .toLowerCase() ==
+                        level,
+                  )
+                  .toList();
+            }
+            if (_filterAvailability != null) {
+              events = events.where((e) {
+                final isFull = e.capacity > 0 && e.joined >= e.capacity;
+                if (_filterAvailability == _AllEventsAvailability.full) {
+                  return isFull;
+                }
+                return !isFull;
+              }).toList();
+            }
+            if (_filterFeeType != null) {
+              events = events.where((e) {
+                final fee = e.entryFeeLabel.trim().toLowerCase();
+                final isFree = fee == 'free' || fee == '\$0' || fee == '0';
+                if (_filterFeeType == _AllEventsFeeType.free) {
+                  return isFree;
+                }
+                return !isFree;
+              }).toList();
             }
 
             return Column(
@@ -180,6 +231,7 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
                                 await _showAllEventsFilterDialog(
                                   context,
                                   sportOptions,
+                                  skillOptions,
                                 );
                               },
                               borderRadius: BorderRadius.circular(14),
@@ -209,7 +261,10 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
                                       ),
                                     ),
                                     if (_filterSport != null ||
-                                        _filterTimeBand != null)
+                                        _filterTimeBand != null ||
+                                        _filterSkillLevel != null ||
+                                        _filterAvailability != null ||
+                                        _filterFeeType != null)
                                       Positioned(
                                         right: 6,
                                         top: 6,
@@ -818,27 +873,72 @@ bool _sportMatchesPreferred(String sport, Set<String> preferred) {
   return false;
 }
 
+String _normalizeSkillLevelLabel(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty || text == '—') {
+    return 'Any';
+  }
+  for (final option in _allEventsSkillOptions) {
+    if (text.toLowerCase() == option.toLowerCase()) {
+      return option;
+    }
+  }
+  if (text.toLowerCase() == 'novice intermediate') {
+    return 'Intermediate';
+  }
+  final matches = RegExp(r'\d+')
+      .allMatches(text)
+      .map((m) => int.tryParse(m.group(0)!))
+      .whereType<int>()
+      .toList();
+  if (matches.isNotEmpty) {
+    final min = matches.first;
+    final max = matches.last;
+    final score = ((min + max) / 2).round();
+    if (score <= 2) return 'Beginner';
+    if (score <= 4) return 'Novice';
+    if (score <= 6) return 'Intermediate';
+    if (score <= 8) return 'Advanced';
+    return 'Pro/Master';
+  }
+  return text;
+}
+
 class _AllEventsFilterDialogResult {
   final String? sport;
   final _AllEventsTimeBand? timeBand;
+  final String? skillLevel;
+  final _AllEventsAvailability? availability;
+  final _AllEventsFeeType? feeType;
   final bool clearOnly;
 
   const _AllEventsFilterDialogResult({
     this.sport,
     this.timeBand,
+    this.skillLevel,
+    this.availability,
+    this.feeType,
     this.clearOnly = false,
   });
 }
 
 class _AllEventsFilterDialog extends StatefulWidget {
   final List<String> sportOptions;
+  final List<String> skillOptions;
   final String? initialSport;
   final _AllEventsTimeBand? initialTimeBand;
+  final String? initialSkillLevel;
+  final _AllEventsAvailability? initialAvailability;
+  final _AllEventsFeeType? initialFeeType;
 
   const _AllEventsFilterDialog({
     required this.sportOptions,
+    required this.skillOptions,
     required this.initialSport,
     required this.initialTimeBand,
+    required this.initialSkillLevel,
+    required this.initialAvailability,
+    required this.initialFeeType,
   });
 
   @override
@@ -848,6 +948,9 @@ class _AllEventsFilterDialog extends StatefulWidget {
 class _AllEventsFilterDialogState extends State<_AllEventsFilterDialog> {
   late String? _sport;
   late _AllEventsTimeBand? _timeBand;
+  late String? _skillLevel;
+  late _AllEventsAvailability? _availability;
+  late _AllEventsFeeType? _feeType;
 
   static const _sheetBg = Color(0xFFF5F3FF);
   static const _chipSelectedBg = Color(0xFFEDE9FE);
@@ -856,8 +959,14 @@ class _AllEventsFilterDialogState extends State<_AllEventsFilterDialog> {
   void initState() {
     super.initState();
     _timeBand = widget.initialTimeBand;
+    _availability = widget.initialAvailability;
+    _feeType = widget.initialFeeType;
     final s = widget.initialSport;
     _sport = (s != null && widget.sportOptions.contains(s)) ? s : null;
+    final level = widget.initialSkillLevel;
+    _skillLevel = (level != null && widget.skillOptions.contains(level))
+        ? level
+        : null;
   }
 
   @override
@@ -941,6 +1050,65 @@ class _AllEventsFilterDialogState extends State<_AllEventsFilterDialog> {
                 ),
               ),
               const SizedBox(height: 20),
+              InputDecorator(
+                decoration: InputDecoration(
+                  labelText: 'Skill level',
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFFE3E7EE)),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 0,
+                  ),
+                ),
+                child: PopupMenuButton<String?>(
+                  padding: EdgeInsets.zero,
+                  splashRadius: 20,
+                  offset: const Offset(0, 40),
+                  tooltip: 'Choose skill level',
+                  onSelected: (v) => setState(() => _skillLevel = v),
+                  itemBuilder: (context) => [
+                    const PopupMenuItem<String?>(
+                      value: null,
+                      child: Text('All levels'),
+                    ),
+                    ...widget.skillOptions.map(
+                      (s) => PopupMenuItem<String?>(
+                        value: s,
+                        child: Text(s, overflow: TextOverflow.ellipsis),
+                      ),
+                    ),
+                  ],
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _skillLevel ?? 'All levels',
+                            style: const TextStyle(fontSize: 16, height: 1.2),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          color: Colors.black.withValues(alpha: 0.45),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
               const Text(
                 'Time',
                 style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
@@ -989,6 +1157,78 @@ class _AllEventsFilterDialogState extends State<_AllEventsFilterDialog> {
                 ],
               ),
               const SizedBox(height: 22),
+              const Text(
+                'Availability',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: _FilterTimeChip(
+                      label: 'Open',
+                      selected: _availability == _AllEventsAvailability.open,
+                      selectedColor: _chipSelectedBg,
+                      onTap: () => setState(() {
+                        _availability =
+                            _availability == _AllEventsAvailability.open
+                            ? null
+                            : _AllEventsAvailability.open;
+                      }),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _FilterTimeChip(
+                      label: 'Full',
+                      selected: _availability == _AllEventsAvailability.full,
+                      selectedColor: _chipSelectedBg,
+                      onTap: () => setState(() {
+                        _availability =
+                            _availability == _AllEventsAvailability.full
+                            ? null
+                            : _AllEventsAvailability.full;
+                      }),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 22),
+              const Text(
+                'Fee',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: _FilterTimeChip(
+                      label: 'Free',
+                      selected: _feeType == _AllEventsFeeType.free,
+                      selectedColor: _chipSelectedBg,
+                      onTap: () => setState(() {
+                        _feeType = _feeType == _AllEventsFeeType.free
+                            ? null
+                            : _AllEventsFeeType.free;
+                      }),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _FilterTimeChip(
+                      label: 'Paid',
+                      selected: _feeType == _AllEventsFeeType.paid,
+                      selectedColor: _chipSelectedBg,
+                      onTap: () => setState(() {
+                        _feeType = _feeType == _AllEventsFeeType.paid
+                            ? null
+                            : _AllEventsFeeType.paid;
+                      }),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 22),
               Row(
                 children: [
                   TextButton(
@@ -1014,6 +1254,9 @@ class _AllEventsFilterDialogState extends State<_AllEventsFilterDialog> {
                         _AllEventsFilterDialogResult(
                           sport: _sport,
                           timeBand: _timeBand,
+                          skillLevel: _skillLevel,
+                          availability: _availability,
+                          feeType: _feeType,
                         ),
                       );
                     },

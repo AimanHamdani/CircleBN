@@ -10,7 +10,10 @@ import '../../../auth/current_user.dart';
 import '../../../data/club_member_repository.dart';
 import '../../../data/club_repository.dart';
 import '../../../data/event_invite_repository.dart';
+import '../../../data/event_registration_repository.dart';
+import '../../../data/notification_repository.dart';
 import '../../../data/sample_clubs.dart';
+import '../../../models/app_notification.dart';
 import '../../../models/club.dart';
 import '../../../models/event.dart';
 import 'map_picker_screen.dart';
@@ -1381,6 +1384,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           ? [...(_initialEvent?.rejectedInviteUserIds ?? const <String>[])]
           : const <String>[];
     }
+    final previousInvitees = _isEditMode
+        ? (_initialEvent?.invitedUserIds.toSet() ?? <String>{})
+        : <String>{};
+    final newInviteeIds = invitedUserIds
+        .where((id) => !previousInvitees.contains(id))
+        .toSet()
+        .toList();
 
     final initialClubRaw = _initialEvent?.clubId?.trim();
     final normalizedInitialClub =
@@ -1444,17 +1454,86 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
     setState(() => _isSubmitting = true);
     try {
+      String eventId;
+      final initialEvent = _initialEvent;
+      final hasMeaningfulUpdate =
+          _isEditMode &&
+          initialEvent != null &&
+          (
+                initialEvent.title.trim() != title ||
+                initialEvent.startAt.toIso8601String() !=
+                    startAt.toIso8601String() ||
+                initialEvent.duration.inMinutes != durationMinutes ||
+                initialEvent.location.trim() != location ||
+                initialEvent.capacity != capacity ||
+                initialEvent.entryFeeLabel.trim() != fee ||
+                (initialEvent.privacy ?? '').trim() != (_privacy ?? '').trim()
+              );
       if (_isEditMode) {
+        eventId = _initialEvent!.id;
         await AppwriteService.updateDocument(
           collectionId: AppwriteConfig.eventsCollectionId,
-          documentId: _initialEvent!.id,
+          documentId: eventId,
           data: baseData,
         );
       } else {
-        await AppwriteService.createDocument(
+        final created = await AppwriteService.createDocument(
           collectionId: AppwriteConfig.eventsCollectionId,
           data: baseData,
         );
+        eventId = created.$id;
+      }
+
+      if (newInviteeIds.isNotEmpty) {
+        final createdAt = DateTime.now();
+        final notifications = newInviteeIds
+            .where((id) => id.trim().isNotEmpty)
+            .map(
+              (inviteeId) => AppNotification(
+                id:
+                    'invite_${eventId}_${inviteeId}_${createdAt.millisecondsSinceEpoch}',
+                userId: inviteeId,
+                type: AppNotificationType.eventInvite,
+                title: 'Private event invite',
+                message: 'You were invited to $title.',
+                createdAt: createdAt,
+                targetEventId: eventId,
+              ),
+            )
+            .toList();
+        for (final note in notifications) {
+          await notificationRepository().upsertMany(note.userId, [note]);
+        }
+      }
+
+      if (hasMeaningfulUpdate) {
+        final existingParticipantIds = await eventRegistrationRepository()
+            .listParticipantUserIds(eventId);
+        final updateRecipientIds = <String>{
+          ...existingParticipantIds,
+          ...invitedUserIds,
+        }..removeWhere((id) => id.trim().isEmpty || id == currentUserId);
+
+        if (updateRecipientIds.isNotEmpty) {
+          final createdAt = DateTime.now();
+          final notifications = updateRecipientIds
+              .map(
+                (recipientId) => AppNotification(
+                  id:
+                      'update_${eventId}_${recipientId}_${createdAt.millisecondsSinceEpoch}',
+                  userId: recipientId,
+                  type: AppNotificationType.eventUpdated,
+                  title: 'Event updated',
+                  message: '$title was updated. Tap to view latest details.',
+                  createdAt: createdAt,
+                  targetEventId: eventId,
+                ),
+              )
+              .toList();
+          for (final note in notifications) {
+            await notificationRepository().upsertMany(note.userId, [note]);
+          }
+        }
       }
 
       if (mounted) {

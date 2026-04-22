@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../data/achievement_repository.dart';
 import 'all_events_screen.dart';
+import 'redeem_points_screen.dart';
 
 class StreakScreen extends StatefulWidget {
   static const routeName = '/streak';
@@ -50,7 +51,6 @@ class _StreakScreenState extends State<StreakScreen> {
         final streak = data?.currentStreak ?? 0;
         final best = data?.bestStreak ?? streak;
         final isEligible = data?.hasStreakActivity ?? false;
-        final points = streak * 10;
         return Scaffold(
           backgroundColor: background,
           body: SafeArea(
@@ -100,24 +100,7 @@ class _StreakScreenState extends State<StreakScreen> {
                               ),
                             ),
                           ),
-                          SizedBox(
-                            width: 40,
-                            height: 40,
-                            child: IgnorePointer(
-                              child: Opacity(
-                                opacity: 0,
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Icon(
-                                    Icons.arrow_back,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
+                          const SizedBox(width: 40, height: 40),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -163,10 +146,7 @@ class _StreakScreenState extends State<StreakScreen> {
                         Row(
                           children: [
                             Expanded(
-                              child: _StatCard(
-                                value: '$streak',
-                                label: 'Current',
-                              ),
+                              child: _StatCard(value: '$streak', label: 'Current'),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
@@ -176,73 +156,7 @@ class _StreakScreenState extends State<StreakScreen> {
                                 isMuted: true,
                               ),
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: _StatCard(
-                                value: '$points',
-                                label: 'Total pts',
-                                isGoldBorder: true,
-                              ),
-                            ),
                           ],
-                        ),
-                        const SizedBox(height: 14),
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            'Milestone rewards',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w900,
-                              fontSize: 32 / 2,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(color: cardBorder, width: 1.5),
-                          ),
-                          child: Column(
-                            children: [
-                              _MilestoneRow(
-                                emoji: '🔥',
-                                title: '7-day streak',
-                                subtitle: 'Unlock a voucher reward',
-                                progress: streak / 7,
-                                trailing: '${streak.clamp(0, 7)}/7',
-                                progressColor: const Color(0xFFE86F12),
-                              ),
-                              const Divider(
-                                height: 1,
-                                color: Color(0xFFFFD2A6),
-                              ),
-                              _MilestoneRow(
-                                emoji: '⚡',
-                                title: '14-day streak',
-                                subtitle: 'Earn a Gold badge',
-                                progress: streak / 14,
-                                trailing: '${streak.clamp(0, 14)}/14',
-                                trailingColor: const Color(0xFF4A58D8),
-                                progressColor: const Color(0xFF646CE9),
-                              ),
-                              const Divider(
-                                height: 1,
-                                color: Color(0xFFFFD2A6),
-                              ),
-                              _MilestoneRow(
-                                emoji: '👑',
-                                title: '30-day streak',
-                                subtitle: 'Crown badge + exclusive voucher',
-                                trailing: streak >= 30
-                                    ? 'Earned'
-                                    : '${streak.clamp(0, 30)}/30',
-                                progress: streak >= 30 ? null : (streak / 30),
-                                isLocked: streak < 30,
-                              ),
-                            ],
-                          ),
                         ),
                         const SizedBox(height: 14),
                         Container(
@@ -314,6 +228,17 @@ class _StreakScreenState extends State<StreakScreen> {
                                 ),
                               ),
                             ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: () => Navigator.of(
+                            context,
+                          ).pushNamed(RedeemPointsScreen.routeName),
+                          icon: const Icon(Icons.card_giftcard),
+                          label: const Text('Go to Redeem Points'),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(double.infinity, 44),
                           ),
                         ),
                       ],
@@ -416,26 +341,21 @@ class _StatCard extends StatelessWidget {
   final String value;
   final String label;
   final bool isMuted;
-  final bool isGoldBorder;
 
   const _StatCard({
     required this.value,
     required this.label,
     this.isMuted = false,
-    this.isGoldBorder = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final border = isGoldBorder
-        ? const Color(0xFFEBC43A)
-        : const Color(0xFFE4A055);
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: BoxDecoration(
         color: isMuted ? const Color(0xFFF0F1F5) : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: border, width: 1.5),
+        border: Border.all(color: const Color(0xFFE4A055), width: 1.5),
       ),
       child: Column(
         children: [
@@ -458,138 +378,6 @@ class _StatCard extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _MilestoneRow extends StatelessWidget {
-  final String emoji;
-  final String title;
-  final String subtitle;
-  final String trailing;
-  final Color trailingColor;
-  final double? progress;
-  final Color progressColor;
-  final bool isLocked;
-
-  const _MilestoneRow({
-    required this.emoji,
-    required this.title,
-    required this.subtitle,
-    this.trailing = '',
-    this.trailingColor = const Color(0xFFC94F0B),
-    this.progress,
-    this.progressColor = const Color(0xFFE86F12),
-    this.isLocked = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final alpha = isLocked ? 0.35 : 1.0;
-    return Padding(
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF6F2ED).withValues(alpha: alpha),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              emoji,
-              style: TextStyle(
-                fontSize: 22,
-                color: Colors.black.withValues(alpha: alpha),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.black.withValues(alpha: alpha),
-                        ),
-                      ),
-                    ),
-                    Text(
-                      trailing,
-                      style: TextStyle(
-                        color: trailingColor.withValues(alpha: alpha),
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: Colors.black.withValues(alpha: 0.5 * alpha),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (progress != null) ...[
-                  const SizedBox(height: 8),
-                  _SmoothLinearProgress(
-                    value: progress!,
-                    minHeight: 6,
-                    backgroundColor: const Color(0xFFDFDFDD),
-                    valueColor: progressColor,
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SmoothLinearProgress extends StatelessWidget {
-  final double value;
-  final double minHeight;
-  final Color backgroundColor;
-  final Color valueColor;
-
-  const _SmoothLinearProgress({
-    required this.value,
-    required this.minHeight,
-    required this.backgroundColor,
-    required this.valueColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final safeValue = value.clamp(0.0, 1.0);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(99),
-      child: TweenAnimationBuilder<double>(
-        tween: Tween<double>(begin: 0, end: safeValue),
-        duration: const Duration(milliseconds: 550),
-        curve: Curves.easeOutCubic,
-        builder: (context, animatedValue, _) {
-          return LinearProgressIndicator(
-            minHeight: minHeight,
-            value: animatedValue,
-            backgroundColor: backgroundColor,
-            valueColor: AlwaysStoppedAnimation(valueColor),
-          );
-        },
       ),
     );
   }

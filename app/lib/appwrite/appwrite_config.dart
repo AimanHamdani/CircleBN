@@ -28,6 +28,10 @@ class AppwriteConfig {
     'APPWRITE_EVENT_REGISTRATIONS_COLLECTION_ID',
     defaultValue: 'event_registrations',
   );
+  static const notificationsCollectionId = String.fromEnvironment(
+    'APPWRITE_NOTIFICATIONS_COLLECTION_ID',
+    defaultValue: 'notifications',
+  );
   static const clubMembersCollectionId = String.fromEnvironment(
     'APPWRITE_CLUB_MEMBERS_COLLECTION_ID',
     defaultValue: 'club_members',

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -11,11 +13,15 @@ import '../../../data/club_member_repository.dart';
 import '../../../data/club_repository.dart';
 import '../../../data/event_invite_repository.dart';
 import '../../../data/event_registration_repository.dart';
+import '../../../data/membership_repository.dart';
 import '../../../data/notification_repository.dart';
 import '../../../data/sample_clubs.dart';
+import '../../../data/profile_repository.dart';
 import '../../../models/app_notification.dart';
 import '../../../models/club.dart';
 import '../../../models/event.dart';
+import '../../../models/event_privacy.dart';
+import '../../../models/user_profile.dart';
 import 'map_picker_screen.dart';
 
 class CreateEventScreen extends StatefulWidget {
@@ -40,7 +46,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   final _participantsCtrl = TextEditingController(text: '1');
   final _dateTimeDisplayCtrl = TextEditingController();
   final _durationDisplayCtrl = TextEditingController();
-  final _feeCtrl = TextEditingController(text: 'Free');
+  final _feeCtrl = TextEditingController();
+  final _inviteSearchCtrl = TextEditingController();
 
   Event? _initialEvent;
   bool _hasPrefilled = false;
@@ -60,6 +67,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   Uint8List? _thumbnailPreviewBytes;
   bool _isSubmitting = false;
   String? _participantSuggestionHint;
+
+  /// For invite-search private mode: user ids to invite (search + chips).
+  final List<String> _manualInviteUserIds = [];
+  List<UserProfile> _inviteSuggestions = [];
+  Timer? _inviteSearchDebounce;
 
   /// Clubs where the current user is an admin (loaded once).
   late final Future<List<Club>> _adminClubsFuture;
@@ -217,13 +229,19 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _durationDisplayCtrl.text = _duration ?? '';
     _participantsCtrl.text = e.capacity.toString();
     _participantSuggestionHint = _participantSuggestionForSport(e.sport)?.value;
-    _feeCtrl.text = _normalizeFeeLabel(e.entryFeeLabel);
+    _feeCtrl.text = _feeDigitsForField(e.entryFeeLabel);
+    _manualInviteUserIds
+      ..clear()
+      ..addAll(
+        EventPrivacy.isInviteSearch(e.privacy) ? e.invitedUserIds : const [],
+      );
     _thumbnailFileId = e.thumbnailFileId;
     _skillLevel = _normalizeSkillLevelLabel(e.skillLevel);
     _gender = e.gender;
     _ageGroup = e.ageGroup;
     _hostRole = e.hostRole;
     _cancellationFreeze = e.cancellationFreeze;
+    _privacy = e.privacy;
     final cid = e.clubId?.trim();
     _hostAsClub = cid != null && cid.isNotEmpty;
     _hostClubId = _hostAsClub ? cid : null;
@@ -238,7 +256,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _participantsCtrl.text = draft.participantsText.isEmpty
         ? '1'
         : draft.participantsText;
-    _feeCtrl.text = draft.feeText.isEmpty ? 'Free' : draft.feeText;
+    _feeCtrl.text = _feeDigitsForField(draft.feeText);
+    _manualInviteUserIds
+      ..clear()
+      ..addAll(draft.manualInviteUserIds);
     _sport = draft.sport;
     _participantSuggestionHint = _participantSuggestionForSport(_sport)?.value;
     _category = draft.category;
@@ -271,6 +292,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       lngText: _lngCtrl.text.trim(),
       participantsText: _participantsCtrl.text.trim(),
       feeText: _feeCtrl.text.trim(),
+      manualInviteUserIds: [..._manualInviteUserIds],
       sport: _sport,
       category: _category,
       privacy: _privacy,
@@ -298,7 +320,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _participantsCtrl.text = '1';
     _dateTimeDisplayCtrl.clear();
     _durationDisplayCtrl.clear();
-    _feeCtrl.text = 'Free';
+    _feeCtrl.clear();
+    _inviteSearchCtrl.clear();
+    _manualInviteUserIds.clear();
+    _inviteSuggestions = [];
 
     _sport = null;
     _category = null;
@@ -315,6 +340,47 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _hostAsClub = false;
     _hostClubId = null;
     _participantSuggestionHint = null;
+  }
+
+  String _privacyFieldLabel() {
+    final p = _privacy;
+    if (p == null || p.trim().isEmpty) {
+      return 'Privacy';
+    }
+    if (EventPrivacy.isPublic(p)) {
+      return EventPrivacy.public;
+    }
+    return EventPrivacy.privateCombined;
+  }
+
+  void _setPrivateSubMode(String? mode) {
+    if (mode == null) {
+      return;
+    }
+    setState(() {
+      _privacy = mode;
+      if (mode == EventPrivacy.privateClubNotify) {
+        _hostAsClub = true;
+      }
+      if (mode != EventPrivacy.privateInviteSearch) {
+        _manualInviteUserIds.clear();
+        _inviteSearchCtrl.clear();
+        _inviteSuggestions = [];
+      }
+    });
+  }
+
+  String _privateSubModeBlurb(String mode) {
+    switch (mode) {
+      case EventPrivacy.privateRequestJoin:
+        return 'Listed like a public event; you approve who joins.';
+      case EventPrivacy.privateInviteSearch:
+        return 'Hidden from browse; only users you add get an invite.';
+      case EventPrivacy.privateClubNotify:
+        return 'Requires hosting as a club; every member is invited.';
+      default:
+        return '';
+    }
   }
 
   MapEntry<int, String>? _participantSuggestionForSport(String? sport) {
@@ -394,6 +460,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _dateTimeDisplayCtrl.dispose();
     _durationDisplayCtrl.dispose();
     _feeCtrl.dispose();
+    _inviteSearchDebounce?.cancel();
+    _inviteSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -523,16 +591,223 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                       const SizedBox(height: 12),
                       _TapPickerField(
                         label: 'Privacy',
-                        value: _privacy ?? 'Privacy',
+                        value: _privacyFieldLabel(),
                         onTap: () => _showOptionPicker<String>(
                           title: 'Privacy',
                           options: const [
-                            'Public (anyone can join)',
-                            'Private (invites only)',
+                            EventPrivacy.public,
+                            EventPrivacy.privateCombined,
                           ],
-                          onSelected: (v) => setState(() => _privacy = v),
+                          onSelected: (v) {
+                            setState(() {
+                              if (v == EventPrivacy.public) {
+                                _privacy = EventPrivacy.public;
+                                _manualInviteUserIds.clear();
+                                _inviteSearchCtrl.clear();
+                                _inviteSuggestions = [];
+                              } else if (v == EventPrivacy.privateCombined) {
+                                if (!EventPrivacy.isPrivateish(_privacy)) {
+                                  _privacy = EventPrivacy.privateRequestJoin;
+                                }
+                              }
+                            });
+                          },
                         ),
                       ),
+                      if (EventPrivacy.isPrivateish(_privacy)) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Private access',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.black.withValues(alpha: 0.55),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ChoiceChip(
+                              label: const Text('Request to join'),
+                              selected: EventPrivacy.privateSubModeValue(
+                                    _privacy,
+                                  ) ==
+                                  EventPrivacy.privateRequestJoin,
+                              onSelected: (sel) {
+                                if (sel) {
+                                  _setPrivateSubMode(
+                                    EventPrivacy.privateRequestJoin,
+                                  );
+                                }
+                              },
+                            ),
+                            ChoiceChip(
+                              label: const Text('Invite people'),
+                              selected: EventPrivacy.privateSubModeValue(
+                                    _privacy,
+                                  ) ==
+                                  EventPrivacy.privateInviteSearch,
+                              onSelected: (sel) {
+                                if (sel) {
+                                  _setPrivateSubMode(
+                                    EventPrivacy.privateInviteSearch,
+                                  );
+                                }
+                              },
+                            ),
+                            ChoiceChip(
+                              label: const Text('Club members'),
+                              selected: EventPrivacy.privateSubModeValue(
+                                    _privacy,
+                                  ) ==
+                                  EventPrivacy.privateClubNotify,
+                              onSelected: (sel) {
+                                if (sel) {
+                                  _setPrivateSubMode(
+                                    EventPrivacy.privateClubNotify,
+                                  );
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _privateSubModeBlurb(
+                            EventPrivacy.privateSubModeValue(_privacy),
+                          ),
+                          style: TextStyle(
+                            fontSize: 11,
+                            height: 1.3,
+                            color: Colors.black.withValues(alpha: 0.45),
+                          ),
+                        ),
+                      ],
+                      if (EventPrivacy.isInviteSearch(_privacy)) ...[
+                        const SizedBox(height: 14),
+                        const Text(
+                          'Invite users',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.black54,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Search by name or @username (2+ letters). Tap a result to add.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.black.withValues(alpha: 0.45),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _inviteSearchCtrl,
+                          decoration: const InputDecoration(
+                            hintText: 'Name or username…',
+                            isDense: true,
+                          ),
+                          onChanged: (t) {
+                            _inviteSearchDebounce?.cancel();
+                            final q = t.trim();
+                            if (q.length < 2) {
+                              setState(() => _inviteSuggestions = []);
+                              return;
+                            }
+                            _inviteSearchDebounce = Timer(
+                              const Duration(milliseconds: 320),
+                              () async {
+                                final rows =
+                                    await profileRepository().searchProfilesForInvite(
+                                  q,
+                                );
+                                if (!mounted) return;
+                                setState(() => _inviteSuggestions = rows);
+                              },
+                            );
+                          },
+                        ),
+                        if (_inviteSuggestions.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Material(
+                            elevation: 2,
+                            borderRadius: BorderRadius.circular(12),
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxHeight: 200),
+                              child: ListView.separated(
+                                shrinkWrap: true,
+                                padding: EdgeInsets.zero,
+                                itemCount: _inviteSuggestions.length,
+                                separatorBuilder: (_, __) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (context, i) {
+                                  final u = _inviteSuggestions[i];
+                                  final displayName = u.realName.trim().isEmpty
+                                      ? u.username
+                                      : u.realName.trim();
+                                  return ListTile(
+                                    dense: true,
+                                    leading: _InvitePickerAvatar(
+                                      avatarFileId: u.avatarFileId,
+                                      label: displayName,
+                                    ),
+                                    title: Text(
+                                      u.username,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      displayName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    onTap: () {
+                                      final id = u.userId.trim();
+                                      if (id.isEmpty || id == currentUserId) {
+                                        return;
+                                      }
+                                      setState(() {
+                                        if (!_manualInviteUserIds.contains(
+                                          id,
+                                        )) {
+                                          _manualInviteUserIds.add(id);
+                                        }
+                                        _inviteSuggestions = [];
+                                        _inviteSearchCtrl.clear();
+                                      });
+                                    },
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (_manualInviteUserIds.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final id in _manualInviteUserIds)
+                                InputChip(
+                                  label: Text(
+                                    id.length > 14
+                                        ? '${id.substring(0, 12)}…'
+                                        : id,
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                  onDeleted: () => setState(
+                                    () => _manualInviteUserIds.remove(id),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ],
                     ],
                   ),
                 ),
@@ -962,7 +1237,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                       const SizedBox(height: 8),
                       TextFormField(
                         controller: _feeCtrl,
-                        decoration: const InputDecoration(hintText: 'Free'),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        decoration: const InputDecoration(
+                          hintText: 'Leave empty for free, or enter amount',
+                        ),
                       ),
                     ],
                   ),
@@ -1282,6 +1563,23 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     final capacity = int.tryParse(_participantsCtrl.text.trim());
     final maxAllowedParticipants = _maxParticipantsForSport(sport);
 
+    if (_isEditMode) {
+      final originalStartAt = _initialEvent?.startAt;
+      if (originalStartAt != null) {
+        final editCutoff = originalStartAt.subtract(const Duration(hours: 1));
+        if (!DateTime.now().isBefore(editCutoff)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Event editing is only allowed until 1 hour before start time.',
+              ),
+            ),
+          );
+          return;
+        }
+      }
+    }
+
     if (startAt == null ||
         durationMinutes == null ||
         sport.isEmpty ||
@@ -1310,8 +1608,22 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       return;
     }
 
-    final selectedPrivacy = (_privacy ?? '').toLowerCase();
-    final isPrivateEvent = selectedPrivacy.contains('private');
+    if (EventPrivacy.isPrivateish(_privacy)) {
+      final membership = await membershipRepository().getStatus();
+      if (!membership.isPremium) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Private events are available for membership users only.',
+            ),
+          ),
+        );
+        return;
+      }
+    }
 
     final skillLevel =
         _skillLevel ??
@@ -1354,7 +1666,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           : null;
     }
 
-    if (isPrivateEvent &&
+    if (EventPrivacy.wantsClubMemberInvites(_privacy) &&
         (resolvedClubId == null || resolvedClubId.trim().isEmpty)) {
       if (!mounted) {
         return;
@@ -1362,7 +1674,21 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Private events currently require club hosting so members can be invited.',
+            'Turn on “Host as club” and pick a club, or choose a different privacy.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (EventPrivacy.isInviteSearch(_privacy) && _manualInviteUserIds.isEmpty) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Add at least one user to invite (search by name or username).',
           ),
         ),
       );
@@ -1375,7 +1701,16 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     List<String> rejectedInviteUserIds = _isEditMode
         ? [...(_initialEvent?.rejectedInviteUserIds ?? const <String>[])]
         : const <String>[];
-    if (isPrivateEvent && resolvedClubId != null && resolvedClubId.isNotEmpty) {
+    var pendingJoinRequestUserIds = <String>[];
+    if (EventPrivacy.isRequestJoin(_privacy)) {
+      pendingJoinRequestUserIds = _isEditMode
+          ? [...(_initialEvent?.pendingJoinRequestUserIds ?? const <String>[])]
+          : const <String>[];
+    }
+
+    if (EventPrivacy.wantsClubMemberInvites(_privacy) &&
+        resolvedClubId != null &&
+        resolvedClubId.isNotEmpty) {
       invitedUserIds = await eventInviteRepository().buildClubInviteeIds(
         clubId: resolvedClubId,
         creatorId: currentUserId,
@@ -1383,6 +1718,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       rejectedInviteUserIds = _isEditMode
           ? [...(_initialEvent?.rejectedInviteUserIds ?? const <String>[])]
           : const <String>[];
+    } else if (EventPrivacy.isInviteSearch(_privacy)) {
+      invitedUserIds = [..._manualInviteUserIds];
+    } else if (EventPrivacy.isRequestJoin(_privacy)) {
+      invitedUserIds = [];
+    } else {
+      invitedUserIds = [];
     }
     final previousInvitees = _isEditMode
         ? (_initialEvent?.invitedUserIds.toSet() ?? <String>{})
@@ -1442,6 +1783,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       'privacy': _privacy,
       'invitedUserIds': invitedUserIds,
       'rejectedInviteUserIds': rejectedInviteUserIds,
+      'pendingJoinRequestUserIds': pendingJoinRequestUserIds,
       'gender': _gender,
       'ageGroup': _ageGroup,
       'hostRole': _hostRole,
@@ -1733,8 +2075,9 @@ class _CreateEventDraft {
   final String? thumbnailFileId;
   final bool hostAsClub;
   final String? hostClubId;
+  final List<String> manualInviteUserIds;
 
-  const _CreateEventDraft({
+  _CreateEventDraft({
     required this.title,
     required this.description,
     required this.location,
@@ -1755,6 +2098,7 @@ class _CreateEventDraft {
     required this.thumbnailFileId,
     this.hostAsClub = false,
     this.hostClubId,
+    this.manualInviteUserIds = const [],
   });
 
   static _CreateEventDraft? tryParse(String? raw) {
@@ -1783,6 +2127,12 @@ class _CreateEventDraft {
     final String? hostClubIdParsed = parts.length >= 21
         ? asOpt(parts[20])
         : null;
+    final inviteRaw = parts.length >= 22 ? parts[21] : '';
+    final manualInvites = inviteRaw
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
     return _CreateEventDraft(
       title: parts[0],
       description: parts[1],
@@ -1804,6 +2154,7 @@ class _CreateEventDraft {
       thumbnailFileId: thumbnail,
       hostAsClub: hostAsClub,
       hostClubId: hostClubIdParsed,
+      manualInviteUserIds: manualInvites,
     );
   }
 
@@ -1832,6 +2183,7 @@ class _CreateEventDraft {
       s(thumbnailFileId),
       hostAsClub ? '1' : '0',
       s(hostClubId),
+      manualInviteUserIds.join(','),
     ].join('\u0001');
   }
 
@@ -1853,7 +2205,8 @@ class _CreateEventDraft {
         ageGroup == null &&
         hostRole == null &&
         cancellationFreeze == null &&
-        (thumbnailFileId == null || thumbnailFileId!.isEmpty);
+        (thumbnailFileId == null || thumbnailFileId!.isEmpty) &&
+        manualInviteUserIds.isEmpty;
   }
 }
 
@@ -1910,18 +2263,31 @@ String _normalizeSkillLevelLabel(String raw) {
   return text;
 }
 
+/// Plain digits for the fee field (empty means free).
+String _feeDigitsForField(String raw) {
+  final t = raw.trim();
+  if (t.isEmpty || t.toLowerCase() == 'free') {
+    return '';
+  }
+  var s = t.startsWith(r'$') ? t.substring(1) : t;
+  s = s.replaceAll(RegExp(r'[^\d]'), '');
+  return s;
+}
+
 String _normalizeFeeLabel(String raw) {
   final text = raw.trim();
-  if (text.isEmpty) {
+  if (text.isEmpty || text.toLowerCase() == 'free') {
     return 'Free';
   }
-  if (text.toLowerCase() == 'free') {
+  final digitsOnly = text.replaceAll(RegExp(r'[^\d]'), '');
+  if (digitsOnly.isEmpty) {
     return 'Free';
   }
-  if (text.startsWith('\$')) {
-    return text;
+  final n = int.tryParse(digitsOnly);
+  if (n == null || n <= 0) {
+    return 'Free';
   }
-  return '\$$text';
+  return '\$$digitsOnly';
 }
 
 int? _durationMinutesFromLabel(String? label) {
@@ -2056,6 +2422,81 @@ class _InputWithIcon extends StatelessWidget {
       decoration: InputDecoration(
         hintText: hint,
         prefixIcon: Icon(icon, color: iconColor, size: 22),
+      ),
+    );
+  }
+}
+
+/// Small circle avatar for invite search rows (storage file or initial).
+class _InvitePickerAvatar extends StatelessWidget {
+  final String? avatarFileId;
+  final String label;
+
+  const _InvitePickerAvatar({
+    required this.avatarFileId,
+    required this.label,
+  });
+
+  static const double _size = 40;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final fid = avatarFileId?.trim();
+    if (fid != null && fid.isNotEmpty) {
+      return ClipOval(
+        child: SizedBox(
+          width: _size,
+          height: _size,
+          child: FutureBuilder<Uint8List>(
+            future: AppwriteService.getFileViewBytes(
+              bucketId: AppwriteConfig.profileImagesBucketId,
+              fileId: fid,
+            ),
+            builder: (context, snap) {
+              final bytes = snap.data;
+              if (snap.hasData && bytes != null && bytes.isNotEmpty) {
+                return Image.memory(bytes, fit: BoxFit.cover);
+              }
+              if (snap.connectionState == ConnectionState.waiting ||
+                  snap.connectionState == ConnectionState.active) {
+                return Center(
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: cs.primary,
+                    ),
+                  ),
+                );
+              }
+              return _letterFallback(cs);
+            },
+          ),
+        ),
+      );
+    }
+    return _letterFallback(cs);
+  }
+
+  Widget _letterFallback(ColorScheme cs) {
+    final letter = label.isNotEmpty ? label[0].toUpperCase() : '?';
+    return Container(
+      width: _size,
+      height: _size,
+      decoration: BoxDecoration(
+        color: cs.primary.withValues(alpha: 0.15),
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        letter,
+        style: TextStyle(
+          color: cs.primary,
+          fontWeight: FontWeight.w800,
+          fontSize: 16,
+        ),
       ),
     );
   }

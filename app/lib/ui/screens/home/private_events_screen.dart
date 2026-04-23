@@ -30,8 +30,14 @@ class PrivateEventsScreen extends StatelessWidget {
           builder: (context, snapshot) {
             final all = snapshot.data ?? const <Event>[];
             final privateEvents = all.where((e) {
+              if (!_isUpcomingOrOngoing(e)) {
+                return false;
+              }
               if (!eventInviteRepository().isPrivate(e)) {
                 return false;
+              }
+              if (eventInviteRepository().isRequestJoinPrivate(e)) {
+                return e.pendingJoinRequestUserIds.contains(currentUserId);
               }
               return eventInviteRepository().isInvited(
                 e,
@@ -73,6 +79,8 @@ class PrivateEventsScreen extends StatelessWidget {
                     ? 'Joined'
                     : rejected
                     ? 'Rejected'
+                    : eventInviteRepository().isRequestJoinPrivate(event)
+                    ? 'Request sent'
                     : 'Invited';
                 final statusColor = event.joinedByMe
                     ? const Color(0xFF15803D)
@@ -165,4 +173,9 @@ String _fmtTime(DateTime dt) {
   final hour12 = ((h + 11) % 12) + 1;
   final ampm = h >= 12 ? 'PM' : 'AM';
   return '$hour12:$m $ampm';
+}
+
+bool _isUpcomingOrOngoing(Event event) {
+  final endAt = event.startAt.add(event.duration);
+  return endAt.isAfter(DateTime.now());
 }

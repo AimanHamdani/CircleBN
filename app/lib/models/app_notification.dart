@@ -3,6 +3,7 @@ enum AppNotificationType {
   eventCancelledOrDeleted,
   eventInvite,
   eventUpdated,
+  eventJoinRequest,
 }
 
 AppNotificationType appNotificationTypeFromString(String raw) {
@@ -15,6 +16,8 @@ AppNotificationType appNotificationTypeFromString(String raw) {
       return AppNotificationType.eventInvite;
     case 'eventUpdated':
       return AppNotificationType.eventUpdated;
+    case 'eventJoinRequest':
+      return AppNotificationType.eventJoinRequest;
     default:
       return AppNotificationType.eventInvite;
   }
@@ -30,6 +33,8 @@ String appNotificationTypeToString(AppNotificationType type) {
       return 'eventInvite';
     case AppNotificationType.eventUpdated:
       return 'eventUpdated';
+    case AppNotificationType.eventJoinRequest:
+      return 'eventJoinRequest';
   }
 }
 

@@ -15,7 +15,11 @@ import '../../../data/club_repository.dart';
 import '../../../data/event_invite_repository.dart';
 import '../../../data/event_registration_repository.dart';
 import '../../../data/profile_repository.dart';
+import '../../../data/membership_repository.dart';
+import '../../../data/notification_repository.dart';
+import '../../../models/app_notification.dart';
 import '../../../models/event.dart';
+import '../../../models/event_privacy.dart';
 import '../../../models/user_profile.dart';
 import '../../../services/attendance_service.dart';
 import '../../../services/ticket_service.dart';
@@ -310,24 +314,106 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             ],
           ),
         ),
-        bottomNavigationBar: _tab == _EventDetailTab.details
-            ? ((args.showRegisterButton &&
-                      (e.creatorId == null || e.creatorId != currentUserId))
-                  ? _registerBar(
-                      context,
-                      isRegistered: isRegisteredByMe,
-                      joinedCount: joinedCount,
-                      capacity: e.capacity,
-                      onTap: () => _toggleRegistration(e),
-                      event: e,
-                      userProfile: null,
-                    )
-                  : null)
-            : (_tab == _EventDetailTab.chat
-                  ? _chatComposerBar(context, canSendChat: canSendChat)
-                  : null),
+        bottomNavigationBar: _tab == _EventDetailTab.chat
+            ? _chatComposerBar(context, canSendChat: canSendChat)
+            : _tab == _EventDetailTab.details
+            ? _detailsBottomBars(
+                context,
+                args: args,
+                event: e,
+                isRegistered: isRegisteredByMe,
+                joinedCount: joinedCount,
+              )
+            : null,
       ),
     );
+  }
+
+  Widget? _detailsBottomBars(
+    BuildContext context, {
+    required EventDetailArgs args,
+    required Event event,
+    required bool isRegistered,
+    required int joinedCount,
+  }) {
+    final creatorId = (event.creatorId ?? '').trim();
+    final isCreator = creatorId == currentUserId;
+    final showJoinRequestsStrip =
+        args.allowCreatorActions &&
+        isCreator &&
+        eventInviteRepository().isRequestJoinPrivate(event) &&
+        event.pendingJoinRequestUserIds.isNotEmpty;
+    final showRegisterBar =
+        args.showRegisterButton && (event.creatorId == null || !isCreator);
+
+    if (!showJoinRequestsStrip && !showRegisterBar) {
+      return null;
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (showJoinRequestsStrip)
+          _JoinRequestsCreatorStrip(
+            event: event,
+            onChanged: () => _refreshEvent(eventId: event.id),
+          ),
+        if (showRegisterBar)
+          _registerBar(
+            context,
+            isRegistered: isRegistered,
+            joinedCount: joinedCount,
+            capacity: event.capacity,
+            onTap: () => _toggleRegistration(event),
+            event: event,
+            userProfile: null,
+          ),
+      ],
+    );
+  }
+
+  Future<void> _submitJoinRequest(Event event) async {
+    if (!AppwriteService.isConfigured ||
+        AppwriteConfig.eventsCollectionId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Appwrite is not configured.')),
+        );
+      }
+      return;
+    }
+    try {
+      await eventInviteRepository().submitJoinRequest(
+        eventId: event.id,
+        userId: currentUserId,
+      );
+      final creatorId = (event.creatorId ?? '').trim();
+      if (creatorId.isNotEmpty && creatorId != currentUserId) {
+        final createdAt = DateTime.now();
+        await notificationRepository().upsertMany(creatorId, [
+          AppNotification(
+            id:
+                'join_request_${event.id}_${currentUserId}_${createdAt.millisecondsSinceEpoch}',
+            userId: creatorId,
+            type: AppNotificationType.eventJoinRequest,
+            title: 'New join request',
+            message: 'Someone requested to join ${event.title}.',
+            createdAt: createdAt,
+            targetEventId: event.id,
+          ),
+        ]);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Join request sent to the host.')),
+      );
+      await _refreshEvent(eventId: event.id);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not send request: $e')),
+      );
+    }
   }
 
   Widget _registerBar(
@@ -341,9 +427,28 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     final isFull = capacity > 0 && joinedCount >= capacity;
-    final label = isRegistered
-        ? 'Cancel Registration'
-        : (isFull ? 'Event Full' : 'Register');
+    final requestMode = eventInviteRepository().isRequestJoinPrivate(event);
+    final pendingRequest =
+        event.pendingJoinRequestUserIds.contains(currentUserId);
+
+    final String label;
+    final VoidCallback? effectiveOnTap;
+    if (isRegistered) {
+      label = 'Cancel Registration';
+      effectiveOnTap = onTap;
+    } else if (requestMode && pendingRequest) {
+      label = 'Request pending';
+      effectiveOnTap = null;
+    } else if (requestMode && !pendingRequest) {
+      label = 'Request to join';
+      effectiveOnTap = () => _submitJoinRequest(event);
+    } else if (isFull) {
+      label = 'Event Full';
+      effectiveOnTap = null;
+    } else {
+      label = 'Register';
+      effectiveOnTap = onTap;
+    }
     final counterText = capacity > 0
         ? '$joinedCount / $capacity joined'
         : '$joinedCount joined';
@@ -391,7 +496,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
               ],
             ],
             FilledButton(
-              onPressed: (!isRegistered && isFull) ? null : onTap,
+              onPressed: (!isRegistered && isFull && !requestMode)
+                  ? null
+                  : effectiveOnTap,
               style: FilledButton.styleFrom(
                 backgroundColor: isRegistered
                     ? Colors.white
@@ -484,6 +591,19 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }
 
   Future<void> _onEditEvent(Event event) async {
+    if (!_canEditEvent(event)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Event editing is only allowed until 1 hour before start time.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
     final result = await Navigator.of(
       context,
     ).pushNamed(CreateEventScreen.routeName, arguments: event);
@@ -516,6 +636,11 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
 
   bool _canCurrentUserScan(Event event) {
     return (event.creatorId ?? '').trim() == currentUserId || _isAttendedByMe;
+  }
+
+  bool _canEditEvent(Event event) {
+    final editCutoff = event.startAt.subtract(const Duration(hours: 1));
+    return DateTime.now().isBefore(editCutoff);
   }
 
   Widget _chatComposerBar(BuildContext context, {required bool canSendChat}) {
@@ -931,6 +1056,26 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     }
 
     if (!currentRegistered) {
+      if (EventPrivacy.isPrivateish(event.privacy)) {
+        final isInvited = event.invitedUserIds.contains(currentUserId);
+        if (!isInvited) {
+          final membership = await membershipRepository().getStatus();
+          if (!mounted) {
+            return;
+          }
+          if (!membership.isPremium) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Only members or invited users can join private events.',
+                ),
+              ),
+            );
+            return;
+          }
+        }
+      }
+
       final canAccessPrivate = _canAccessPrivateEvent(event);
       if (!canAccessPrivate) {
         if (mounted) {
@@ -1015,6 +1160,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }
 
   bool _canAccessPrivateEvent(Event event) {
+    if (eventInviteRepository().isRequestJoinPrivate(event)) {
+      return true;
+    }
     final isPrivate = eventInviteRepository().isPrivate(event);
     if (!isPrivate) {
       return true;
@@ -1186,6 +1334,105 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }
 
   // Gender / Age Group have restrictions; Host Role is display-only.
+}
+
+class _JoinRequestsCreatorStrip extends StatelessWidget {
+  const _JoinRequestsCreatorStrip({
+    required this.event,
+    required this.onChanged,
+  });
+
+  final Event event;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFFFF7ED),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Join requests (${event.pendingJoinRequestUserIds.length})',
+              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            FutureBuilder<List<UserProfile>>(
+              future: profileRepository().getProfilesByIds(
+                event.pendingJoinRequestUserIds,
+              ),
+              builder: (context, snap) {
+                final profiles = snap.data ?? const <UserProfile>[];
+                if (snap.connectionState != ConnectionState.done &&
+                    profiles.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                return Column(
+                  children: [
+                    for (final p in profiles)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                p.username.trim().isNotEmpty
+                                    ? p.username
+                                    : p.userId,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () async {
+                                await eventInviteRepository().rejectJoinRequest(
+                                  eventId: event.id,
+                                  userId: p.userId,
+                                );
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Request declined.')),
+                                  );
+                                  onChanged();
+                                }
+                              },
+                              child: const Text('Decline'),
+                            ),
+                            const SizedBox(width: 6),
+                            FilledButton(
+                              onPressed: () async {
+                                await eventInviteRepository().approveJoinRequest(
+                                  eventId: event.id,
+                                  userId: p.userId,
+                                );
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Player approved and added.')),
+                                  );
+                                  onChanged();
+                                }
+                              },
+                              child: const Text('Approve'),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _TabHeader extends StatelessWidget {

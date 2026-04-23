@@ -4,6 +4,7 @@ import '../../../appwrite/appwrite_service.dart';
 import '../../../data/achievement_repository.dart';
 import '../../../data/club_repository.dart';
 import '../../../data/event_repository.dart';
+import '../../../data/membership_repository.dart';
 import '../../../data/notification_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
@@ -24,6 +25,7 @@ import 'notifications_screen.dart';
 import 'redeem_points_screen.dart';
 import 'streak_screen.dart';
 import 'private_events_screen.dart';
+import '../../app_route_observer.dart';
 import '../../widgets/event_thumbnail_header.dart';
 import '../../theme/app_theme.dart';
 
@@ -370,15 +372,40 @@ class _HomeBody extends StatefulWidget {
   State<_HomeBody> createState() => _HomeBodyState();
 }
 
-class _HomeBodyState extends State<_HomeBody> {
+class _HomeBodyState extends State<_HomeBody> with RouteAware {
   late Future<UserProfile> _profileFuture;
   late Future<int> _unreadNotificationsFuture;
+  late Future<MembershipStatus> _membershipFuture;
 
   @override
   void initState() {
     super.initState();
     _profileFuture = profileRepository().getMyProfile();
     _unreadNotificationsFuture = _loadUnreadNotificationsCount();
+    _membershipFuture = membershipRepository().getStatus();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute<dynamic>) {
+      appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void dispose() {
+    appRouteObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  @override
+  void didPopNext() {
+    if (!mounted) return;
+    setState(() {
+      _membershipFuture = membershipRepository().getStatus();
+    });
   }
 
   Future<int> _loadUnreadNotificationsCount() async {
@@ -611,22 +638,30 @@ class _HomeBodyState extends State<_HomeBody> {
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  height: 76,
-                  width: double.infinity,
-                  color: const Color(0xFFF1F3F5),
-                  alignment: Alignment.center,
-                  child: Icon(
-                    Icons.campaign_outlined,
-                    size: 28,
-                    color: Colors.black.withValues(alpha: 0.22),
+            FutureBuilder<MembershipStatus>(
+              future: _membershipFuture,
+              builder: (context, membershipSnap) {
+                if (membershipSnap.data?.isPremium == true) {
+                  return const SizedBox.shrink();
+                }
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      height: 76,
+                      width: double.infinity,
+                      color: const Color(0xFFF1F3F5),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        Icons.campaign_outlined,
+                        size: 28,
+                        color: Colors.black.withValues(alpha: 0.22),
+                      ),
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
             Expanded(
               child: SingleChildScrollView(
@@ -780,12 +815,14 @@ class _HomeEventsSection extends StatelessWidget {
             : null);
         final preferred = profile?.preferredSports ?? const <String>{};
         final prioritized = _prioritizeByPreferredSports(events, preferred);
+        final now = DateTime.now();
+        final activeEvents = prioritized.where(_isUpcomingOrOngoing).toList();
         final today = _today();
-        final todaysEvents = prioritized
-            .where((e) => _isSameDay(e.startAt, today))
+        final todaysEvents = activeEvents
+            .where((e) => _isSameDay(e.startAt.toLocal(), today))
             .toList();
         final upcomingEvents =
-            prioritized.where((e) => e.startAt.isAfter(today)).toList()
+            activeEvents.where((e) => e.startAt.isAfter(now)).toList()
               ..sort((a, b) => a.startAt.compareTo(b.startAt));
         final shownEvents = todaysEvents.isNotEmpty
             ? todaysEvents
@@ -867,6 +904,9 @@ class _PrivateInvitesSectionState extends State<_PrivateInvitesSection> {
       for (final club in clubs) club.id: club.name,
     };
     final invites = events.where((e) {
+      if (!_isUpcomingOrOngoing(e)) {
+        return false;
+      }
       if (!eventInviteRepository().isPrivate(e)) {
         return false;
       }
@@ -1217,6 +1257,11 @@ DateTime _today() {
 
 bool _isSameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
+
+bool _isUpcomingOrOngoing(Event event) {
+  final endAt = event.startAt.add(event.duration);
+  return endAt.isAfter(DateTime.now());
+}
 
 class _ActivityCard extends StatelessWidget {
   final String title;

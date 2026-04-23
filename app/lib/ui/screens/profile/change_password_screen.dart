@@ -1,8 +1,11 @@
 import 'package:appwrite/appwrite.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
+import '../../../utils/password_rules.dart';
+import '../../widgets/password_requirement_hints.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
   static const routeName = '/profile/change-password';
@@ -23,6 +26,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   bool _obscureNew = true;
   bool _obscureConfirm = true;
   bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _newCtrl.addListener(() {
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   void dispose() {
@@ -72,6 +83,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8FA),
       appBar: AppBar(
@@ -116,6 +129,33 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   controller: _newCtrl,
                   obscureText: _obscureNew,
                   textInputAction: TextInputAction.next,
+                  maxLength: PasswordRules.maxLength,
+                  maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                  buildCounter: (
+                    context, {
+                    required currentLength,
+                    required isFocused,
+                    maxLength,
+                  }) {
+                    final m = maxLength ?? PasswordRules.maxLength;
+                    final near = PasswordRules.isNearMaxLength(_newCtrl.text);
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          '$currentLength / $m',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: near
+                                ? const Color(0xFFB8860B)
+                                : Colors.black.withValues(alpha: 0.45),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                   decoration: InputDecoration(
                     labelText: 'New password',
                     filled: true,
@@ -128,7 +168,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   validator: (v) {
                     final value = v ?? '';
                     if (value.isEmpty) return 'Enter a new password';
-                    if (value.length < 6) return 'Min 6 characters';
+                    final rule = PasswordRules.validate(value);
+                    if (rule != null) return rule;
                     if (value == _currentCtrl.text) {
                       return 'New password must differ from current';
                     }
@@ -160,6 +201,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                     }
                   },
                 ),
+                PasswordRequirementHints(password: _newCtrl.text, brandGreen: accent),
                 const SizedBox(height: 28),
                 FilledButton(
                   onPressed: _submitting ? null : _submit,

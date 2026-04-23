@@ -1,5 +1,7 @@
 import 'dart:developer' as developer;
 
+import 'package:appwrite/appwrite.dart';
+
 import '../appwrite/appwrite_config.dart';
 import '../appwrite/appwrite_service.dart';
 import '../auth/current_user.dart';
@@ -142,6 +144,66 @@ class ProfileRepository {
       return UserProfile.empty(normalized);
     }
     return profiles.first;
+  }
+
+  /// Prefix search on **username** and **realName** for invite pickers (Appwrite
+  /// needs usable indexes / attributes on both fields for both queries to work).
+  Future<List<UserProfile>> searchProfilesForInvite(
+    String query, {
+    int limit = 12,
+  }) async {
+    final q = query.trim();
+    if (q.length < 2) {
+      return const [];
+    }
+    if (!AppwriteService.isConfigured ||
+        AppwriteConfig.databaseId.isEmpty ||
+        AppwriteConfig.profilesCollectionId.isEmpty) {
+      return const [];
+    }
+    final me = currentUserId.trim();
+    final seen = <String>{};
+    final out = <UserProfile>[];
+
+    Future<void> appendFromQueries(List<String> queries) async {
+      if (out.length >= limit) {
+        return;
+      }
+      try {
+        final docs = await AppwriteService.listDocuments(
+          collectionId: AppwriteConfig.profilesCollectionId,
+          queries: queries,
+        );
+        for (final d in docs.documents) {
+          if (out.length >= limit) {
+            return;
+          }
+          final id = d.$id.trim();
+          if (id.isEmpty || id == me || seen.contains(id)) {
+            continue;
+          }
+          seen.add(id);
+          out.add(
+            UserProfile.fromMap(
+              Map<String, dynamic>.from(d.data),
+              userId: id,
+            ),
+          );
+        }
+      } catch (_) {
+        // e.g. attribute or index missing for this field — skip this branch.
+      }
+    }
+
+    await appendFromQueries([
+      Query.startsWith('username', q),
+      Query.limit(25),
+    ]);
+    await appendFromQueries([
+      Query.startsWith('realName', q),
+      Query.limit(25),
+    ]);
+    return out;
   }
 
   Future<void> _tryMigrateSportSkillsField(UserProfile profile) async {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../data/membership_repository.dart';
+import 'billing_history_screen.dart';
 
 // Sportly-inspired warm palette (CircleBN Pro paywall).
 abstract final class _ProColors {
@@ -47,6 +48,7 @@ class MembershipScreen extends StatefulWidget {
 
 class _MembershipScreenState extends State<MembershipScreen> {
   late Future<MembershipStatus> _statusFuture;
+  late Future<List<MembershipBillingRecord>> _billingFuture;
   String? _busyPlanId;
   String _selectedPlanId = 'yearly';
 
@@ -54,23 +56,31 @@ class _MembershipScreenState extends State<MembershipScreen> {
   void initState() {
     super.initState();
     _statusFuture = membershipRepository().getStatus();
+    _billingFuture = membershipRepository().listBillingHistory();
   }
 
   void _reload() {
     setState(() {
       _statusFuture = membershipRepository().getStatus();
+      _billingFuture = membershipRepository().listBillingHistory();
     });
   }
 
   Future<void> _subscribe(String planId) async {
     setState(() => _busyPlanId = planId);
     try {
-      await membershipRepository().subscribeMock(planId: planId);
+      final receipt = await membershipRepository().subscribeWithMockBilling(
+        planId: planId,
+      );
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Welcome to CircleBN Pro (demo).')),
+        SnackBar(
+          content: Text(
+            'Payment success (demo): ${receipt.id}. Welcome to CircleBN Pro.',
+          ),
+        ),
       );
       _reload();
     } finally {
@@ -178,6 +188,17 @@ class _MembershipScreenState extends State<MembershipScreen> {
         _WhatsIncludedCard(items: _benefitItems()),
         const SizedBox(height: 16),
         _FreeVsProTable(),
+        const SizedBox(height: 16),
+        _BillingHistoryCard(billingFuture: _billingFuture),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: () => Navigator.of(
+              context,
+            ).pushNamed(BillingHistoryScreen.routeName),
+            child: const Text('View full billing history'),
+          ),
+        ),
         const SizedBox(height: 24),
         OutlinedButton(
           style: OutlinedButton.styleFrom(
@@ -234,6 +255,17 @@ class _MembershipScreenState extends State<MembershipScreen> {
         _WhatsIncludedCard(items: _benefitItems()),
         const SizedBox(height: 16),
         _FreeVsProTable(),
+        const SizedBox(height: 16),
+        _BillingHistoryCard(billingFuture: _billingFuture),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: () => Navigator.of(
+              context,
+            ).pushNamed(BillingHistoryScreen.routeName),
+            child: const Text('View full billing history'),
+          ),
+        ),
         const SizedBox(height: 24),
         _GradientCtaButton(
           label: _selectedPlanId == 'yearly'
@@ -992,6 +1024,99 @@ class _GradientCtaButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _BillingHistoryCard extends StatelessWidget {
+  final Future<List<MembershipBillingRecord>> billingFuture;
+
+  const _BillingHistoryCard({required this.billingFuture});
+
+  String _formatAmount(MembershipBillingRecord record) {
+    final dollars = (record.amountCents / 100).toStringAsFixed(2);
+    return '\$${dollars} ${record.currency}';
+  }
+
+  String _formatPlan(String planId) {
+    if (planId == 'yearly') {
+      return 'Yearly';
+    }
+    if (planId == 'monthly') {
+      return 'Monthly';
+    }
+    if (planId == 'cancel') {
+      return 'Cancellation';
+    }
+    return planId;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<MembershipBillingRecord>>(
+      future: billingFuture,
+      builder: (context, snap) {
+        final records = snap.data ?? const <MembershipBillingRecord>[];
+        if (records.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: _ProColors.divider),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Recent billing (mock)',
+                style: TextStyle(
+                  color: _ProColors.brown,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
+                ),
+              ),
+              const SizedBox(height: 8),
+              for (int i = 0; i < records.length && i < 3; i++) ...[
+                if (i > 0)
+                  Divider(height: 10, thickness: 1, color: _ProColors.divider),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${_formatPlan(records[i].planId)} · ${records[i].status}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      _formatAmount(records[i]),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${records[i].id} · ${_formatRenewal(records[i].createdAt)}',
+                  style: TextStyle(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 }

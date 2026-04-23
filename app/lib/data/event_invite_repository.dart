@@ -2,6 +2,7 @@ import '../appwrite/appwrite_config.dart';
 import '../appwrite/appwrite_service.dart';
 import '../auth/current_user.dart';
 import '../models/event.dart';
+import '../models/event_privacy.dart';
 import 'club_member_repository.dart';
 import 'event_registration_repository.dart';
 
@@ -60,9 +61,115 @@ class EventInviteRepository {
     return event.invitedUserIds.contains(me);
   }
 
-  bool isPrivate(Event event) {
-    final privacy = (event.privacy ?? '').toLowerCase();
-    return privacy.contains('private');
+  bool isPrivate(Event event) => EventPrivacy.isPrivateish(event.privacy);
+
+  bool isRequestJoinPrivate(Event event) =>
+      EventPrivacy.isRequestJoin(event.privacy);
+
+  bool isInviteSearchPrivate(Event event) =>
+      EventPrivacy.isInviteSearch(event.privacy);
+
+  Future<void> submitJoinRequest({
+    required String eventId,
+    required String userId,
+  }) async {
+    final uid = userId.trim();
+    if (uid.isEmpty ||
+        !AppwriteService.isConfigured ||
+        AppwriteConfig.eventsCollectionId.isEmpty) {
+      return;
+    }
+    final doc = await AppwriteService.getDocument(
+      collectionId: AppwriteConfig.eventsCollectionId,
+      documentId: eventId,
+    );
+    final data = Map<String, dynamic>.from(doc.data);
+    final raw = data['pendingJoinRequestUserIds'] ??
+        data['pending_join_request_user_ids'];
+    final existing = _parseIdList(raw);
+    if (existing.contains(uid)) {
+      return;
+    }
+    final next = [...existing, uid];
+    await AppwriteService.updateDocument(
+      collectionId: AppwriteConfig.eventsCollectionId,
+      documentId: eventId,
+      data: {'pendingJoinRequestUserIds': next},
+    );
+  }
+
+  Future<void> rejectJoinRequest({
+    required String eventId,
+    required String userId,
+  }) async {
+    final uid = userId.trim();
+    if (uid.isEmpty ||
+        !AppwriteService.isConfigured ||
+        AppwriteConfig.eventsCollectionId.isEmpty) {
+      return;
+    }
+    final doc = await AppwriteService.getDocument(
+      collectionId: AppwriteConfig.eventsCollectionId,
+      documentId: eventId,
+    );
+    final data = Map<String, dynamic>.from(doc.data);
+    final existing = _parseIdList(
+      data['pendingJoinRequestUserIds'] ??
+          data['pending_join_request_user_ids'],
+    );
+    final next = existing.where((id) => id != uid).toList();
+    await AppwriteService.updateDocument(
+      collectionId: AppwriteConfig.eventsCollectionId,
+      documentId: eventId,
+      data: {'pendingJoinRequestUserIds': next},
+    );
+  }
+
+  Future<void> approveJoinRequest({
+    required String eventId,
+    required String userId,
+  }) async {
+    final uid = userId.trim();
+    if (uid.isEmpty) {
+      return;
+    }
+    await eventRegistrationRepository().register(
+      eventId: eventId,
+      userId: uid,
+    );
+    final joined = await eventRegistrationRepository().getJoinedCount(eventId);
+    final doc = await AppwriteService.getDocument(
+      collectionId: AppwriteConfig.eventsCollectionId,
+      documentId: eventId,
+    );
+    final data = Map<String, dynamic>.from(doc.data);
+    final existing = _parseIdList(
+      data['pendingJoinRequestUserIds'] ??
+          data['pending_join_request_user_ids'],
+    );
+    final next = existing.where((id) => id != uid).toList();
+    await AppwriteService.updateDocument(
+      collectionId: AppwriteConfig.eventsCollectionId,
+      documentId: eventId,
+      data: {
+        'pendingJoinRequestUserIds': next,
+        'joined': joined,
+      },
+    );
+  }
+
+  List<String> _parseIdList(Object? v) {
+    if (v is List) {
+      return v.map((e) => e.toString()).where((e) => e.trim().isNotEmpty).toList();
+    }
+    if (v is String) {
+      return v
+          .split(',')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+    return const [];
   }
 }
 

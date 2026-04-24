@@ -7,8 +7,10 @@ import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
 import '../../../data/club_member_repository.dart';
+import '../../../data/membership_repository.dart';
 import '../../../data/sample_clubs.dart';
 import '../../../models/club.dart';
+import '../profile/membership_screen.dart';
 
 class CreateClubScreen extends StatefulWidget {
   static const routeName = '/create-club';
@@ -42,6 +44,8 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
   bool _isEditMode = false;
   bool _canEdit = true;
   bool _checkingAccess = false;
+  bool _checkingMembership = false;
+  bool _canCreateClub = true;
   Club? _editingClub;
 
   @override
@@ -83,6 +87,28 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
               setState(() => _checkingAccess = false);
             });
       }
+    }
+
+    if (!_isEditMode && !_checkingMembership) {
+      _checkingMembership = true;
+      membershipRepository()
+          .getStatus()
+          .then((status) {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _canCreateClub = status.isPremium;
+            });
+          })
+          .whenComplete(() {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _checkingMembership = false;
+            });
+          });
     }
 
     _didInitFromRoute = true;
@@ -140,6 +166,80 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
             children: [
+              if (!_isEditMode && !_canCreateClub)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 14),
+                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF6D6),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: const Color(0xFFE0B84A),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.lock_outline,
+                        size: 18,
+                        color: Color(0xFFA06B00),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Unlock club creation',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF2F3A46),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Start and manage your own club with premium access.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF5D6773),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            Navigator.of(
+                              context,
+                            ).pushNamed(MembershipScreen.routeName);
+                          },
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFCFB02C),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          icon: const Icon(
+                            Icons.workspace_premium_rounded,
+                            size: 18,
+                          ),
+                          label: const Text(
+                            'Upgrade to Pro',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               _SectionCard(
                 title: 'CLUB PHOTO',
                 child: Column(
@@ -310,7 +410,12 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
               ),
               const SizedBox(height: 24),
               FilledButton(
-                onPressed: (!_canEdit || _isSubmitting) ? null : _onCreateClub,
+                onPressed:
+                    (!_canEdit ||
+                        _isSubmitting ||
+                        (!_isEditMode && (!_canCreateClub || _checkingMembership)))
+                    ? null
+                    : _onCreateClub,
                 child: _isSubmitting
                     ? const SizedBox(
                         width: 18,
@@ -320,7 +425,13 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                           color: Colors.white,
                         ),
                       )
-                    : Text(submitText),
+                    : Text(
+                        _isEditMode
+                            ? submitText
+                            : (_canCreateClub
+                                  ? submitText
+                                  : 'Premium required'),
+                      ),
               ),
             ],
           ),
@@ -556,6 +667,20 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
 
   Future<void> _onCreateClub() async {
     if (!_formKey.currentState!.validate()) return;
+    if (!_isEditMode) {
+      final status = await membershipRepository().getStatus();
+      if (!status.isPremium) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Only premium users can create clubs.'),
+          ),
+        );
+        return;
+      }
+    }
 
     if (!AppwriteService.isConfigured ||
         AppwriteConfig.databaseId.isEmpty ||

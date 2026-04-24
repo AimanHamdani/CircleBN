@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../data/membership_repository.dart';
+import 'billing_checkout_screen.dart';
 import 'billing_history_screen.dart';
 
 // Sportly-inspired warm palette (CircleBN Pro paywall).
@@ -67,26 +68,15 @@ class _MembershipScreenState extends State<MembershipScreen> {
   }
 
   Future<void> _subscribe(String planId) async {
-    setState(() => _busyPlanId = planId);
-    try {
-      final receipt = await membershipRepository().subscribeWithMockBilling(
-        planId: planId,
-      );
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Payment success (demo): ${receipt.id}. Welcome to CircleBN Pro.',
-          ),
-        ),
-      );
+    final upgraded = await Navigator.of(context).pushNamed(
+      BillingCheckoutScreen.routeName,
+      arguments: <String, dynamic>{'planId': planId},
+    );
+    if (!mounted) {
+      return;
+    }
+    if (upgraded == true) {
       _reload();
-    } finally {
-      if (mounted) {
-        setState(() => _busyPlanId = null);
-      }
     }
   }
 
@@ -318,6 +308,30 @@ class _MembershipScreenState extends State<MembershipScreen> {
         freeNote: 'Available on Free: Basic stats only',
         iconBg: const Color(0xFFE8E6FF),
         icon: const Text('📊', style: TextStyle(fontSize: 22)),
+      ),
+      _BenefitItem(
+        title: 'Unlimited event creation',
+        description:
+            'Free users can create up to 4 events per week (resets every Monday at 12:00 AM). Pro removes this weekly limit.',
+        freeNote: 'Available on Free: Max 4 new events per week',
+        iconBg: const Color(0xFFFFEDD5),
+        icon: const Text('🗓️', style: TextStyle(fontSize: 22)),
+      ),
+      _BenefitItem(
+        title: 'Private event controls',
+        description:
+            'Create invite-only and request-join events with private visibility options for your matches.',
+        freeNote: 'Available on Free: Public events only',
+        iconBg: const Color(0xFFFFF4D6),
+        icon: const Text('🔒', style: TextStyle(fontSize: 22)),
+      ),
+      _BenefitItem(
+        title: 'Create your own clubs',
+        description:
+            'Start and manage your own sports club communities with full host controls.',
+        freeNote: 'Available on Free: Club creation locked',
+        iconBg: const Color(0xFFE8F8EF),
+        icon: const Text('👥', style: TextStyle(fontSize: 22)),
       ),
       _BenefitItem(
         title: 'Detailed skill tracking',
@@ -776,17 +790,22 @@ class _FreeVsProTable extends StatelessWidget {
       ),
       _CmpRow(
         feature: 'Create events',
-        freeText: '',
+        freeText: '4/week max',
         freeIsBad: false,
         proOk: true,
-        freeCheck: true,
+        freeCheck: false,
       ),
       _CmpRow(
-        feature: 'Join clubs',
-        freeText: '',
+        feature: 'Private event controls',
+        freeText: 'Public only',
         freeIsBad: false,
         proOk: true,
-        freeCheck: true,
+      ),
+      _CmpRow(
+        feature: 'Create clubs',
+        freeText: 'Locked',
+        freeIsBad: false,
+        proOk: true,
       ),
       _CmpRow(
         feature: 'Streaks & badges',

@@ -15,6 +15,7 @@ import '../../../data/event_invite_repository.dart';
 import '../../../data/event_registration_repository.dart';
 import '../../../data/membership_repository.dart';
 import '../../../data/notification_repository.dart';
+import '../../../data/club_chat_repository.dart';
 import '../../../data/sample_clubs.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/app_notification.dart';
@@ -34,6 +35,7 @@ class CreateEventScreen extends StatefulWidget {
 }
 
 class _CreateEventScreenState extends State<CreateEventScreen> {
+  static const int _freeWeeklyEventLimit = 4;
   static const _draftPrefsKey = 'create_event_draft_v3';
   static _CreateEventDraft? _lastDraft;
 
@@ -75,6 +77,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   /// Clubs where the current user is an admin (loaded once).
   late final Future<List<Club>> _adminClubsFuture;
+  bool _isPremiumUser = false;
+  bool _premiumLoaded = false;
+  int _freeEventsUsedThisWeek = 0;
+  bool _freeQuotaLoading = false;
 
   /// When true, the event is linked to [clubId] for a club-hosted listing.
   bool _hostAsClub = false;
@@ -88,6 +94,56 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   void initState() {
     super.initState();
     _adminClubsFuture = _loadAdminClubs();
+    _loadPremiumStatus();
+  }
+
+  Future<void> _loadPremiumStatus() async {
+    try {
+      final status = await membershipRepository().getStatus();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isPremiumUser = status.isPremium;
+        _premiumLoaded = true;
+        if (!_isPremiumUser && EventPrivacy.isPrivateish(_privacy)) {
+          _privacy = EventPrivacy.public;
+          _manualInviteUserIds.clear();
+          _inviteSearchCtrl.clear();
+          _inviteSuggestions = [];
+        }
+      });
+      if (!_isPremiumUser) {
+        _refreshFreeQuotaUsage();
+      }
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isPremiumUser = false;
+        _premiumLoaded = true;
+      });
+      _refreshFreeQuotaUsage();
+    }
+  }
+
+  Future<void> _refreshFreeQuotaUsage() async {
+    if (_isPremiumUser || !mounted) {
+      return;
+    }
+    setState(() => _freeQuotaLoading = true);
+    try {
+      final count = await _countFreeEventsCreatedThisWeek();
+      if (!mounted) {
+        return;
+      }
+      setState(() => _freeEventsUsedThisWeek = count);
+    } finally {
+      if (mounted) {
+        setState(() => _freeQuotaLoading = false);
+      }
+    }
   }
 
   Future<List<Club>> _loadAdminClubs() async {
@@ -594,10 +650,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                         value: _privacyFieldLabel(),
                         onTap: () => _showOptionPicker<String>(
                           title: 'Privacy',
-                          options: const [
-                            EventPrivacy.public,
-                            EventPrivacy.privateCombined,
-                          ],
+                          options: _isPremiumUser
+                              ? const [
+                                  EventPrivacy.public,
+                                  EventPrivacy.privateCombined,
+                                ]
+                              : const [EventPrivacy.public],
                           onSelected: (v) {
                             setState(() {
                               if (v == EventPrivacy.public) {
@@ -606,6 +664,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                                 _inviteSearchCtrl.clear();
                                 _inviteSuggestions = [];
                               } else if (v == EventPrivacy.privateCombined) {
+                                if (!_isPremiumUser) {
+                                  return;
+                                }
                                 if (!EventPrivacy.isPrivateish(_privacy)) {
                                   _privacy = EventPrivacy.privateRequestJoin;
                                 }
@@ -614,6 +675,55 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                           },
                         ),
                       ),
+                      if (_premiumLoaded && !_isPremiumUser) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF9E8),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: const Color(0xFFE8C15A),
+                            ),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(
+                                Icons.lock_outline,
+                                size: 16,
+                                color: Color(0xFFA17100),
+                              ),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Private event options are available for premium users.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF7A5A00),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _freeQuotaLoading
+                              ? 'Checking weekly limit...'
+                              : 'This week: ${_freeEventsUsedThisWeek.clamp(0, _freeWeeklyEventLimit)}/$_freeWeeklyEventLimit events used. Resets every Monday, 12:00 AM.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            height: 1.3,
+                            color: Colors.black.withValues(alpha: 0.52),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                       if (EventPrivacy.isPrivateish(_privacy)) ...[
                         const SizedBox(height: 12),
                         Text(
@@ -635,7 +745,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                                     _privacy,
                                   ) ==
                                   EventPrivacy.privateRequestJoin,
-                              onSelected: (sel) {
+                              onSelected: !_isPremiumUser
+                                  ? null
+                                  : (sel) {
                                 if (sel) {
                                   _setPrivateSubMode(
                                     EventPrivacy.privateRequestJoin,
@@ -649,7 +761,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                                     _privacy,
                                   ) ==
                                   EventPrivacy.privateInviteSearch,
-                              onSelected: (sel) {
+                              onSelected: !_isPremiumUser
+                                  ? null
+                                  : (sel) {
                                 if (sel) {
                                   _setPrivateSubMode(
                                     EventPrivacy.privateInviteSearch,
@@ -663,7 +777,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                                     _privacy,
                                   ) ==
                                   EventPrivacy.privateClubNotify,
-                              onSelected: (sel) {
+                              onSelected: !_isPremiumUser
+                                  ? null
+                                  : (sel) {
                                 if (sel) {
                                   _setPrivateSubMode(
                                     EventPrivacy.privateClubNotify,
@@ -1608,16 +1724,19 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       return;
     }
 
-    if (EventPrivacy.isPrivateish(_privacy)) {
-      final membership = await membershipRepository().getStatus();
-      if (!membership.isPremium) {
-        if (!mounted) {
-          return;
-        }
+    if (EventPrivacy.isPrivateish(_privacy) && !_isPremiumUser) {
+      return;
+    }
+    if (!_isEditMode && !_isPremiumUser) {
+      final canCreate = await _canCreateMoreFreeEventsThisWeek();
+      if (!mounted) {
+        return;
+      }
+      if (!canCreate) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Private events are available for membership users only.',
+              'Free users can create up to 4 events per week. Upgrade to Pro for unlimited event creation.',
             ),
           ),
         );
@@ -1824,6 +1943,19 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           data: baseData,
         );
         eventId = created.$id;
+        if (resolvedClubId != null && resolvedClubId.isNotEmpty) {
+          try {
+            await clubChatRepository().sendPinnedEventMessage(
+              clubId: resolvedClubId,
+              senderId: currentUserId,
+              senderName: 'Club Admin',
+              eventId: eventId,
+              eventTitle: title,
+              eventStartAt: startAt,
+              eventLocation: location,
+            );
+          } catch (_) {}
+        }
       }
 
       if (newInviteeIds.isNotEmpty) {
@@ -1927,6 +2059,46 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         setState(() => _isSubmitting = false);
       }
     }
+  }
+
+  DateTime _startOfCurrentWeekLocal(DateTime nowLocal) {
+    final midnight = DateTime(nowLocal.year, nowLocal.month, nowLocal.day);
+    final daysFromMonday = (midnight.weekday - DateTime.monday) % 7;
+    return midnight.subtract(Duration(days: daysFromMonday));
+  }
+
+  Future<bool> _canCreateMoreFreeEventsThisWeek() async {
+    try {
+      final createdThisWeek = await _countFreeEventsCreatedThisWeek();
+      return createdThisWeek < _freeWeeklyEventLimit;
+    } catch (_) {
+      // Do not hard-block creation when quota check cannot be verified.
+      return true;
+    }
+  }
+
+  Future<int> _countFreeEventsCreatedThisWeek() async {
+    final docs = await AppwriteService.listDocuments(
+      collectionId: AppwriteConfig.eventsCollectionId,
+      queries: [
+        Query.equal('creatorId', currentUserId),
+        Query.orderDesc(r'$createdAt'),
+        Query.limit(100),
+      ],
+    );
+    final weekStart = _startOfCurrentWeekLocal(DateTime.now());
+    var createdThisWeek = 0;
+    for (final d in docs.documents) {
+      final createdAt = DateTime.tryParse(d.$createdAt)?.toLocal();
+      if (createdAt == null) {
+        continue;
+      }
+      if (createdAt.isBefore(weekStart)) {
+        continue;
+      }
+      createdThisWeek++;
+    }
+    return createdThisWeek;
   }
 
   Future<void> _pickThumbnail() async {

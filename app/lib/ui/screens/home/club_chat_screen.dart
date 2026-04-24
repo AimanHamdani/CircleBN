@@ -1,11 +1,22 @@
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'package:appwrite/appwrite.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
+import '../../../auth/current_user.dart';
+import '../../../data/club_chat_repository.dart';
+import '../../../data/club_member_repository.dart';
+import '../../../data/profile_repository.dart';
 import '../../../models/club.dart';
+import '../../../models/club_chat_message.dart';
+import '../../../models/event.dart';
 import 'club_info_screen.dart';
+import 'event_detail_screen.dart';
 
 /// Club group chat. Tapping the app bar (icon + name) opens [ClubInfoScreen].
 class ClubChatScreen extends StatefulWidget {
@@ -17,21 +28,66 @@ class ClubChatScreen extends StatefulWidget {
   State<ClubChatScreen> createState() => _ClubChatScreenState();
 }
 
+enum _ChatListTab { all, pinned }
+
 class _ClubChatScreenState extends State<ClubChatScreen> {
   final _composerCtrl = TextEditingController();
-  final _chatListKey = GlobalKey<AnimatedListState>();
-  final List<_MockChatItem> _messages = <_MockChatItem>[];
+  final _imagePicker = ImagePicker();
+  final List<ClubChatMessage> _messages = <ClubChatMessage>[];
+  final _chatRepo = clubChatRepository();
   static const _teal = Color(0xFF14B8A6);
   static const _mint = Color(0xFFF0FDFA);
-  bool _didSeedMessages = false;
-  bool _isTyping = false;
-  Timer? _replyTimer;
+  bool _isLoading = true;
+  bool _isSending = false;
+  String? _loadError;
+  Timer? _pollTimer;
+  RealtimeSubscription? _realtimeSubscription;
+  String? _displayName;
+  int? _membersCount;
+  _ChatListTab _activeTab = _ChatListTab.all;
+  bool _canPinAnyMessage = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadMessages();
+      _loadMembersCount();
+      _resolvePinPrivileges();
+      _startRealtimeSubscription();
+      _pollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+        _loadMessages(silent: true);
+      });
+    });
+  }
 
   @override
   void dispose() {
-    _replyTimer?.cancel();
+    _pollTimer?.cancel();
+    _realtimeSubscription?.close();
     _composerCtrl.dispose();
     super.dispose();
+  }
+
+  void _startRealtimeSubscription() {
+    final clubId = _clubFromRoute(context).id.trim();
+    if (clubId.isEmpty ||
+        !AppwriteService.isConfigured ||
+        AppwriteConfig.databaseId.isEmpty ||
+        AppwriteConfig.clubMessagesCollectionId.isEmpty) {
+      return;
+    }
+    _realtimeSubscription?.close();
+    _realtimeSubscription = AppwriteService.realtime.subscribe([
+      'databases.${AppwriteConfig.databaseId}.collections.${AppwriteConfig.clubMessagesCollectionId}.documents',
+    ]);
+    _realtimeSubscription?.stream.listen((event) {
+      final payload = event.payload;
+      final eventClubId = payload['clubId']?.toString() ?? '';
+      if (eventClubId == clubId) {
+        _loadMessages(silent: true);
+      }
+    });
   }
 
   Club _clubFromRoute(BuildContext context) {
@@ -48,112 +104,479 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
   }
 
   int _mockMembers(Club c) => 20 + (c.id.hashCode.abs() % 80);
-  int _mockOnline(Club c) => 3 + (c.id.hashCode.abs() % 12);
 
-  void _seedMessagesIfNeeded() {
-    if (_didSeedMessages) {
+  Future<void> _loadMembersCount() async {
+    final club = _clubFromRoute(context);
+    if (club.id.trim().isEmpty) {
       return;
     }
-    _didSeedMessages = true;
-    _messages.addAll([
-      const _MockChatItem.incoming(
-        name: 'Sarah Lim',
-        avatarColor: Color(0xFFFF9800),
-        avatarIcon: Icons.emoji_events_outlined,
-        text: 'Hey team! Are we still on for Saturday? ⚽',
-      ),
-      const _MockChatItem.incoming(
-        name: 'James Wong',
-        avatarColor: Color(0xFF2196F3),
-        avatarIcon: Icons.bolt_outlined,
-        text: "Yes! I'll be there at 5:45pm 👍",
-      ),
-      const _MockChatItem.pinned(),
-      const _MockChatItem.outgoing(text: 'Same, bringing extra balls 🔥'),
-      const _MockChatItem.incoming(
-        name: 'Sarah Lim',
-        avatarColor: Color(0xFFFF9800),
-        avatarIcon: Icons.emoji_events_outlined,
-        text: 'See you all there! 🙌',
-      ),
-    ]);
+    if (club.membersCount != null && mounted) {
+      setState(() {
+        _membersCount = club.membersCount;
+      });
+    }
+    try {
+      final members = await clubMemberRepository().listMembers(clubId: club.id);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _membersCount = members.length;
+      });
+    } catch (_) {}
   }
 
-  void _insertMessage(_MockChatItem item) {
-    final insertIndex = _messages.length;
-    _messages.add(item);
-    _chatListKey.currentState?.insertItem(
-      insertIndex,
-      duration: const Duration(milliseconds: 260),
-    );
+  Future<void> _resolvePinPrivileges() async {
+    final club = _clubFromRoute(context);
+    final isCreator = (club.creatorId ?? '').trim() == currentUserId.trim();
+    if (isCreator) {
+      if (mounted) {
+        setState(() {
+          _canPinAnyMessage = true;
+        });
+      }
+      return;
+    }
+    try {
+      final isAdmin = await clubMemberRepository().isAdmin(
+        clubId: club.id,
+        userId: currentUserId,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _canPinAnyMessage = isAdmin;
+      });
+    } catch (_) {}
   }
 
-  void _sendMessage() {
+  Future<String> _resolveDisplayName() async {
+    if (_displayName != null && _displayName!.trim().isNotEmpty) {
+      return _displayName!;
+    }
+    try {
+      final profile = await profileRepository().getMyProfile();
+      final realName = profile.realName.trim();
+      if (realName.isNotEmpty && realName.toLowerCase() != 'name') {
+        _displayName = realName;
+        return realName;
+      }
+      final username = profile.username.trim();
+      if (username.isNotEmpty && username.toLowerCase() != 'username') {
+        _displayName = username;
+        return username;
+      }
+    } catch (_) {}
+    _displayName = 'Member';
+    return _displayName!;
+  }
+
+  Future<void> _loadMessages({bool silent = false}) async {
+    final clubId = _clubFromRoute(context).id.trim();
+    if (clubId.isEmpty) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoading = false;
+        _loadError = 'Invalid club.';
+      });
+      return;
+    }
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _loadError = null;
+      });
+    }
+    try {
+      final items = await _chatRepo.listForClub(clubId);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _messages
+          ..clear()
+          ..addAll(items);
+        _isLoading = false;
+        _loadError = null;
+      });
+    } on AppwriteException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Failed to send message.')),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoading = false;
+        _loadError = 'Failed to load chat.';
+      });
+    }
+  }
+
+  Future<void> _sendMessage() async {
+    if (_activeTab == _ChatListTab.pinned) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Switch to All tab to send messages.')),
+        );
+      }
+      return;
+    }
     final text = _composerCtrl.text.trim();
     if (text.isEmpty) {
       return;
     }
-
-    _composerCtrl.clear();
-    _insertMessage(_MockChatItem.outgoing(text: text));
-
+    if (_isSending) {
+      return;
+    }
+    final clubId = _clubFromRoute(context).id.trim();
+    if (clubId.isEmpty) {
+      return;
+    }
+    final senderId = currentUserId.trim();
+    final senderName = await _resolveDisplayName();
     setState(() {
-      _isTyping = true;
+      _isSending = true;
     });
-
-    _replyTimer?.cancel();
-    _replyTimer = Timer(const Duration(milliseconds: 1100), () {
+    try {
+      await _chatRepo.sendMessage(
+        clubId: clubId,
+        senderId: senderId,
+        senderName: senderName,
+        text: text,
+      );
+      _composerCtrl.clear();
+      await _loadMessages(silent: true);
+    } on AppwriteException catch (e) {
       if (!mounted) {
         return;
       }
-      final replies = <_MockChatItem>[
-        const _MockChatItem.incoming(
-          name: 'Sarah Lim',
-          avatarColor: Color(0xFFFF9800),
-          avatarIcon: Icons.emoji_events_outlined,
-          text: 'Nice one! See you there 👌',
-        ),
-        const _MockChatItem.incoming(
-          name: 'James Wong',
-          avatarColor: Color(0xFF2196F3),
-          avatarIcon: Icons.bolt_outlined,
-          text: 'Perfect. Let us lock in the lineup.',
-        ),
-        const _MockChatItem.incoming(
-          name: 'Mia Tan',
-          avatarColor: Color(0xFF8B5CF6),
-          avatarIcon: Icons.sports_soccer_outlined,
-          text: 'Great energy team 🔥',
-        ),
-      ];
-      final reply = replies[_messages.length % replies.length];
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Failed to send message.')),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to send message.')),
+      );
+    } finally {
+      if (!mounted) {
+        return;
+      }
       setState(() {
-        _isTyping = false;
+        _isSending = false;
       });
-      _insertMessage(reply);
-    });
+    }
   }
 
-  Widget _buildChatItem(BuildContext context, _MockChatItem item) {
-    if (item.type == _MockChatItemType.pinned) {
-      return _PinnedEventCard(
-        primary: _teal,
-        onView: () {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('View event (mock).')));
-        },
+  Future<void> _editMessage(ClubChatMessage message) async {
+    final existing = message.text.trim();
+    final controller = TextEditingController(text: existing);
+    final newText = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Edit message'),
+        content: TextField(
+          controller: controller,
+          maxLines: 4,
+          minLines: 1,
+          autofocus: true,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) =>
+              Navigator.of(dialogContext).pop(controller.text.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (newText == null || newText.trim().isEmpty || newText.trim() == existing) {
+      return;
+    }
+    try {
+      await _chatRepo.editMessage(messageId: message.id, newText: newText);
+      await _loadMessages(silent: true);
+    } on AppwriteException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Failed to edit message.')),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to edit message.')),
       );
     }
-    if (item.type == _MockChatItemType.outgoing) {
-      return _OutgoingBubble(text: item.text, primary: _teal);
+  }
+
+  Future<void> _togglePin(ClubChatMessage message) async {
+    final isMine = message.senderId.trim() == currentUserId.trim();
+    if (!_canPinAnyMessage && !isMine) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Only club creator/admin can pin others messages.'),
+          ),
+        );
+      }
+      return;
     }
-    return _IncomingBubble(
-      name: item.name,
-      avatarColor: item.avatarColor,
-      avatarIcon: item.avatarIcon,
-      text: item.text,
+    try {
+      await _chatRepo.setPinned(
+        messageId: message.id,
+        isPinned: !message.isPinned,
+      );
+      await _loadMessages(silent: true);
+    } on AppwriteException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Failed to update pin.')),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to update pin.')),
+      );
+    }
+  }
+
+  Future<void> _showMessageActions(ClubChatMessage message) async {
+    final isMine = message.senderId.trim() == currentUserId.trim();
+    final canPinThisMessage = _canPinAnyMessage || isMine;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isMine && message.messageType != 'event_pinned')
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('Edit message'),
+                onTap: () => Navigator.of(ctx).pop('edit'),
+              ),
+            if (canPinThisMessage)
+              ListTile(
+                leading: Icon(
+                  message.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+                ),
+                title: Text(message.isPinned ? 'Unpin message' : 'Pin message'),
+                onTap: () => Navigator.of(ctx).pop('pin'),
+              ),
+          ],
+        ),
+      ),
     );
+    if (action == 'edit') {
+      await _editMessage(message);
+      return;
+    }
+    if (action == 'pin') {
+      await _togglePin(message);
+    }
+  }
+
+  Future<void> _sendImageMessage() async {
+    if (_activeTab == _ChatListTab.pinned) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Switch to All tab to send messages.')),
+        );
+      }
+      return;
+    }
+    if (_isSending) {
+      return;
+    }
+    final clubId = _clubFromRoute(context).id.trim();
+    if (clubId.isEmpty) {
+      return;
+    }
+    try {
+      final picked = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 82,
+      );
+      if (picked == null) {
+        return;
+      }
+      setState(() {
+        _isSending = true;
+      });
+      final senderId = currentUserId.trim();
+      final senderName = await _resolveDisplayName();
+      final Uint8List bytes = await picked.readAsBytes();
+      final uploaded = await AppwriteService.uploadFile(
+        bucketId: AppwriteConfig.storageBucketId,
+        path: picked.path,
+        bytes: bytes,
+        filename: picked.name,
+      );
+      await _chatRepo.sendMessage(
+        clubId: clubId,
+        senderId: senderId,
+        senderName: senderName,
+        text: _composerCtrl.text.trim(),
+        imageFileId: uploaded.$id,
+      );
+      _composerCtrl.clear();
+      await _loadMessages(silent: true);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to send image.')),
+      );
+    } finally {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSending = false;
+      });
+    }
+  }
+
+  Widget _buildChatItem(BuildContext context, ClubChatMessage message) {
+    final isMine = message.senderId.trim() == currentUserId.trim();
+    final content =
+        message.messageType == 'event_pinned'
+        ? _PinnedEventCard(
+            title: message.eventTitle?.trim().isNotEmpty == true
+                ? message.eventTitle!
+                : 'Event',
+            location: message.eventLocation ?? '',
+            startAt: message.eventStartAt ?? message.createdAt,
+            onView: () => _openPinnedEvent(message),
+          )
+        : isMine
+        ? _OutgoingBubble(
+            text: message.text,
+            imageFileId: message.imageFileId,
+            sentAt: message.editedAt ?? message.createdAt,
+            isEdited: message.editedAt != null,
+            primary: _teal,
+          )
+        : _IncomingBubble(
+            name: message.senderName.trim().isEmpty
+                ? 'Member'
+                : message.senderName,
+            avatarColor: const Color(0xFF2196F3),
+            avatarIcon: Icons.person_outline,
+            text: message.text,
+            imageFileId: message.imageFileId,
+            sentAt: message.editedAt ?? message.createdAt,
+            isEdited: message.editedAt != null,
+          );
+    return GestureDetector(
+      onLongPress: () => _showMessageActions(message),
+      child: content,
+    );
+  }
+
+  List<ClubChatMessage> _visibleMessages() {
+    if (_activeTab == _ChatListTab.pinned) {
+      final pinned = _messages.where((m) => m.isPinned).toList()
+        ..sort((a, b) {
+          final aTime = a.pinnedAt ?? a.createdAt;
+          final bTime = b.pinnedAt ?? b.createdAt;
+          return bTime.compareTo(aTime);
+        });
+      return pinned;
+    }
+    return _messages;
+  }
+
+  bool _isSameDate(DateTime a, DateTime b) {
+    final la = a.toLocal();
+    final lb = b.toLocal();
+    return la.year == lb.year && la.month == lb.month && la.day == lb.day;
+  }
+
+  String _dateSeparatorLabel(DateTime d) {
+    final local = d.toLocal();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final date = DateTime(local.year, local.month, local.day);
+    final diff = today.difference(date).inDays;
+    if (diff == 0) {
+      return 'Today';
+    }
+    if (diff == 1) {
+      return 'Yesterday';
+    }
+    return '${local.month}/${local.day}/${local.year}';
+  }
+
+  Widget _buildDateSeparator(DateTime d) {
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: _teal.withValues(alpha: 0.35)),
+        ),
+        child: Text(
+          _dateSeparatorLabel(d),
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPinnedEvent(ClubChatMessage message) async {
+    final eventId = message.targetEventId?.trim() ?? '';
+    if (eventId.isEmpty) {
+      return;
+    }
+    try {
+      final doc = await AppwriteService.getDocument(
+        collectionId: AppwriteConfig.eventsCollectionId,
+        documentId: eventId,
+      );
+      if (!mounted) {
+        return;
+      }
+      final event = Event.fromMap(Map<String, dynamic>.from(doc.data), id: doc.$id);
+      await Navigator.of(context).pushNamed(
+        EventDetailScreen.routeName,
+        arguments: EventDetailArgs(event: event),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to open this event.')),
+      );
+    }
   }
 
   void _openInfo(Club club) {
@@ -178,9 +601,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
   @override
   Widget build(BuildContext context) {
     final club = _clubFromRoute(context);
-    _seedMessagesIfNeeded();
-    final members = _mockMembers(club);
-    final online = _mockOnline(club);
+    final members = _membersCount ?? club.membersCount ?? _mockMembers(club);
 
     return Scaffold(
       backgroundColor: _mint,
@@ -230,7 +651,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '$members members · $online online',
+                            '$members members',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.white.withValues(alpha: 0.85),
@@ -248,153 +669,185 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
             );
           },
         ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
-              ),
-              child: IconButton(
-                padding: EdgeInsets.zero,
-                icon: const Icon(
-                  Icons.info_outline,
-                  color: Colors.white,
-                  size: 18,
-                ),
-                onPressed: () => _openInfo(club),
-              ),
-            ),
-          ),
-        ],
       ),
       body: Column(
         children: [
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, viewportConstraints) {
-                final listW =
-                    viewportConstraints.maxWidth.isFinite &&
-                        viewportConstraints.maxWidth > 0
-                    ? viewportConstraints.maxWidth
-                    : MediaQuery.sizeOf(context).width;
-                return AnimatedList(
-                  key: _chatListKey,
-                  initialItemCount: _messages.length,
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                  itemBuilder: (context, index, animation) {
-                    final contentW = listW > 0
-                        ? (listW - 32).clamp(120.0, 2000.0)
-                        : 320.0;
-                    final item = _messages[index];
-                    return SizeTransition(
-                      sizeFactor: CurvedAnimation(
-                        parent: animation,
-                        curve: Curves.easeOutCubic,
-                      ),
-                      child: FadeTransition(
-                        opacity: CurvedAnimation(
-                          parent: animation,
-                          curve: Curves.easeOutCubic,
-                        ),
-                        child: Padding(
-                          padding: EdgeInsets.only(
-                            bottom: index == _messages.length - 1 ? 0 : 10,
-                          ),
-                          child: SizedBox(
-                            width: contentW,
-                            child: _buildChatItem(context, item),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Row(
+              children: [
+                _ChatTabChip(
+                  label: 'All',
+                  selected: _activeTab == _ChatListTab.all,
+                  onTap: () => setState(() => _activeTab = _ChatListTab.all),
+                ),
+                const SizedBox(width: 8),
+                _ChatTabChip(
+                  label: 'Pinned',
+                  selected: _activeTab == _ChatListTab.pinned,
+                  onTap: () => setState(() => _activeTab = _ChatListTab.pinned),
+                ),
+              ],
             ),
           ),
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 220),
-            child: _isTyping
-                ? const Padding(
-                    key: ValueKey('typing'),
-                    padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: _TypingBubble(),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _loadError != null
+                ? Center(
+                    child: Text(
+                      _loadError!,
+                      style: TextStyle(
+                        color: Colors.red.shade700,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   )
-                : const SizedBox.shrink(key: ValueKey('not_typing')),
+                : _visibleMessages().isEmpty
+                ? const Center(
+                    child: Text(
+                      'No messages yet. Start the conversation.',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                    itemCount: _visibleMessages().length,
+                    itemBuilder: (context, index) {
+                      final items = _visibleMessages();
+                      final item = items[index];
+                      final showDateHeader =
+                          _activeTab == _ChatListTab.all &&
+                          (index == 0 ||
+                              !_isSameDate(
+                                items[index - 1].createdAt,
+                                item.createdAt,
+                              ));
+                      return Padding(
+                        padding: EdgeInsets.only(
+                          bottom: index == items.length - 1 ? 0 : 10,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (showDateHeader) ...[
+                              _buildDateSeparator(item.createdAt),
+                              const SizedBox(height: 10),
+                            ],
+                            _buildChatItem(context, item),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
           ),
           SafeArea(
             top: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _composerCtrl,
-                      decoration: InputDecoration(
-                        hintText: 'Message ${club.name}...',
-                        filled: true,
-                        fillColor: _mint,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(999),
-                          borderSide: BorderSide(
-                            color: _teal.withValues(alpha: 0.45),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: _teal.withValues(alpha: 0.35)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _composerCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'Message ${club.name}...',
+                          filled: true,
+                          fillColor: _mint,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(999),
+                            borderSide: BorderSide(
+                              color: _teal.withValues(alpha: 0.45),
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(999),
+                            borderSide: BorderSide(
+                              color: _teal.withValues(alpha: 0.45),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(999),
+                            borderSide: const BorderSide(
+                              color: _teal,
+                              width: 1.4,
+                            ),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 14,
                           ),
                         ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(999),
-                          borderSide: BorderSide(
-                            color: _teal.withValues(alpha: 0.45),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(999),
-                          borderSide: const BorderSide(
-                            color: _teal,
-                            width: 1.4,
-                          ),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 14,
-                        ),
+                        enabled: _activeTab == _ChatListTab.all,
+                        minLines: 1,
+                        maxLines: 4,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) => _sendMessage(),
                       ),
-                      minLines: 1,
-                      maxLines: 4,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => _sendMessage(),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Material(
-                    color: _teal,
-                    borderRadius: BorderRadius.circular(999),
-                    clipBehavior: Clip.antiAlias,
-                    child: InkWell(
-                      onTap: _sendMessage,
+                    const SizedBox(width: 10),
+                    Material(
+                      color: _teal.withValues(alpha: 0.14),
                       borderRadius: BorderRadius.circular(999),
-                      child: const SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: Center(
-                          child: Icon(
-                            Icons.send,
-                            color: Colors.white,
-                            size: 20,
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: (_isSending || _activeTab == _ChatListTab.pinned)
+                            ? null
+                            : _sendImageMessage,
+                        borderRadius: BorderRadius.circular(999),
+                        child: const SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: Center(
+                            child: Icon(
+                              Icons.image_outlined,
+                              color: Color(0xFF0F5549),
+                              size: 20,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 10),
+                    Material(
+                      color: _teal,
+                      borderRadius: BorderRadius.circular(999),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: (_isSending || _activeTab == _ChatListTab.pinned)
+                            ? null
+                            : _sendMessage,
+                        borderRadius: BorderRadius.circular(999),
+                        child: SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: Center(
+                            child: _isSending
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.send,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -479,12 +932,18 @@ class _IncomingBubble extends StatelessWidget {
   final Color avatarColor;
   final IconData avatarIcon;
   final String text;
+  final String? imageFileId;
+  final DateTime sentAt;
+  final bool isEdited;
 
   const _IncomingBubble({
     required this.name,
     required this.avatarColor,
     required this.avatarIcon,
     required this.text,
+    this.imageFileId,
+    required this.sentAt,
+    this.isEdited = false,
   });
 
   @override
@@ -532,14 +991,52 @@ class _IncomingBubble extends StatelessWidget {
                   ),
                   border: Border.all(color: teal.withValues(alpha: 0.65)),
                 ),
-                child: Text(
-                  text,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    height: 1.35,
-                    color: green,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (imageFileId != null && imageFileId!.trim().isNotEmpty)
+                      _ChatImage(fileId: imageFileId!),
+                    if (imageFileId != null &&
+                        imageFileId!.trim().isNotEmpty &&
+                        text.trim().isNotEmpty)
+                      const SizedBox(height: 8),
+                    if (text.trim().isNotEmpty)
+                      Text(
+                        text,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          height: 1.35,
+                          color: green,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isEdited) ...[
+                          Text(
+                            'edited',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.black.withValues(alpha: 0.45),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        Text(
+                          _formatChatTime(sentAt),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.black.withValues(alpha: 0.45),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -552,9 +1049,18 @@ class _IncomingBubble extends StatelessWidget {
 
 class _OutgoingBubble extends StatelessWidget {
   final String text;
+  final String? imageFileId;
+  final DateTime sentAt;
+  final bool isEdited;
   final Color primary;
 
-  const _OutgoingBubble({required this.text, required this.primary});
+  const _OutgoingBubble({
+    required this.text,
+    this.imageFileId,
+    required this.sentAt,
+    this.isEdited = false,
+    required this.primary,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -575,30 +1081,91 @@ class _OutgoingBubble extends StatelessWidget {
             bottomLeft: Radius.circular(16),
           ),
         ),
-        child: Text(
-          text,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 14,
-            height: 1.35,
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (imageFileId != null && imageFileId!.trim().isNotEmpty)
+              _ChatImage(fileId: imageFileId!),
+            if (imageFileId != null &&
+                imageFileId!.trim().isNotEmpty &&
+                text.trim().isNotEmpty)
+              const SizedBox(height: 8),
+            if (text.trim().isNotEmpty)
+              Text(
+                text,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  height: 1.35,
+                ),
+              ),
+            const SizedBox(height: 6),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isEdited) ...[
+                  Text(
+                    'edited',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.white.withValues(alpha: 0.7),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Text(
+                  _formatChatTime(sentAt),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.white.withValues(alpha: 0.7),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
+String _formatChatTime(DateTime dt) {
+  final t = dt.toLocal();
+  final hour12 = ((t.hour + 11) % 12) + 1;
+  final minute = t.minute.toString().padLeft(2, '0');
+  final ampm = t.hour >= 12 ? 'PM' : 'AM';
+  return '$hour12:$minute $ampm';
+}
+
 class _PinnedEventCard extends StatelessWidget {
-  final Color primary;
+  final String title;
+  final String location;
+  final DateTime startAt;
   final VoidCallback onView;
 
-  const _PinnedEventCard({required this.primary, required this.onView});
+  const _PinnedEventCard({
+    required this.title,
+    required this.location,
+    required this.startAt,
+    required this.onView,
+  });
 
   @override
   Widget build(BuildContext context) {
     const teal = Color(0xFF14B8A6);
     const mint = Color(0xFFF0FDFA);
     const green = Color(0xFF0F5549);
+    String two(int n) => n.toString().padLeft(2, '0');
+    final month = two(startAt.month);
+    final day = two(startAt.day);
+    final h = startAt.hour;
+    final hour12 = ((h + 11) % 12) + 1;
+    final ampm = h >= 12 ? 'pm' : 'am';
+    final min = two(startAt.minute);
+    final when = '$month/$day ${hour12}:$min$ampm';
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -625,9 +1192,9 @@ class _PinnedEventCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          const Text(
-            '5-a-side Football',
-            style: TextStyle(
+          Text(
+            title,
+            style: const TextStyle(
               fontWeight: FontWeight.w900,
               fontSize: 16,
               color: green,
@@ -635,7 +1202,7 @@ class _PinnedEventCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'Sat 13 Sep · 6pm · Bukit Timah',
+            '$when${location.trim().isNotEmpty ? ' · $location' : ''}',
             style: TextStyle(
               fontSize: 12,
               color: Colors.black.withValues(alpha: 0.5),
@@ -663,92 +1230,136 @@ class _PinnedEventCard extends StatelessWidget {
   }
 }
 
-class _TypingBubble extends StatelessWidget {
-  const _TypingBubble();
+class _ChatTabChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ChatTabChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     const teal = Color(0xFF14B8A6);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(4),
-          topRight: Radius.circular(16),
-          bottomRight: Radius.circular(16),
-          bottomLeft: Radius.circular(16),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? teal.withValues(alpha: 0.16) : Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected ? teal : teal.withValues(alpha: 0.35),
+          ),
         ),
-        border: Border.all(color: teal.withValues(alpha: 0.65)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: const [
-          _TypingDot(delayMs: 0),
-          SizedBox(width: 4),
-          _TypingDot(delayMs: 120),
-          SizedBox(width: 4),
-          _TypingDot(delayMs: 240),
-        ],
+        child: Text(
+          label,
+          style: TextStyle(
+            color: const Color(0xFF0F5549),
+            fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+            fontSize: 12,
+          ),
+        ),
       ),
     );
   }
 }
 
-class _TypingDot extends StatelessWidget {
-  final int delayMs;
+class _ChatImage extends StatelessWidget {
+  final String fileId;
 
-  const _TypingDot({required this.delayMs});
+  const _ChatImage({required this.fileId});
 
   @override
   Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(begin: 0.35, end: 1),
-      duration: Duration(milliseconds: 520 + delayMs),
-      curve: Curves.easeInOut,
-      onEnd: () {},
-      builder: (context, value, _) {
-        return Opacity(
-          opacity: value,
-          child: const Icon(Icons.circle, size: 6, color: Color(0xFF0F5549)),
-        );
-      },
+    void openPreview(Uint8List bytes) {
+      Future<void> downloadImage() async {
+        try {
+          final uri = AppwriteService.getFileDownloadUri(
+            bucketId: AppwriteConfig.storageBucketId,
+            fileId: fileId,
+          );
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } catch (_) {}
+      }
+
+      showDialog<void>(
+        context: context,
+        builder: (dialogContext) => Dialog(
+          backgroundColor: Colors.black,
+          insetPadding: const EdgeInsets.all(8),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: InteractiveViewer(
+                  minScale: 0.8,
+                  maxScale: 4,
+                  child: Center(
+                    child: Image.memory(bytes, fit: BoxFit.contain),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 52,
+                child: IconButton(
+                  onPressed: downloadImage,
+                  icon: const Icon(Icons.download_rounded, color: Colors.white),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IconButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  icon: const Icon(Icons.close, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: FutureBuilder(
+        future: AppwriteService.getFileViewBytes(
+          bucketId: AppwriteConfig.storageBucketId,
+          fileId: fileId,
+        ),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const SizedBox(
+              width: 180,
+              height: 140,
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            );
+          }
+          final bytes = snap.data;
+          if (bytes == null || bytes.isEmpty) {
+            return const SizedBox(
+              width: 180,
+              height: 80,
+              child: Center(child: Text('Image unavailable')),
+            );
+          }
+          return InkWell(
+            onTap: () => openPreview(bytes),
+            child: Image.memory(
+              bytes,
+              width: 180,
+              height: 140,
+              fit: BoxFit.cover,
+            ),
+          );
+        },
+      ),
     );
   }
 }
 
-enum _MockChatItemType { incoming, outgoing, pinned }
-
-class _MockChatItem {
-  final _MockChatItemType type;
-  final String name;
-  final Color avatarColor;
-  final IconData avatarIcon;
-  final String text;
-
-  const _MockChatItem._({
-    required this.type,
-    this.name = '',
-    this.avatarColor = const Color(0xFFFF9800),
-    this.avatarIcon = Icons.person_outline,
-    this.text = '',
-  });
-
-  const _MockChatItem.incoming({
-    required String name,
-    required Color avatarColor,
-    required IconData avatarIcon,
-    required String text,
-  }) : this._(
-         type: _MockChatItemType.incoming,
-         name: name,
-         avatarColor: avatarColor,
-         avatarIcon: avatarIcon,
-         text: text,
-       );
-
-  const _MockChatItem.outgoing({required String text})
-    : this._(type: _MockChatItemType.outgoing, text: text);
-
-  const _MockChatItem.pinned() : this._(type: _MockChatItemType.pinned);
-}

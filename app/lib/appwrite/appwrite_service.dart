@@ -23,6 +23,7 @@ class AppwriteService {
   static Account get account => Account(_client);
   static Storage get storage => Storage(_client);
   static Functions get functions => Functions(_client);
+  static Realtime get realtime => Realtime(_client);
 
   static bool get isConfigured => AppwriteConfig.isConfigured;
 
@@ -153,6 +154,16 @@ class AppwriteService {
     return await storage.getFileView(
       bucketId: bucketId,
       fileId: fileId,
+    );
+  }
+
+  static Uri getFileDownloadUri({
+    required String bucketId,
+    required String fileId,
+  }) {
+    final endpoint = AppwriteConfig.endpoint.trim().replaceFirst(RegExp(r'/$'), '');
+    return Uri.parse(
+      '$endpoint/storage/buckets/$bucketId/files/$fileId/download?project=${AppwriteConfig.projectId}',
     );
   }
 

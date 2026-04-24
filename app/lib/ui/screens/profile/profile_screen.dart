@@ -846,6 +846,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 _MenuRow(
                                   label: 'Log Out',
                                   onTap: () async {
+                                    final shouldLogout =
+                                        await showDialog<bool>(
+                                          context: context,
+                                          builder: (dialogContext) => AlertDialog(
+                                            title: const Text('Confirm Logout'),
+                                            content: const Text(
+                                              'log out from this account?',
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.of(
+                                                      dialogContext,
+                                                    ).pop(false),
+                                                child: const Text('Cancel'),
+                                              ),
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.of(
+                                                      dialogContext,
+                                                    ).pop(true),
+                                                child: const Text('Log Out'),
+                                              ),
+                                            ],
+                                          ),
+                                        ) ??
+                                        false;
+                                    if (!shouldLogout) {
+                                      return;
+                                    }
                                     final navigator = Navigator.of(context);
                                     final messenger = ScaffoldMessenger.of(
                                       context,

@@ -36,6 +36,14 @@ class AppwriteConfig {
     'APPWRITE_CLUB_MEMBERS_COLLECTION_ID',
     defaultValue: 'club_members',
   );
+  static const clubMessagesCollectionId = String.fromEnvironment(
+    'APPWRITE_CLUB_MESSAGES_COLLECTION_ID',
+    defaultValue: 'club_messages',
+  );
+  static const eventMessagesCollectionId = String.fromEnvironment(
+    'APPWRITE_EVENT_MESSAGES_COLLECTION_ID',
+    defaultValue: 'event_messages',
+  );
   static const promoteClubAdminFunctionId = String.fromEnvironment(
     'APPWRITE_PROMOTE_CLUB_ADMIN_FUNCTION_ID',
     defaultValue: 'promote_club_admin',
@@ -51,7 +59,11 @@ class AppwriteConfig {
   static const eventImagesBucketId = storageBucketId;
   static const passwordRecoveryUrl = String.fromEnvironment(
     'APPWRITE_PASSWORD_RECOVERY_URL',
-    defaultValue: 'https://example.com/recovery',
+    defaultValue: 'http://localhost:54127/reset-password',
+  );
+  static const passwordRecoveryCooldownSeconds = int.fromEnvironment(
+    'APPWRITE_PASSWORD_RECOVERY_COOLDOWN_SECONDS',
+    defaultValue: 60,
   );
 
   static bool get isConfigured => endpoint.isNotEmpty && projectId.isNotEmpty;

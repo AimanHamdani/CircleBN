@@ -26,6 +26,7 @@ import 'redeem_points_screen.dart';
 import 'streak_screen.dart';
 import 'private_events_screen.dart';
 import '../../app_route_observer.dart';
+import '../../widgets/ad_banner.dart';
 import '../../widgets/event_thumbnail_header.dart';
 import '../../theme/app_theme.dart';
 
@@ -184,9 +185,9 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (ctx) => Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 26),
         child: SafeArea(
           top: false,
           child: Column(
@@ -200,91 +201,182 @@ class _HomeScreenState extends State<HomeScreen> {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              const SizedBox(height: 24),
-              const Text(
-                'Create',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Create',
+                      style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFFF1F3F4),
+                    ),
+                    icon: const Icon(Icons.close, color: Color(0xFF64748B)),
+                  ),
+                ],
               ),
-              const SizedBox(height: 20),
-              ListTile(
-                leading: Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.primary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(
-                    Icons.event,
-                    color: Theme.of(context).colorScheme.primary,
+              const SizedBox(height: 4),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'What would you like to set up?',
+                  style: TextStyle(
+                    color: Color(0xFF8D9692),
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                title: const Text(
-                  'Event',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                subtitle: const Text('Create a new event'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  Navigator.of(
-                    context,
-                  ).pushNamed(CreateEventScreen.routeName).then((result) {
-                    if (!mounted) {
-                      return;
-                    }
-                    if (result == 'created' ||
-                        result == 'updated' ||
-                        result == true) {
-                      setState(() => _tabIndex = 0);
-                      final text = result == 'updated'
-                          ? 'Event updated.'
-                          : 'Event created.';
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (!mounted) {
-                          return;
-                        }
-                        ScaffoldMessenger.of(
+              ),
+              const SizedBox(height: 18),
+              FutureBuilder<MembershipStatus>(
+                future: membershipRepository().getStatus(),
+                builder: (context, membershipSnap) {
+                  final isPremium = membershipSnap.data?.isPremium == true;
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: _CreateChoiceCard(
+                      borderColor: const Color(0xFFD9C2FF),
+                      iconBgColor: const Color(0xFFF3E8FF),
+                      iconColor: AppTheme.eventPurple,
+                      icon: Icons.event,
+                      title: 'Create Event',
+                      subtitle: 'Host a sports activity for your club',
+                      enabled: true,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        Navigator.of(
                           context,
-                        ).showSnackBar(SnackBar(content: Text(text)));
-                      });
-                    }
-                  });
-                },
-              ),
-              const SizedBox(height: 8),
-              ListTile(
-                leading: Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade200,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(
-                    Icons.people_outline,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-                title: const Text(
-                  'Club',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                subtitle: const Text('Create a new club'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  Navigator.of(
-                    context,
-                  ).pushNamed(CreateClubScreen.routeName).then((created) {
-                    if (created == true && mounted) {
-                      setState(() => _tabIndex = 0);
-                    }
-                  });
+                        ).pushNamed(CreateEventScreen.routeName).then((result) {
+                          if (!mounted) {
+                            return;
+                          }
+                          if (result == 'created' ||
+                              result == 'updated' ||
+                              result == true) {
+                            setState(() => _tabIndex = 0);
+                            final text = result == 'updated'
+                                ? 'Event updated.'
+                                : 'Event created.';
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (!mounted) {
+                                return;
+                              }
+                              ScaffoldMessenger.of(
+                                context,
+                              ).showSnackBar(SnackBar(content: Text(text)));
+                            });
+                          }
+                        });
+                      },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _CreateChoiceCard(
+                      borderColor: const Color(0xFF7FD2B8),
+                      iconBgColor: const Color(0xFFD7F5EA),
+                      iconColor: const Color(0xFF1A8A67),
+                      icon: Icons.groups_2_outlined,
+                      title: 'Create Club',
+                      subtitle: isPremium
+                          ? 'Start a new sports community'
+                          : 'Premium required',
+                      enabled: isPremium,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        Navigator.of(
+                          context,
+                        ).pushNamed(CreateClubScreen.routeName).then((created) {
+                          if (created == true && mounted) {
+                            setState(() => _tabIndex = 0);
+                          }
+                        });
+                      },
+                        ),
+                      ),
+                    ],
+                  );
                 },
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CreateChoiceCard extends StatelessWidget {
+  final Color borderColor;
+  final Color iconBgColor;
+  final Color iconColor;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _CreateChoiceCard({
+    required this.borderColor,
+    required this.iconBgColor,
+    required this.iconColor,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: enabled ? Colors.transparent : const Color(0xFFF8FAFB),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: enabled ? borderColor : const Color(0xFFDCE3E8),
+            width: 1.6,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: iconBgColor,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: iconColor),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              title,
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                color: enabled ? iconColor : const Color(0xFF94A3B8),
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              style: const TextStyle(
+                color: Color(0xFF7E8791),
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -346,6 +438,28 @@ class _PlaceholderTab extends StatelessWidget {
             const SizedBox(height: 10),
             TextButton(
               onPressed: () async {
+                final shouldLogout =
+                    await showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: const Text('Confirm Logout'),
+                        content: const Text('log out from this account?'),
+                        actions: [
+                          TextButton(
+                            onPressed: () =>
+                                Navigator.of(dialogContext).pop(false),
+                            child: const Text('Cancel'),
+                          ),
+                          TextButton(
+                            onPressed: () =>
+                                Navigator.of(dialogContext).pop(true),
+                            child: const Text('Log Out'),
+                          ),
+                        ],
+                      ),
+                    ) ??
+                    false;
+                if (!shouldLogout) return;
                 try {
                   await AppwriteService.account.deleteSessions();
                 } catch (_) {}
@@ -644,23 +758,7 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
                 if (membershipSnap.data?.isPremium == true) {
                   return const SizedBox.shrink();
                 }
-                return Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      height: 76,
-                      width: double.infinity,
-                      color: const Color(0xFFF1F3F5),
-                      alignment: Alignment.center,
-                      child: Icon(
-                        Icons.campaign_outlined,
-                        size: 28,
-                        color: Colors.black.withValues(alpha: 0.22),
-                      ),
-                    ),
-                  ),
-                );
+                return const AppAdBanner();
               },
             ),
             Expanded(
@@ -689,6 +787,17 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
                           child: const Text('Show all'),
                         ),
                       ],
+                    ),
+                    FutureBuilder<MembershipStatus>(
+                      future: _membershipFuture,
+                      builder: (context, membershipSnap) {
+                        if (membershipSnap.data?.isPremium == true) {
+                          return const SizedBox.shrink();
+                        }
+                        return const AppAdBanner(
+                          padding: EdgeInsets.fromLTRB(0, 8, 0, 0),
+                        );
+                      },
                     ),
                     const SizedBox(height: 10),
                     SizedBox(height: 168, child: _ActivityList()),

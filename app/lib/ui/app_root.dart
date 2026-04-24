@@ -22,6 +22,7 @@ import 'screens/profile/edit_profile_screen.dart';
 import 'screens/profile/change_password_screen.dart';
 import 'screens/profile/achievements_screen.dart';
 import 'screens/profile/membership_screen.dart';
+import 'screens/profile/billing_checkout_screen.dart';
 import 'screens/profile/billing_history_screen.dart';
 import 'screens/profile/profile_screen.dart';
 import 'screens/profile/free_stats_screen.dart';
@@ -94,6 +95,7 @@ class AppRoot extends StatelessWidget {
         ProStatsHubScreen.routeName: (_) => const ProStatsHubScreen(),
         ProMatchHistoryScreen.routeName: (_) => const ProMatchHistoryScreen(),
         MembershipScreen.routeName: (_) => const MembershipScreen(),
+        BillingCheckoutScreen.routeName: (_) => const BillingCheckoutScreen(),
         BillingHistoryScreen.routeName: (_) => const BillingHistoryScreen(),
         UserProfileViewScreen.routeName: (_) => const UserProfileViewScreen(),
         EditProfileScreen.routeName: (_) => const EditProfileScreen(),

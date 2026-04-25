@@ -1,8 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../appwrite/appwrite_service.dart';
 import '../../../data/achievement_repository.dart';
+import '../../../data/club_chat_repository.dart';
+import '../../../data/club_member_repository.dart';
 import '../../../data/club_repository.dart';
+import '../../../data/direct_message_repository.dart';
 import '../../../data/event_repository.dart';
 import '../../../data/membership_repository.dart';
 import '../../../data/notification_repository.dart';
@@ -40,6 +46,92 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _tabIndex = 0;
+  late Future<int> _circleUnreadFuture;
+  Timer? _circleUnreadTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _circleUnreadFuture = _loadCircleUnreadCount();
+    _circleUnreadTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      _refreshCircleUnread();
+    });
+  }
+
+  @override
+  void dispose() {
+    _circleUnreadTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshCircleUnread() async {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _circleUnreadFuture = _loadCircleUnreadCount();
+    });
+  }
+
+  String _clubReadKey(String clubId) {
+    return 'club_chat_last_read_${currentUserId}_$clubId';
+  }
+
+  String _dmReadKey(String otherUserId) {
+    return 'direct_dm_last_read_${currentUserId}_$otherUserId';
+  }
+
+  Future<int> _loadCircleUnreadCount() async {
+    final me = currentUserId.trim();
+    if (me.isEmpty) {
+      return 0;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    var unread = 0;
+
+    try {
+      final memberships = await clubMemberRepository().listMembershipsForUser(
+        userId: me,
+      );
+      final clubs = await clubRepository().listClubs();
+      final joinedClubIds = <String>{
+        for (final m in memberships) m.clubId.trim(),
+        for (final c in clubs)
+          if ((c.creatorId ?? '').trim() == me) c.id.trim(),
+      }..removeWhere((id) => id.isEmpty);
+      for (final clubId in joinedClubIds) {
+        final messages = await clubChatRepository().listForClub(clubId, limit: 120);
+        final raw = prefs.getString(_clubReadKey(clubId));
+        final lastRead = raw == null ? null : DateTime.tryParse(raw);
+        unread += messages
+            .where((m) => m.senderId.trim() != me)
+            .where((m) => lastRead == null || m.createdAt.isAfter(lastRead))
+            .length;
+      }
+    } catch (_) {}
+
+    try {
+      final threads = await directMessageRepository().listThreadsForUser(userId: me);
+      for (final thread in threads) {
+        final other = thread.otherUserId.trim();
+        if (other.isEmpty) {
+          continue;
+        }
+        final raw = prefs.getString(_dmReadKey(other));
+        final lastRead = raw == null ? null : DateTime.tryParse(raw);
+        final convo = await directMessageRepository().listConversation(
+          userA: me,
+          userB: other,
+        );
+        unread += convo
+            .where((m) => m.senderId.trim() == other)
+            .where((m) => lastRead == null || m.createdAt.isAfter(lastRead))
+            .length;
+      }
+    } catch (_) {}
+
+    return unread;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -88,17 +180,30 @@ class _HomeScreenState extends State<HomeScreen> {
                             label: 'Home',
                             selected: _tabIndex == 0,
                             activeColor: navAccent,
-                            onTap: () => setState(() => _tabIndex = 0),
+                            onTap: () {
+                              setState(() => _tabIndex = 0);
+                              _refreshCircleUnread();
+                            },
                           ),
                         ),
                         Expanded(
-                          child: _BottomNavItem(
-                            icon: Icons.people_outline,
-                            activeIcon: Icons.people,
-                            label: 'Circle',
-                            selected: _tabIndex == 1,
-                            activeColor: navAccent,
-                            onTap: () => setState(() => _tabIndex = 1),
+                          child: FutureBuilder<int>(
+                            future: _circleUnreadFuture,
+                            builder: (context, snap) {
+                              final circleUnread = snap.data ?? 0;
+                              return _BottomNavItem(
+                                icon: Icons.people_outline,
+                                activeIcon: Icons.people,
+                                label: 'Circle',
+                                selected: _tabIndex == 1,
+                                activeColor: navAccent,
+                                badgeCount: circleUnread,
+                                onTap: () {
+                                  setState(() => _tabIndex = 1);
+                                  _refreshCircleUnread();
+                                },
+                              );
+                            },
                           ),
                         ),
                         SizedBox(width: centerGap),
@@ -109,7 +214,10 @@ class _HomeScreenState extends State<HomeScreen> {
                             label: 'Calendar',
                             selected: _tabIndex == 3,
                             activeColor: navAccent,
-                            onTap: () => setState(() => _tabIndex = 3),
+                            onTap: () {
+                              setState(() => _tabIndex = 3);
+                              _refreshCircleUnread();
+                            },
                           ),
                         ),
                         Expanded(
@@ -119,9 +227,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             label: 'Profile',
                             selected: false,
                             activeColor: navAccent,
-                            onTap: () => Navigator.of(
-                              context,
-                            ).pushNamed(ProfileScreen.routeName),
+                            onTap: () => Navigator.of(context)
+                                .pushNamed(ProfileScreen.routeName)
+                                .then((_) => _refreshCircleUnread()),
                           ),
                         ),
                       ],
@@ -234,6 +342,9 @@ class _HomeScreenState extends State<HomeScreen> {
               FutureBuilder<MembershipStatus>(
                 future: membershipRepository().getStatus(),
                 builder: (context, membershipSnap) {
+                  final membershipLoaded =
+                      membershipSnap.connectionState == ConnectionState.done ||
+                      membershipSnap.data != null;
                   final isPremium = membershipSnap.data?.isPremium == true;
                   return Row(
                     children: [
@@ -282,10 +393,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       iconColor: const Color(0xFF1A8A67),
                       icon: Icons.groups_2_outlined,
                       title: 'Create Club',
-                      subtitle: isPremium
+                      subtitle: !membershipLoaded
+                          ? 'Checking premium...'
+                          : isPremium
                           ? 'Start a new sports community'
                           : 'Premium required',
-                      enabled: isPremium,
+                      enabled: membershipLoaded && isPremium,
                       onTap: () {
                         Navigator.pop(ctx);
                         Navigator.of(
@@ -389,6 +502,7 @@ class _BottomNavItem extends StatelessWidget {
   final String label;
   final bool selected;
   final Color activeColor;
+  final int badgeCount;
   final VoidCallback onTap;
 
   const _BottomNavItem({
@@ -397,6 +511,7 @@ class _BottomNavItem extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.activeColor,
+    this.badgeCount = 0,
     required this.onTap,
   });
 
@@ -408,7 +523,35 @@ class _BottomNavItem extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(selected ? activeIcon : icon, size: 20, color: color),
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(selected ? activeIcon : icon, size: 20, color: color),
+              if (badgeCount > 0)
+                Positioned(
+                  right: -8,
+                  top: -7,
+                  child: Container(
+                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF4D4F),
+                      borderRadius: BorderRadius.circular(99),
+                      border: Border.all(color: Colors.white, width: 1.2),
+                    ),
+                    child: Text(
+                      badgeCount > 99 ? '99+' : badgeCount.toString(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
           const SizedBox(height: 3),
           Text(
             label,
@@ -755,6 +898,10 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
             FutureBuilder<MembershipStatus>(
               future: _membershipFuture,
               builder: (context, membershipSnap) {
+                if (membershipSnap.connectionState != ConnectionState.done &&
+                    membershipSnap.data == null) {
+                  return const SizedBox.shrink();
+                }
                 if (membershipSnap.data?.isPremium == true) {
                   return const SizedBox.shrink();
                 }
@@ -787,17 +934,6 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
                           child: const Text('Show all'),
                         ),
                       ],
-                    ),
-                    FutureBuilder<MembershipStatus>(
-                      future: _membershipFuture,
-                      builder: (context, membershipSnap) {
-                        if (membershipSnap.data?.isPremium == true) {
-                          return const SizedBox.shrink();
-                        }
-                        return const AppAdBanner(
-                          padding: EdgeInsets.fromLTRB(0, 8, 0, 0),
-                        );
-                      },
                     ),
                     const SizedBox(height: 10),
                     SizedBox(height: 168, child: _ActivityList()),

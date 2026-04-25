@@ -9,8 +9,10 @@ import '../../../data/achievement_repository.dart';
 import '../../../data/badge_display_repository.dart';
 import '../../../data/height_display_repository.dart';
 import '../../../data/profile_repository.dart';
+import '../../../data/sample_clubs.dart';
 import '../../../models/user_profile.dart';
 import '../../../utils/height_display.dart';
+import '../home/direct_message_screen.dart';
 
 class UserProfileViewArgs {
   final String userId;
@@ -27,12 +29,15 @@ class UserProfileViewScreen extends StatefulWidget {
   State<UserProfileViewScreen> createState() => _UserProfileViewScreenState();
 }
 
+enum _UserProfileTab { profile, skill }
+
 class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
   Future<UserProfile>? _future;
   Future<AchievementSnapshot>? _achievementFuture;
   Future<Set<String>>? _displayBadgeIdsFuture;
   String _targetUserId = '';
   bool _isOwnProfile = false;
+  _UserProfileTab _activeTab = _UserProfileTab.profile;
 
   @override
   void didChangeDependencies() {
@@ -186,6 +191,43 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
+                              if (!_isOwnProfile &&
+                                  _targetUserId.trim().isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: FilledButton.icon(
+                                    onPressed: () {
+                                      Navigator.of(context).pushNamed(
+                                        DirectMessageScreen.routeName,
+                                        arguments: DirectMessageArgs(
+                                          otherUserId: _targetUserId,
+                                          initialName: name,
+                                        ),
+                                      );
+                                    },
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: Colors.white.withValues(
+                                        alpha: 0.95,
+                                      ),
+                                      foregroundColor: const Color(0xFF2C4EA0),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                    icon: const Icon(Icons.chat_bubble_outline),
+                                    label: const Text(
+                                      'Direct Message',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 12),
                               FutureBuilder<AchievementSnapshot>(
                                 future: _achievementFuture,
@@ -255,125 +297,111 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                             ),
                             child: Column(
                               children: [
-                                FutureBuilder<bool>(
-                                  future: heightDisplayRepository()
-                                      .getUseImperial(),
-                                  builder: (context, imperialSnap) {
-                                    final useImperial = imperialSnap.data ?? false;
-                                    final heightLabel = formatHeightForDisplay(
-                                      profile.heightCm,
-                                      useImperial: useImperial,
-                                    );
-                                    return _InfoCard(
-                                      title: 'PERSONAL INFO',
-                                      rows: [
-                                        _InfoLine(label: 'Name', value: name),
-                                        _InfoLine(
-                                          label: 'Age',
-                                          value:
-                                              profile.age?.toString() ?? '—',
-                                        ),
-                                        _InfoLine(
-                                          label: 'Gender',
-                                          value: profile.gender
-                                                  .trim()
-                                                  .isNotEmpty
-                                              ? profile.gender
-                                              : '—',
-                                        ),
-                                        _InfoLine(
-                                          label: 'Height',
-                                          value: heightLabel,
-                                        ),
-                                        _InfoLine(
-                                          label: 'Skill Level',
-                                          value: profile.skillLevel
-                                                  .trim()
-                                                  .isNotEmpty
-                                              ? profile.skillLevel
-                                              : '—',
-                                        ),
-                                      ],
-                                    );
-                                  },
+                                _UserProfileTopTabs(
+                                  selected: _activeTab,
+                                  onSelect: (tab) =>
+                                      setState(() => _activeTab = tab),
                                 ),
                                 const SizedBox(height: 14),
-                                _InfoCard(
-                                  title: 'SPORTS',
-                                  rows: [
-                                    _InfoLine(
-                                      label: 'Preferred',
-                                      value: sports.isEmpty
-                                          ? 'No sports added'
-                                          : sports.join(', '),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 14),
-                                FutureBuilder<AchievementSnapshot>(
-                                  future: _achievementFuture,
-                                  builder: (context, achievementSnap) {
-                                    final achievements = achievementSnap.data;
-                                    if (achievements == null) {
-                                      return const SizedBox.shrink();
-                                    }
-                                    return FutureBuilder<Set<String>>(
-                                      future: _displayBadgeIdsFuture,
-                                      builder: (context, selectedSnap) {
-                                        final selectedBadgeIds =
-                                            selectedSnap.data ??
-                                            const <String>{};
-                                        final earned =
-                                            achievements.unlockedBadges;
-                                        final selectedEarned = earned
-                                            .where(
-                                              (badge) => selectedBadgeIds
-                                                  .contains(badge.badge.id),
-                                            )
-                                            .toList();
-                                        return _BadgeCard(
-                                          badges: selectedEarned
-                                              .map(
-                                                (badge) => _BadgeVisual(
-                                                  emoji: badge.badge.emoji,
-                                                  label: badge.badge.name,
-                                                ),
+                                if (_activeTab == _UserProfileTab.profile) ...[
+                                  FutureBuilder<bool>(
+                                    future: heightDisplayRepository()
+                                        .getUseImperial(),
+                                    builder: (context, imperialSnap) {
+                                      final useImperial =
+                                          imperialSnap.data ?? false;
+                                      final heightLabel = formatHeightForDisplay(
+                                        profile.heightCm,
+                                        useImperial: useImperial,
+                                      );
+                                      return _InfoCard(
+                                        title: 'PERSONAL INFO',
+                                        rows: [
+                                          _InfoLine(label: 'Name', value: name),
+                                          _InfoLine(
+                                            label: 'Age',
+                                            value: profile.age?.toString() ?? '—',
+                                          ),
+                                          _InfoLine(
+                                            label: 'Gender',
+                                            value: profile.gender
+                                                    .trim()
+                                                    .isNotEmpty
+                                                ? profile.gender
+                                                : '—',
+                                          ),
+                                          _InfoLine(
+                                            label: 'Height',
+                                            value: heightLabel,
+                                          ),
+                                          _InfoLine(
+                                            label: 'Skill Level',
+                                            value: profile.skillLevel
+                                                    .trim()
+                                                    .isNotEmpty
+                                                ? profile.skillLevel
+                                                : '—',
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(height: 14),
+                                  _InfoCard(
+                                    title: 'SPORTS',
+                                    rows: [
+                                      _InfoLine(
+                                        label: 'Preferred',
+                                        value: sports.isEmpty
+                                            ? 'No sports added'
+                                            : sports.join(', '),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 14),
+                                  FutureBuilder<AchievementSnapshot>(
+                                    future: _achievementFuture,
+                                    builder: (context, achievementSnap) {
+                                      final achievements = achievementSnap.data;
+                                      if (achievements == null) {
+                                        return const SizedBox.shrink();
+                                      }
+                                      return FutureBuilder<Set<String>>(
+                                        future: _displayBadgeIdsFuture,
+                                        builder: (context, selectedSnap) {
+                                          final selectedBadgeIds =
+                                              selectedSnap.data ??
+                                              const <String>{};
+                                          final earned =
+                                              achievements.unlockedBadges;
+                                          final selectedEarned = earned
+                                              .where(
+                                                (badge) => selectedBadgeIds
+                                                    .contains(badge.badge.id),
                                               )
-                                              .toList(),
-                                          emptyText: earned.isEmpty
-                                              ? 'No badges unlocked yet. Join events and clubs to earn your first one.'
-                                              : "This user doesn't display any badges.",
-                                        );
-                                      },
-                                    );
-                                  },
-                                ),
-                                const SizedBox(height: 14),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.fromLTRB(
-                                    14,
-                                    12,
-                                    14,
-                                    12,
+                                              .toList();
+                                          return _BadgeCard(
+                                            badges: selectedEarned
+                                                .map(
+                                                  (badge) => _BadgeVisual(
+                                                    emoji: badge.badge.emoji,
+                                                    label: badge.badge.name,
+                                                  ),
+                                                )
+                                                .toList(),
+                                            emptyText: earned.isEmpty
+                                                ? 'No badges unlocked yet. Join events and clubs to earn your first one.'
+                                                : "This user doesn't display any badges.",
+                                          );
+                                        },
+                                      );
+                                    },
                                   ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFEFF6FF),
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(
-                                      color: const Color(0xFFBFD4FF),
-                                    ),
+                                ] else ...[
+                                  _SkillCard(
+                                    profile: profile,
                                   ),
-                                  child: Text(
-                                    _isOwnProfile
-                                        ? 'Viewing your public profile info.'
-                                        : 'This is read-only profile info. You cannot edit other users.',
-                                    style: const TextStyle(
-                                      color: Color(0xFF1E3A8A),
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
+                                ],
                               ],
                             ),
                           ),
@@ -654,6 +682,195 @@ class _BadgeCard extends StatelessWidget {
                   ),
               ],
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UserProfileTopTabs extends StatelessWidget {
+  final _UserProfileTab selected;
+  final ValueChanged<_UserProfileTab> onSelect;
+
+  const _UserProfileTopTabs({required this.selected, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFD8DEE7)),
+      ),
+      child: Row(
+        children: [
+          _UserProfileTabChip(
+            label: 'Profile',
+            selected: selected == _UserProfileTab.profile,
+            onTap: () => onSelect(_UserProfileTab.profile),
+          ),
+          const SizedBox(width: 6),
+          _UserProfileTabChip(
+            label: 'Skill Level',
+            selected: selected == _UserProfileTab.skill,
+            onTap: () => onSelect(_UserProfileTab.skill),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UserProfileTabChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _UserProfileTabChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFFEAF1FF) : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: selected ? const Color(0xFF2C4EA0) : const Color(0xFF667085),
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SkillCard extends StatelessWidget {
+  final UserProfile profile;
+
+  const _SkillCard({required this.profile});
+
+  int _pointsNeededForTier(int tierLevel) {
+    const thresholds = <int>[10, 15, 20, 25, 35, 45, 60, 80, 100];
+    if (tierLevel >= 10) {
+      return thresholds.last;
+    }
+    return thresholds[(tierLevel - 1).clamp(0, thresholds.length - 1)];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final allSports = SampleData.sports;
+    final visibleSports = allSports
+        .where((sport) => (profile.sportSkills[sport]?.matchesPlayed ?? 0) > 0)
+        .toList();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFD8DEE7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'SKILL LEVEL',
+            style: TextStyle(
+              color: Color(0xFF8A95A4),
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (visibleSports.isEmpty)
+            Text(
+              'No sports played yet.',
+              style: TextStyle(
+                color: Colors.black.withValues(alpha: 0.55),
+                fontWeight: FontWeight.w600,
+              ),
+            )
+          else
+            ...[
+              for (int i = 0; i < visibleSports.length; i++) ...[
+                () {
+                  final sportName = visibleSports[i];
+                  final sportSkill =
+                      profile.sportSkills[sportName] ??
+                      const SportSkillProgress();
+                  final pointsNeeded = _pointsNeededForTier(sportSkill.tierLevel);
+                  final progress = pointsNeeded <= 0
+                      ? 0.0
+                      : (sportSkill.tierProgress / pointsNeeded).clamp(0.0, 1.0);
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              sportName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            'Lvl ${sportSkill.tierLevel}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
+                              color: Color(0xFF2C4EA0),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${sportSkill.tierProgress}/$pointsNeeded pts',
+                            style: TextStyle(
+                              color: Colors.black.withValues(alpha: 0.6),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: LinearProgressIndicator(
+                          minHeight: 6,
+                          value: progress,
+                          backgroundColor: const Color(0xFFE1E5E8),
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            Color(0xFF2C4EA0),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                }(),
+                if (i != visibleSports.length - 1) const SizedBox(height: 12),
+              ],
+            ],
         ],
       ),
     );

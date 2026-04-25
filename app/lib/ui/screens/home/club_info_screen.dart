@@ -1503,6 +1503,16 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                   child: GestureDetector(
                                     behavior: HitTestBehavior.opaque,
                                     onTap: () {
+                                      final canOpenMemberOptions =
+                                          p.isCurrentUserAdmin &&
+                                          m.profile.userId != currentUserId;
+                                      if (canOpenMemberOptions) {
+                                        _openMemberActions(
+                                          payload: p,
+                                          member: m,
+                                        );
+                                        return;
+                                      }
                                       Navigator.of(context).pushNamed(
                                         UserProfileViewScreen.routeName,
                                         arguments: UserProfileViewArgs(
@@ -1510,12 +1520,6 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                         ),
                                       );
                                     },
-                                    onLongPress: p.isCurrentUserAdmin
-                                        ? () => _openMemberActions(
-                                            payload: p,
-                                            member: m,
-                                          )
-                                        : null,
                                     child: _MemberProfileTile(
                                       profile: m.profile,
                                       primary: teal,

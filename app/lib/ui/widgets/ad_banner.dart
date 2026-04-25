@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../screens/profile/membership_screen.dart';
 
 abstract final class AppAdCreatives {
   // Configure your ad images/GIFs once here.
@@ -73,50 +74,59 @@ class _AppAdBannerState extends State<AppAdBanner> {
       padding: widget.padding,
       child: ClipRRect(
         borderRadius: widget.borderRadius,
-        child: Container(
-          height: widget.height,
-          width: double.infinity,
+        child: Material(
           color: widget.backgroundColor,
-          child: creatives.isEmpty
-              ? _fallbackIcon()
-              : Stack(
-                  children: [
-                    PageView.builder(
-                      controller: _pageController,
-                      itemCount: creatives.length,
-                      onPageChanged: (idx) {
-                        setState(() => _currentIndex = idx);
-                      },
-                      itemBuilder: (context, idx) => _AdCreativeImage(
-                        pathOrUrl: creatives[idx],
-                        fallbackColor: widget.backgroundColor,
-                      ),
-                    ),
-                    if (creatives.length > 1)
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 6,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            for (var i = 0; i < creatives.length; i++)
-                              Container(
-                                width: i == _currentIndex ? 12 : 7,
-                                height: 7,
-                                margin: const EdgeInsets.symmetric(horizontal: 2),
-                                decoration: BoxDecoration(
-                                  color: i == _currentIndex
-                                      ? Colors.white
-                                      : Colors.white.withValues(alpha: 0.55),
-                                  borderRadius: BorderRadius.circular(99),
-                                ),
-                              ),
-                          ],
+          child: InkWell(
+            onTap: () {
+              Navigator.of(context).pushNamed(MembershipScreen.routeName);
+            },
+            child: SizedBox(
+              height: widget.height,
+              width: double.infinity,
+              child: creatives.isEmpty
+                  ? _fallbackIcon()
+                  : Stack(
+                      children: [
+                        PageView.builder(
+                          controller: _pageController,
+                          itemCount: creatives.length,
+                          onPageChanged: (idx) {
+                            setState(() => _currentIndex = idx);
+                          },
+                          itemBuilder: (context, idx) => _AdCreativeImage(
+                            pathOrUrl: creatives[idx],
+                            fallbackColor: widget.backgroundColor,
+                          ),
                         ),
-                      ),
-                  ],
-                ),
+                        if (creatives.length > 1)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 6,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                for (var i = 0; i < creatives.length; i++)
+                                  Container(
+                                    width: i == _currentIndex ? 12 : 7,
+                                    height: 7,
+                                    margin: const EdgeInsets.symmetric(
+                                      horizontal: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: i == _currentIndex
+                                          ? Colors.white
+                                          : Colors.white.withValues(alpha: 0.55),
+                                      borderRadius: BorderRadius.circular(99),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+            ),
+          ),
         ),
       ),
     );

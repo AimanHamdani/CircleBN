@@ -156,15 +156,22 @@ class _CalendarScreenState extends State<CalendarScreen> {
             FutureBuilder<MembershipStatus>(
               future: _membershipFuture,
               builder: (context, membershipSnap) {
+                if (membershipSnap.connectionState != ConnectionState.done &&
+                    membershipSnap.data == null) {
+                  return const SizedBox.shrink();
+                }
                 if (membershipSnap.data?.isPremium == true) {
                   return const SizedBox.shrink();
                 }
-                return const AppAdBanner();
+                return const AppAdBanner(
+                  padding: EdgeInsets.fromLTRB(18, 8, 18, 0),
+                  height: 62,
+                );
               },
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
                 child: FutureBuilder<_CalendarPayload>(
                   future: _payloadFuture,
                   builder: (context, snap) {
@@ -293,7 +300,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         ],
                         const SizedBox(height: 10),
                         Expanded(
-                          flex: 6,
+                          flex: 7,
                           child: Container(
                             decoration: BoxDecoration(
                               color: const Color(0xFFFEFEFC),
@@ -381,7 +388,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         ),
                         const SizedBox(height: 10),
                         Expanded(
-                          flex: 5,
+                          flex: 4,
                           child: eventsOnSelectedDay.isEmpty
                               ? Center(
                                   child: Text(
@@ -652,6 +659,7 @@ class _MonthGrid extends StatelessWidget {
     final textColor = isSelected ? Colors.white : baseText;
     final markerColor = isSelected ? Colors.white : accent;
     final dotBottom = math.max(4.0, cellSize * 0.12);
+    final dayFontSize = math.max(10.0, cellSize * 0.28).clamp(10.0, 16.0);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2),
@@ -666,8 +674,13 @@ class _MonthGrid extends StatelessWidget {
               Center(
                 child: Text(
                   '${d.day}',
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.visible,
                   style: TextStyle(
                     fontWeight: FontWeight.w900,
+                    fontSize: dayFontSize,
+                    height: 1,
                     color: textColor,
                   ),
                 ),

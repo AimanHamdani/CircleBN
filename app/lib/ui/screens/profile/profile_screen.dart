@@ -4,6 +4,7 @@ import 'package:appwrite/appwrite.dart';
 import 'package:flutter/material.dart';
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
+import '../../../auth/account_guard.dart';
 import '../../../data/achievement_repository.dart';
 import '../../../data/badge_display_repository.dart';
 import '../../../data/height_display_repository.dart';
@@ -46,6 +47,8 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
+enum _ProfileContentTab { profile, sports, settings }
+
 class _ProfileScreenState extends State<ProfileScreen> {
   late Future<UserProfile> _future;
   late Future<AchievementSnapshot> _achievementFuture;
@@ -53,6 +56,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late Future<List<Object?>> _pageFuture;
   static List<Object?>? _cachedPageData;
   bool _showAllSportsSkills = false;
+  _ProfileContentTab _activeTab = _ProfileContentTab.profile;
 
   @override
   void initState() {
@@ -253,6 +257,136 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _onDeactivateAccount() async {
+    final firstConfirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Step 1 of 3'),
+        content: const Text(
+          'You are about to deactivate this account. You will be logged out immediately.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    if (firstConfirm != true) {
+      return;
+    }
+
+    final typedController = TextEditingController();
+    final secondConfirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: const Text('Step 2 of 3'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Type DEACTIVATE to confirm this action.',
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: typedController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'DEACTIVATE',
+                  isDense: true,
+                ),
+                onChanged: (_) => setLocal(() {}),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: typedController.text.trim().toUpperCase() == 'DEACTIVATE'
+                  ? () => Navigator.of(ctx).pop(true)
+                  : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
+      ),
+    );
+    typedController.dispose();
+    if (secondConfirm != true) {
+      return;
+    }
+
+    final finalConfirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Step 3 of 3'),
+        content: const Text(
+          'Final confirmation: deactivate this account now?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFB91C1C),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Deactivate Account'),
+          ),
+        ],
+      ),
+    );
+    if (finalConfirm != true) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    try {
+      await deactivateCurrentAccount();
+      try {
+        await AppwriteService.account.deleteSessions();
+      } catch (_) {}
+      await SessionPersistence.clear();
+      CurrentUser.reset();
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Account deactivated.')),
+      );
+      navigator.pushNamedAndRemoveUntil(LoginScreen.routeName, (_) => false);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Failed to deactivate account.')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -413,12 +547,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ],
                     ),
                   ),
+                  _ProfileTopTabs(
+                    selected: _activeTab,
+                    onSelect: (tab) => setState(() => _activeTab = tab),
+                  ),
                   Expanded(
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
                       child: Column(
                         children: [
-                          _CardSection(
+                          if (_activeTab == _ProfileContentTab.profile)
+                            _CardSection(
                             title: 'PERSONAL INFO',
                             child: Column(
                               children: [
@@ -439,54 +578,56 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ],
                             ),
                           ),
-                          const SizedBox(height: 14),
-                          Builder(
-                            builder: (context) {
-                              final earned = achievements.unlockedBadges;
-                              final selectedEarned = earned
-                                  .where(
-                                    (badge) => selectedBadgeIds.contains(
-                                      badge.badge.id,
-                                    ),
-                                  )
-                                  .toList();
-                              return _CardSection(
-                                title: 'BADGES',
-                                child: earned.isEmpty
-                                    ? Text(
-                                        'No badges unlocked yet. Join events and clubs to earn your first one.',
-                                        style: TextStyle(
-                                          color: Colors.black.withValues(
-                                            alpha: 0.55,
-                                          ),
-                                        ),
-                                      )
-                                    : selectedEarned.isEmpty
-                                    ? Text(
-                                        "This user doesn't display any badges.",
-                                        style: TextStyle(
-                                          color: Colors.black.withValues(
-                                            alpha: 0.55,
-                                          ),
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      )
-                                    : Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        children: [
-                                          for (final badge in selectedEarned)
-                                            _UnlockedBadgePill(
-                                              emoji: badge.badge.emoji,
-                                              label: badge.badge.name,
-                                            ),
-                                        ],
+                          if (_activeTab == _ProfileContentTab.profile) ...[
+                            const SizedBox(height: 14),
+                            Builder(
+                              builder: (context) {
+                                final earned = achievements.unlockedBadges;
+                                final selectedEarned = earned
+                                    .where(
+                                      (badge) => selectedBadgeIds.contains(
+                                        badge.badge.id,
                                       ),
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 14),
-                          _CardSection(
+                                    )
+                                    .toList();
+                                return _CardSection(
+                                  title: 'BADGES',
+                                  child: earned.isEmpty
+                                      ? Text(
+                                          'No badges unlocked yet. Join events and clubs to earn your first one.',
+                                          style: TextStyle(
+                                            color: Colors.black.withValues(
+                                              alpha: 0.55,
+                                            ),
+                                          ),
+                                        )
+                                      : selectedEarned.isEmpty
+                                      ? Text(
+                                          "This user doesn't display any badges.",
+                                          style: TextStyle(
+                                            color: Colors.black.withValues(
+                                              alpha: 0.55,
+                                            ),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        )
+                                      : Wrap(
+                                          spacing: 8,
+                                          runSpacing: 8,
+                                          children: [
+                                            for (final badge in selectedEarned)
+                                              _UnlockedBadgePill(
+                                                emoji: badge.badge.emoji,
+                                                label: badge.badge.name,
+                                              ),
+                                          ],
+                                        ),
+                                );
+                              },
+                            ),
+                          ],
+                          if (_activeTab == _ProfileContentTab.sports) ...[
+                            _CardSection(
                             title: 'SKILL LEVEL',
                             titleAction: IconButton(
                               onPressed: _showSkillLevelHelpDialog,
@@ -616,8 +757,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ],
                             ),
                           ),
-                          const SizedBox(height: 14),
-                          _CardSection(
+                            const SizedBox(height: 14),
+                            _CardSection(
                             title: 'SPORTS RECOMMENDATION',
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -673,11 +814,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ],
                             ),
                           ),
-                          const SizedBox(height: 14),
-                          _CardSection(
+                          ],
+                          if (_activeTab == _ProfileContentTab.settings) ...[
+                            _CardSection(
                             title: 'SETTINGS',
                             child: Column(
                               children: [
+                                const _SettingsGroupLabel('General'),
                                 _MenuRow(
                                   label: 'Stats',
                                   onTap: () {
@@ -692,95 +835,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     }
                                   },
                                 ),
-                                const Divider(height: 1),
-                                Row(
-                                  children: [
-                                    const Expanded(
-                                      child: Text(
-                                        'Notification',
-                                        style: TextStyle(fontSize: 18),
-                                      ),
-                                    ),
-                                    Switch(
-                                      value: notificationsEnabled,
-                                      activeThumbColor: Colors.white,
-                                      activeTrackColor: cs.primary,
-                                      onChanged: (v) async {
-                                        await profileRepository().saveMyProfile(
-                                          profile.copyWith(
-                                            notificationsEnabled: v,
-                                          ),
-                                        );
-                                        if (mounted) _reload();
-                                      },
-                                    ),
-                                  ],
-                                ),
-                                const Divider(height: 1),
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const Text(
-                                            'Height display',
-                                            style: TextStyle(fontSize: 18),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            useImperialHeight
-                                                ? 'Feet & inches'
-                                                : 'Centimeters (cm)',
-                                            style: TextStyle(
-                                              color: Colors.black.withValues(
-                                                alpha: 0.5,
-                                              ),
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Switch(
-                                      value: useImperialHeight,
-                                      activeThumbColor: Colors.white,
-                                      activeTrackColor: cs.primary,
-                                      onChanged: (v) async {
-                                        await heightDisplayRepository()
-                                            .setUseImperial(v);
-                                        if (mounted) {
-                                          _reload();
-                                        }
-                                      },
-                                    ),
-                                  ],
-                                ),
-                                const Divider(height: 1),
-                                _MenuRow(
-                                  label: 'Daily Streak',
-                                  onTap: () {
-                                    Navigator.of(
-                                      context,
-                                    ).pushNamed(StreakScreen.routeName);
-                                  },
-                                ),
-                                const Divider(height: 1),
-                                _MenuRow(
-                                  label: 'Achievements',
-                                  onTap: () async {
-                                    await Navigator.of(
-                                      context,
-                                    ).pushNamed(AchievementsScreen.routeName);
+                                const SizedBox(height: 2),
+                                _ToggleMenuRow(
+                                  label: 'Notifications',
+                                  value: notificationsEnabled,
+                                  activeColor: cs.primary,
+                                  onChanged: (v) async {
+                                    await profileRepository().saveMyProfile(
+                                      profile.copyWith(notificationsEnabled: v),
+                                    );
                                     if (mounted) {
                                       _reload();
                                     }
                                   },
                                 ),
-                                const Divider(height: 1),
+                                _ToggleMenuRow(
+                                  label: 'Height display',
+                                  subtitle: useImperialHeight
+                                      ? 'Feet & inches'
+                                      : 'Centimeters (cm)',
+                                  value: useImperialHeight,
+                                  activeColor: cs.primary,
+                                  onChanged: (v) async {
+                                    await heightDisplayRepository().setUseImperial(v);
+                                    if (mounted) {
+                                      _reload();
+                                    }
+                                  },
+                                ),
+                                const SizedBox(height: 4),
+                                const _SettingsGroupLabel('Account'),
                                 _MenuRow(
                                   label: 'Membership',
                                   trailing: membership.isPremium
@@ -820,7 +904,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     }
                                   },
                                 ),
-                                const Divider(height: 1),
                                 _MenuRow(
                                   label: 'Edit Profile',
                                   onTap: () async {
@@ -833,7 +916,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     }
                                   },
                                 ),
-                                const Divider(height: 1),
+                                const SizedBox(height: 4),
+                                const _SettingsGroupLabel('Security'),
                                 _MenuRow(
                                   label: 'Change Password',
                                   onTap: () {
@@ -842,7 +926,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     ).pushNamed(ChangePasswordScreen.routeName);
                                   },
                                 ),
-                                const Divider(height: 1),
                                 _MenuRow(
                                   label: 'Log Out',
                                   onTap: () async {
@@ -912,15 +995,81 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     );
                                   },
                                 ),
+                              ],
+                            ),
+                          ),
+                            const SizedBox(height: 14),
+                            _CardSection(
+                            title: 'ACTIVITY TOOLS',
+                            child: Column(
+                              children: [
+                                _MenuRow(
+                                  label: 'Daily Streak',
+                                  onTap: () {
+                                    Navigator.of(
+                                      context,
+                                    ).pushNamed(StreakScreen.routeName);
+                                  },
+                                ),
                                 const Divider(height: 1),
-                                const _MenuRow(
-                                  label: 'Delete Account',
-                                  isDanger: true,
-                                  showChevron: false,
+                                _MenuRow(
+                                  label: 'Achievements',
+                                  onTap: () async {
+                                    await Navigator.of(
+                                      context,
+                                    ).pushNamed(AchievementsScreen.routeName);
+                                    if (mounted) {
+                                      _reload();
+                                    }
+                                  },
                                 ),
                               ],
                             ),
                           ),
+                            const SizedBox(height: 14),
+                            _CardSection(
+                            title: 'DANGER ZONE',
+                            child: Container(
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF1F0),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0xFFFECACA)),
+                              ),
+                              padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Permanent actions',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.red.shade700,
+                                      letterSpacing: 0.3,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Deactivation blocks login and requires manual reactivation.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.red.shade400,
+                                    ),
+                                  ),
+                                  const Divider(height: 14),
+                                  _MenuRow(
+                                    label: 'Deactivate Account',
+                                    isDanger: true,
+                                    showChevron: false,
+                                    onTap: _onDeactivateAccount,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          ],
                         ],
                       ),
                     ),
@@ -986,6 +1135,99 @@ class _AnimatedCounterLabel extends StatelessWidget {
       builder: (context, animated, _) {
         return Text('${animated.round()} $suffix', style: textStyle);
       },
+    );
+  }
+}
+
+class _ProfileTopTabs extends StatelessWidget {
+  final _ProfileContentTab selected;
+  final ValueChanged<_ProfileContentTab> onSelect;
+
+  const _ProfileTopTabs({required this.selected, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: const Color(0xFF173D70),
+        border: Border(
+          top: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 40,
+          child: Row(
+            children: [
+              _ProfileTabButton(
+                label: 'Profile',
+                selected: selected == _ProfileContentTab.profile,
+                onTap: () => onSelect(_ProfileContentTab.profile),
+              ),
+              _ProfileTabButton(
+                label: 'Sports',
+                selected: selected == _ProfileContentTab.sports,
+                onTap: () => onSelect(_ProfileContentTab.sports),
+              ),
+              _ProfileTabButton(
+                label: 'Settings',
+                selected: selected == _ProfileContentTab.settings,
+                onTap: () => onSelect(_ProfileContentTab.settings),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileTabButton extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ProfileTabButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          children: [
+            Expanded(
+              child: Center(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: selected
+                        ? const Color(0xFF35F0C8)
+                        : Colors.white.withValues(alpha: 0.62),
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              height: 2,
+              margin: const EdgeInsets.symmetric(horizontal: 18),
+              decoration: BoxDecoration(
+                color: selected ? const Color(0xFF35F0C8) : Colors.transparent,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1250,6 +1492,91 @@ class _MenuRow extends StatelessWidget {
               const Icon(Icons.chevron_right, color: Color(0xFFBCC7CC)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SettingsGroupLabel extends StatelessWidget {
+  final String label;
+
+  const _SettingsGroupLabel(this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 4),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.5,
+            color: Colors.black.withValues(alpha: 0.42),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ToggleMenuRow extends StatelessWidget {
+  final String label;
+  final String? subtitle;
+  final bool value;
+  final Color activeColor;
+  final ValueChanged<bool> onChanged;
+
+  const _ToggleMenuRow({
+    required this.label,
+    required this.value,
+    required this.activeColor,
+    required this.onChanged,
+    this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Color(0xFF2A3540),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle!,
+                    style: TextStyle(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            activeThumbColor: Colors.white,
+            activeTrackColor: activeColor,
+            onChanged: onChanged,
+          ),
+        ],
       ),
     );
   }

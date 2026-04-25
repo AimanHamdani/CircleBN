@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../appwrite/appwrite_service.dart';
+import '../auth/account_guard.dart';
 import '../auth/current_user.dart';
 import '../auth/session_persistence.dart';
 import '../utils/recovery_uri.dart';
@@ -39,6 +41,19 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
     }
 
     if (CurrentUser.isLoggedIn) {
+      final deactivated = await isCurrentAccountDeactivated();
+      if (deactivated) {
+        try {
+          await AppwriteService.account.deleteSessions();
+        } catch (_) {}
+        await SessionPersistence.clear();
+        CurrentUser.reset();
+        if (!mounted) {
+          return;
+        }
+        Navigator.of(context).pushReplacementNamed(LoginScreen.routeName);
+        return;
+      }
       Navigator.of(context).pushReplacementNamed(HomeScreen.routeName);
     } else {
       Navigator.of(context).pushReplacementNamed(LoginScreen.routeName);

@@ -11,7 +11,9 @@ import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
 import '../../../data/club_chat_repository.dart';
 import '../../../data/club_member_repository.dart';
+import '../../../data/notification_repository.dart';
 import '../../../data/profile_repository.dart';
+import '../../../models/app_notification.dart';
 import '../../../models/club.dart';
 import '../../../models/club_chat_message.dart';
 import '../../../models/event.dart';
@@ -46,6 +48,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
   int? _membersCount;
   _ChatListTab _activeTab = _ChatListTab.all;
   bool _canPinAnyMessage = false;
+  bool _canSendMessages = false;
 
   @override
   void initState() {
@@ -54,6 +57,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
       _loadMessages();
       _loadMembersCount();
       _resolvePinPrivileges();
+      _resolveSendPermission();
       _startRealtimeSubscription();
       _pollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
         _loadMessages(silent: true);
@@ -151,6 +155,38 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     } catch (_) {}
   }
 
+  Future<void> _resolveSendPermission() async {
+    final club = _clubFromRoute(context);
+    final me = currentUserId.trim();
+    if (club.id.trim().isEmpty || me.isEmpty) {
+      if (mounted) {
+        setState(() => _canSendMessages = false);
+      }
+      return;
+    }
+    final isCreator = (club.creatorId ?? '').trim() == me;
+    if (isCreator) {
+      if (mounted) {
+        setState(() => _canSendMessages = true);
+      }
+      return;
+    }
+    try {
+      final isMember = await clubMemberRepository().isMember(
+        clubId: club.id,
+        userId: me,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() => _canSendMessages = isMember);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _canSendMessages = false);
+      }
+    }
+  }
+
   Future<String> _resolveDisplayName() async {
     if (_displayName != null && _displayName!.trim().isNotEmpty) {
       return _displayName!;
@@ -221,6 +257,14 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
   }
 
   Future<void> _sendMessage() async {
+    if (!_canSendMessages) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Join this club to send messages.')),
+        );
+      }
+      return;
+    }
     if (_activeTab == _ChatListTab.pinned) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -251,6 +295,11 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         senderId: senderId,
         senderName: senderName,
         text: text,
+      );
+      await _notifyClubMembersForMessage(
+        clubId: clubId,
+        senderName: senderName,
+        messageText: text,
       );
       _composerCtrl.clear();
       await _loadMessages(silent: true);
@@ -402,6 +451,14 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
   }
 
   Future<void> _sendImageMessage() async {
+    if (!_canSendMessages) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Join this club to send messages.')),
+        );
+      }
+      return;
+    }
     if (_activeTab == _ChatListTab.pinned) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -444,6 +501,12 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         text: _composerCtrl.text.trim(),
         imageFileId: uploaded.$id,
       );
+      await _notifyClubMembersForMessage(
+        clubId: clubId,
+        senderName: senderName,
+        messageText: _composerCtrl.text.trim(),
+        hasImage: true,
+      );
       _composerCtrl.clear();
       await _loadMessages(silent: true);
     } catch (_) {
@@ -460,6 +523,44 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
       setState(() {
         _isSending = false;
       });
+    }
+  }
+
+  Future<void> _notifyClubMembersForMessage({
+    required String clubId,
+    required String senderName,
+    required String messageText,
+    bool hasImage = false,
+  }) async {
+    try {
+      final members = await clubMemberRepository().listMembers(clubId: clubId);
+      final recipientIds = members
+          .map((m) => m.userId.trim())
+          .where((id) => id.isNotEmpty && id != currentUserId.trim())
+          .toSet();
+      if (recipientIds.isEmpty) {
+        return;
+      }
+      final club = _clubFromRoute(context);
+      final trimmed = messageText.trim();
+      final preview = trimmed.isEmpty
+          ? (hasImage ? 'sent a photo' : 'sent a message')
+          : trimmed;
+      final createdAt = DateTime.now();
+      for (final userId in recipientIds) {
+        final notification = AppNotification(
+          id:
+              'club_chat_${club.id}_${userId}_${createdAt.microsecondsSinceEpoch}',
+          userId: userId,
+          type: AppNotificationType.chatMessage,
+          title: 'New club message',
+          message: '$senderName in ${club.name}: $preview',
+          createdAt: createdAt,
+        );
+        await notificationRepository().upsertMany(userId, [notification]);
+      }
+    } catch (_) {
+      // Best-effort notification write; do not block sending message.
     }
   }
 
@@ -744,110 +845,116 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
           SafeArea(
             top: false,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: _teal.withValues(alpha: 0.35)),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _composerCtrl,
-                        decoration: InputDecoration(
-                          hintText: 'Message ${club.name}...',
-                          filled: true,
-                          fillColor: _mint,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(999),
-                            borderSide: BorderSide(
-                              color: _teal.withValues(alpha: 0.45),
-                            ),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(999),
-                            borderSide: BorderSide(
-                              color: _teal.withValues(alpha: 0.45),
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(999),
-                            borderSide: const BorderSide(
-                              color: _teal,
-                              width: 1.4,
-                            ),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 14,
-                          ),
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!_canSendMessages)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF8ED),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFFDBA74)),
+                      ),
+                      child: const Text(
+                        'Join this club to send messages.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF92400E),
                         ),
-                        enabled: _activeTab == _ChatListTab.all,
-                        minLines: 1,
-                        maxLines: 4,
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => _sendMessage(),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Material(
-                      color: _teal.withValues(alpha: 0.14),
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
                       borderRadius: BorderRadius.circular(999),
-                      clipBehavior: Clip.antiAlias,
-                      child: InkWell(
-                        onTap: (_isSending || _activeTab == _ChatListTab.pinned)
-                            ? null
-                            : _sendImageMessage,
-                        borderRadius: BorderRadius.circular(999),
-                        child: const SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: Center(
-                            child: Icon(
-                              Icons.image_outlined,
-                              color: Color(0xFF0F5549),
-                              size: 20,
+                      border: Border.all(color: _teal.withValues(alpha: 0.35)),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _composerCtrl,
+                            decoration: InputDecoration(
+                              hintText: _canSendMessages
+                                  ? 'Message...'
+                                  : 'Join to chat in ${club.name}',
+                              border: InputBorder.none,
+                              isCollapsed: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 2,
+                                vertical: 10,
+                              ),
+                            ),
+                            enabled:
+                                _canSendMessages &&
+                                _activeTab == _ChatListTab.all,
+                            minLines: 1,
+                            maxLines: 4,
+                            textInputAction: TextInputAction.send,
+                            onSubmitted: (_) => _sendMessage(),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        IconButton(
+                          onPressed:
+                              (_isSending ||
+                                  _activeTab == _ChatListTab.pinned ||
+                                  !_canSendMessages)
+                              ? null
+                              : _sendImageMessage,
+                          icon: const Icon(
+                            Icons.image_outlined,
+                            color: Color(0xFF0F5549),
+                            size: 20,
+                          ),
+                        ),
+                        Material(
+                          color: _teal,
+                          borderRadius: BorderRadius.circular(999),
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap:
+                                (_isSending ||
+                                    _activeTab == _ChatListTab.pinned ||
+                                    !_canSendMessages)
+                                ? null
+                                : _sendMessage,
+                            borderRadius: BorderRadius.circular(999),
+                            child: SizedBox(
+                              width: 42,
+                              height: 42,
+                              child: Center(
+                                child: _isSending
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.send,
+                                        color: Colors.white,
+                                        size: 18,
+                                      ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
-                    const SizedBox(width: 10),
-                    Material(
-                      color: _teal,
-                      borderRadius: BorderRadius.circular(999),
-                      clipBehavior: Clip.antiAlias,
-                      child: InkWell(
-                        onTap: (_isSending || _activeTab == _ChatListTab.pinned)
-                            ? null
-                            : _sendMessage,
-                        borderRadius: BorderRadius.circular(999),
-                        child: SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: Center(
-                            child: _isSending
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Icon(
-                                    Icons.send,
-                                    color: Colors.white,
-                                    size: 20,
-                                  ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:appwrite/appwrite.dart';
 
 import '../../appwrite/appwrite_service.dart';
+import '../../auth/account_guard.dart';
 import '../../auth/current_user.dart';
 import '../../auth/session_persistence.dart';
 import '../widgets/auth_brand_placeholder.dart';
@@ -44,6 +45,23 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       await SessionPersistence.save(session.$id);
       await CurrentUser.init();
+      final deactivated = await isCurrentAccountDeactivated();
+      if (deactivated) {
+        try {
+          await AppwriteService.account.deleteSessions();
+        } catch (_) {}
+        await SessionPersistence.clear();
+        CurrentUser.reset();
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This account has been deactivated.'),
+          ),
+        );
+        return;
+      }
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed(HomeScreen.routeName);
     } on AppwriteException catch (e) {

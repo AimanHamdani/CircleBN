@@ -147,6 +147,10 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
                 FutureBuilder<MembershipStatus>(
                   future: _membershipFuture,
                   builder: (context, membershipSnap) {
+                    if (membershipSnap.connectionState != ConnectionState.done &&
+                        membershipSnap.data == null) {
+                      return const SizedBox.shrink();
+                    }
                     if (membershipSnap.data?.isPremium == true) {
                       return const SizedBox.shrink();
                     }

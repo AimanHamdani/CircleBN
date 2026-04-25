@@ -681,72 +681,83 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: EdgeInsets.fromLTRB(18, 10, 18, 18 + bottomInset),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _composerCtrl,
-                enabled: canSendChat,
-                decoration: const InputDecoration(hintText: 'Message'),
-                textInputAction: TextInputAction.send,
-                onSubmitted: canSendChat ? (_) => _sendChatMessage() : (_) {},
-              ),
+        padding: EdgeInsets.fromLTRB(10, 0, 10, 10 + bottomInset),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
             ),
-            const SizedBox(width: 10),
-            InkWell(
-              onTap: canSendChat && !_isChatSending ? _sendChatImage : null,
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withValues(
-                    alpha: 0.14,
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _composerCtrl,
+                  enabled: canSendChat,
+                  decoration: const InputDecoration(
+                    hintText: 'Message...',
+                    border: InputBorder.none,
+                    isCollapsed: true,
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 2,
+                      vertical: 10,
+                    ),
                   ),
-                  borderRadius: BorderRadius.circular(14),
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: canSendChat ? (_) => _sendChatMessage() : (_) {},
                 ),
-                child: Icon(
+              ),
+              const SizedBox(width: 6),
+              IconButton(
+                onPressed: canSendChat && !_isChatSending ? _sendChatImage : null,
+                icon: Icon(
                   Icons.image_outlined,
                   color: canSendChat
                       ? Theme.of(context).colorScheme.primary
                       : Theme.of(
                           context,
                         ).colorScheme.primary.withValues(alpha: 0.45),
+                  size: 20,
                 ),
               ),
-            ),
-            const SizedBox(width: 10),
-            InkWell(
-              onTap: canSendChat && !_isChatSending ? _sendChatMessage : null,
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: _isChatSending
-                    ? const Center(
-                        child: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
+              Material(
+                color: Theme.of(context).colorScheme.primary,
+                borderRadius: BorderRadius.circular(999),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: canSendChat && !_isChatSending ? _sendChatMessage : null,
+                  borderRadius: BorderRadius.circular(999),
+                  child: SizedBox(
+                    width: 42,
+                    height: 42,
+                    child: _isChatSending
+                        ? const Center(
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            ),
+                          )
+                        : Center(
+                            child: Icon(
+                              Icons.send,
+                              size: 18,
+                              color: canSendChat
+                                  ? Colors.white
+                                  : Colors.white.withValues(alpha: 0.45),
+                            ),
                           ),
-                        ),
-                      )
-                    : Icon(
-                        Icons.send,
-                        color: canSendChat
-                            ? Colors.white
-                            : Colors.white.withValues(alpha: 0.45),
-                      ),
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -794,6 +805,11 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         senderId: currentUserId,
         senderName: senderName,
         text: txt,
+      );
+      await _notifyEventParticipantsForMessage(
+        event: event,
+        senderName: senderName,
+        messageText: txt,
       );
       _composerCtrl.clear();
       await _loadChatMessages(silent: true);
@@ -872,6 +888,12 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         text: _composerCtrl.text.trim(),
         imageFileId: uploaded.$id,
       );
+      await _notifyEventParticipantsForMessage(
+        event: event,
+        senderName: senderName,
+        messageText: _composerCtrl.text.trim(),
+        hasImage: true,
+      );
       _composerCtrl.clear();
       await _loadChatMessages(silent: true);
     } on AppwriteException catch (e) {
@@ -917,6 +939,48 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     } catch (_) {}
     _chatSenderName = 'Member';
     return _chatSenderName!;
+  }
+
+  Future<void> _notifyEventParticipantsForMessage({
+    required Event event,
+    required String senderName,
+    required String messageText,
+    bool hasImage = false,
+  }) async {
+    try {
+      final participantIds = await eventRegistrationRepository()
+          .listParticipantUserIds(event.id);
+      final recipientIds = <String>{
+        for (final id in participantIds) id.trim(),
+      }..removeWhere((id) => id.isEmpty || id == currentUserId.trim());
+      final creatorId = (event.creatorId ?? '').trim();
+      if (creatorId.isNotEmpty && creatorId != currentUserId.trim()) {
+        recipientIds.add(creatorId);
+      }
+      if (recipientIds.isEmpty) {
+        return;
+      }
+      final trimmed = messageText.trim();
+      final preview = trimmed.isEmpty
+          ? (hasImage ? 'sent a photo' : 'sent a message')
+          : trimmed;
+      final createdAt = DateTime.now();
+      for (final userId in recipientIds) {
+        final note = AppNotification(
+          id:
+              'event_chat_${event.id}_${userId}_${createdAt.microsecondsSinceEpoch}',
+          userId: userId,
+          type: AppNotificationType.chatMessage,
+          title: 'New event message',
+          message: '$senderName in ${event.title}: $preview',
+          createdAt: createdAt,
+          targetEventId: event.id,
+        );
+        await notificationRepository().upsertMany(userId, [note]);
+      }
+    } catch (_) {
+      // Best-effort write; do not block message sending.
+    }
   }
 
   Future<void> _loadChatMessages({bool silent = false}) async {

@@ -1545,6 +1545,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   }
 
   Future<void> _showDurationPicker(BuildContext context) async {
+    FocusManager.instance.primaryFocus?.unfocus();
     final options = [
       '1 Hour',
       '1.5 Hours',
@@ -1579,6 +1580,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         _duration = chosen;
         _durationDisplayCtrl.text = chosen;
       });
+      FocusManager.instance.primaryFocus?.unfocus();
     }
   }
 
@@ -1587,6 +1589,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     required List<T> options,
     required ValueChanged<T> onSelected,
   }) async {
+    FocusManager.instance.primaryFocus?.unfocus();
     final chosen = await showModalBottomSheet<T>(
       context: context,
       isScrollControlled: true,
@@ -1645,6 +1648,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
     if (chosen != null && mounted) {
       onSelected(chosen);
+      FocusManager.instance.primaryFocus?.unfocus();
     }
   }
 

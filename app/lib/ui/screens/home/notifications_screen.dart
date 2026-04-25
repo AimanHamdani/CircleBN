@@ -280,6 +280,7 @@ class _NotificationTile extends StatelessWidget {
     final isInvite = item.type == AppNotificationType.eventInvite;
     final isUpdated = item.type == AppNotificationType.eventUpdated;
     final isJoinRequest = item.type == AppNotificationType.eventJoinRequest;
+    final isChat = item.type == AppNotificationType.chatMessage;
     final iconBackground = isSoon
         ? const Color(0xFFDFF0E7)
         : isInvite
@@ -288,6 +289,8 @@ class _NotificationTile extends StatelessWidget {
         ? const Color(0xFFE7F2FF)
         : isJoinRequest
         ? const Color(0xFFFFF4E5)
+        : isChat
+        ? const Color(0xFFE0F7F4)
         : const Color(0xFFF1F2F7);
     final iconColor = isSoon
         ? const Color(0xFF4A8D64)
@@ -297,6 +300,8 @@ class _NotificationTile extends StatelessWidget {
         ? const Color(0xFF2A73C9)
         : isJoinRequest
         ? const Color(0xFFB45309)
+        : isChat
+        ? const Color(0xFF0F766E)
         : const Color(0xFFB05A76);
     final borderColor = unread
         ? const Color(0xFF6B6FF0)
@@ -332,6 +337,8 @@ class _NotificationTile extends StatelessWidget {
                     ? Icons.edit_calendar_outlined
                     : isJoinRequest
                     ? Icons.person_add_alt_1_outlined
+                    : isChat
+                    ? Icons.chat_bubble_outline
                     : Icons.close,
                 color: iconColor,
               ),

@@ -4,6 +4,7 @@ enum AppNotificationType {
   eventInvite,
   eventUpdated,
   eventJoinRequest,
+  chatMessage,
 }
 
 AppNotificationType appNotificationTypeFromString(String raw) {
@@ -18,6 +19,8 @@ AppNotificationType appNotificationTypeFromString(String raw) {
       return AppNotificationType.eventUpdated;
     case 'eventJoinRequest':
       return AppNotificationType.eventJoinRequest;
+    case 'chatMessage':
+      return AppNotificationType.chatMessage;
     default:
       return AppNotificationType.eventInvite;
   }
@@ -35,6 +38,8 @@ String appNotificationTypeToString(AppNotificationType type) {
       return 'eventUpdated';
     case AppNotificationType.eventJoinRequest:
       return 'eventJoinRequest';
+    case AppNotificationType.chatMessage:
+      return 'chatMessage';
   }
 }
 

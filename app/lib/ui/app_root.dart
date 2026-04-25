@@ -18,6 +18,7 @@ import 'screens/home/notifications_screen.dart';
 import 'screens/home/redeem_points_screen.dart';
 import 'screens/home/streak_screen.dart';
 import 'screens/home/private_events_screen.dart';
+import 'screens/home/direct_message_screen.dart';
 import 'screens/profile/edit_profile_screen.dart';
 import 'screens/profile/change_password_screen.dart';
 import 'screens/profile/achievements_screen.dart';
@@ -89,6 +90,7 @@ class AppRoot extends StatelessWidget {
         StreakScreen.routeName: (_) => const StreakScreen(),
         RedeemPointsScreen.routeName: (_) => const RedeemPointsScreen(),
         PrivateEventsScreen.routeName: (_) => const PrivateEventsScreen(),
+        DirectMessageScreen.routeName: (_) => const DirectMessageScreen(),
         AchievementsScreen.routeName: (_) => const AchievementsScreen(),
         ProfileScreen.routeName: (_) => const ProfileScreen(),
         FreeStatsScreen.routeName: (_) => const FreeStatsScreen(),

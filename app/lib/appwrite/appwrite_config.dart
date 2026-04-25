@@ -44,6 +44,10 @@ class AppwriteConfig {
     'APPWRITE_EVENT_MESSAGES_COLLECTION_ID',
     defaultValue: 'event_messages',
   );
+  static const directMessagesCollectionId = String.fromEnvironment(
+    'APPWRITE_DIRECT_MESSAGES_COLLECTION_ID',
+    defaultValue: 'direct_messages',
+  );
   static const promoteClubAdminFunctionId = String.fromEnvironment(
     'APPWRITE_PROMOTE_CLUB_ADMIN_FUNCTION_ID',
     defaultValue: 'promote_club_admin',

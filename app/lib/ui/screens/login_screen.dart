@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:appwrite/appwrite.dart';
 
-import '../../appwrite/appwrite_config.dart';
 import '../../appwrite/appwrite_service.dart';
 import '../../auth/current_user.dart';
 import '../../auth/session_persistence.dart';
@@ -25,7 +24,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordCtrl = TextEditingController();
   bool _obscure = true;
   bool _isLoading = false;
-  bool _isRecovering = false;
 
   @override
   void dispose() {
@@ -60,44 +58,6 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _onForgotPassword() async {
-    final email = _emailCtrl.text.trim();
-    if (email.isEmpty || !email.contains('@')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter your email first to reset password.')),
-      );
-      return;
-    }
-
-    if (_isRecovering) {
-      return;
-    }
-
-    setState(() => _isRecovering = true);
-    try {
-      await AppwriteService.account.createRecovery(
-        email: email,
-        url: AppwriteConfig.passwordRecoveryUrl,
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password reset email sent. Check your inbox.')),
-      );
-    } on AppwriteException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message ?? 'Failed to send recovery email.')),
-      );
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to send recovery email.')),
-      );
-    } finally {
-      if (mounted) setState(() => _isRecovering = false);
     }
   }
 
@@ -193,16 +153,19 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 10),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: _isRecovering ? null : _onForgotPassword,
-                  style: TextButton.styleFrom(
-                    foregroundColor: green,
-                    textStyle: const TextStyle(fontWeight: FontWeight.w700),
+              Row(
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pushNamed(
+                      ResetPasswordScreen.routeName,
+                    ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: green,
+                      textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    child: const Text('Reset Password'),
                   ),
-                  child: Text(_isRecovering ? 'Sending...' : 'Forgot password?'),
-                ),
+                ],
               ),
               const SizedBox(height: 12),
               FilledButton(
@@ -250,17 +213,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: const Text('Sign up'),
                     ),
                   ],
-                ),
-              ),
-              const SizedBox(height: 6),
-              Center(
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).pushNamed(ResetPasswordScreen.routeName),
-                  style: TextButton.styleFrom(
-                    foregroundColor: green,
-                    textStyle: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  child: const Text('I have reset code'),
                 ),
               ),
             ],

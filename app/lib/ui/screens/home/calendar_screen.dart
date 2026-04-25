@@ -6,8 +6,10 @@ import '../../../auth/current_user.dart';
 import '../../../data/club_member_repository.dart';
 import '../../../data/club_repository.dart';
 import '../../../data/event_repository.dart';
+import '../../../data/membership_repository.dart';
 import '../../../models/club.dart';
 import '../../../models/event.dart';
+import '../../widgets/ad_banner.dart';
 import '../../widgets/event_thumbnail_header.dart';
 import 'event_detail_screen.dart';
 
@@ -32,6 +34,7 @@ class CalendarScreen extends StatefulWidget {
 
 class _CalendarScreenState extends State<CalendarScreen> {
   late Future<_CalendarPayload> _payloadFuture;
+  late Future<MembershipStatus> _membershipFuture;
 
   DateTime _visibleMonth = _monthStart(DateTime.now());
   DateTime? _selectedDate;
@@ -46,6 +49,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   void initState() {
     super.initState();
     _payloadFuture = _loadCalendarPayload();
+    _membershipFuture = membershipRepository().getStatus();
     _selectedDate = DateTime.now();
   }
 
@@ -148,6 +152,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   fontWeight: FontWeight.w900,
                 ),
               ),
+            ),
+            FutureBuilder<MembershipStatus>(
+              future: _membershipFuture,
+              builder: (context, membershipSnap) {
+                if (membershipSnap.data?.isPremium == true) {
+                  return const SizedBox.shrink();
+                }
+                return const AppAdBanner();
+              },
             ),
             Expanded(
               child: Padding(

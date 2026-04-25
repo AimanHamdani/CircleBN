@@ -76,9 +76,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                 return const Center(child: CircularProgressIndicator());
               }
               final profile = snap.data ?? UserProfile.empty(_targetUserId);
-              final name = profile.realName.trim().isNotEmpty
-                  ? profile.realName.trim()
-                  : profile.username;
+              final name = _profileDisplayName(profile);
               final sports = profile.preferredSports.toList()..sort();
               final subtitle = sports.isEmpty
                   ? 'Sports enthusiast'
@@ -391,6 +389,28 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
       ),
     );
   }
+}
+
+String _profileDisplayName(UserProfile profile) {
+  final realName = profile.realName.trim();
+  final username = profile.username.trim();
+
+  final hasRealName = realName.isNotEmpty && realName != 'Name';
+  final hasUsername = username.isNotEmpty && username != 'Username';
+
+  if (hasRealName) {
+    return realName;
+  }
+  if (hasUsername) {
+    return username;
+  }
+  if (realName.isNotEmpty) {
+    return realName;
+  }
+  if (username.isNotEmpty) {
+    return username;
+  }
+  return 'User';
 }
 
 class _UserAvatar extends StatelessWidget {

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../models/signup_draft.dart';
+import '../../../utils/password_rules.dart';
+import '../../widgets/password_requirement_hints.dart';
 import '../login_screen.dart';
 import '../../theme/app_theme.dart';
 import 'about_you_screen.dart';
@@ -19,6 +22,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _passwordCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
   bool _obscure = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _passwordCtrl.addListener(() {
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   void dispose() {
@@ -108,6 +119,33 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       controller: _passwordCtrl,
                       obscureText: _obscure,
                       textInputAction: TextInputAction.next,
+                      maxLength: PasswordRules.maxLength,
+                      maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                      buildCounter: (
+                        context, {
+                        required currentLength,
+                        required isFocused,
+                        maxLength,
+                      }) {
+                        final m = maxLength ?? PasswordRules.maxLength;
+                        final near = PasswordRules.isNearMaxLength(_passwordCtrl.text);
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: Text(
+                              '$currentLength / $m',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: near
+                                    ? const Color(0xFFB8860B)
+                                    : Colors.black.withValues(alpha: 0.45),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                       decoration: InputDecoration(
                         hintText: 'Create a password',
                         filled: true,
@@ -126,12 +164,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                           icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
                         ),
                       ),
-                      validator: (v) {
-                        final value = (v ?? '');
-                        if (value.isEmpty) return 'Password is required';
-                        if (value.length < 6) return 'Min 6 characters';
-                        return null;
-                      },
+                      validator: (v) => PasswordRules.validate(v ?? ''),
                     ),
                     const SizedBox(height: 14),
                     Text('Confirm Password', style: TextStyle(fontWeight: FontWeight.w700, color: green)),
@@ -161,6 +194,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       },
                       onFieldSubmitted: (_) => _next(),
                     ),
+                    PasswordRequirementHints(password: _passwordCtrl.text, brandGreen: green),
                   ],
                 ),
               ),
@@ -203,4 +237,3 @@ class _SignUpScreenState extends State<SignUpScreen> {
     );
   }
 }
-

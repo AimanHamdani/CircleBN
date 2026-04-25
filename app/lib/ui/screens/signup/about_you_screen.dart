@@ -12,6 +12,9 @@ class AboutYouScreen extends StatefulWidget {
   State<AboutYouScreen> createState() => _AboutYouScreenState();
 }
 
+const int _kMinSignupAge = 10;
+const int _kMaxSignupAge = 90;
+
 class _AboutYouScreenState extends State<AboutYouScreen> {
   final _formKey = GlobalKey<FormState>();
   final _fullNameCtrl = TextEditingController();
@@ -39,11 +42,17 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
 
   Future<void> _pickDob() async {
     final now = DateTime.now();
+    final firstDate = _subtractCalendarYears(now, _kMaxSignupAge);
+    final lastDate = _subtractCalendarYears(now, 10);
+    var initialDate = _subtractCalendarYears(now, 18);
+    if (initialDate.isBefore(firstDate)) initialDate = firstDate;
+    if (initialDate.isAfter(lastDate)) initialDate = lastDate;
+
     final picked = await showDatePicker(
       context: context,
-      initialDate: DateTime(now.year - 18, 1, 1),
-      firstDate: DateTime(now.year - 90),
-      lastDate: DateTime(now.year - 10),
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
     );
     if (picked == null) return;
     setState(() => _dob = picked);
@@ -51,6 +60,21 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
 
   void _next(SignUpDraft base) {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    if (_dob != null) {
+      final age = _ageInWholeYears(_dob!, DateTime.now());
+      if (age < _kMinSignupAge || age > _kMaxSignupAge) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Date of birth must mean you are between $_kMinSignupAge and $_kMaxSignupAge years old.',
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
     final height = int.tryParse(_heightCtrl.text.trim());
     final next = base.copyWith(
       fullName: _fullNameCtrl.text.trim(),
@@ -82,6 +106,32 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () {
+                    if (Navigator.of(context).canPop()) {
+                      Navigator.of(context).pop();
+                    } else {
+                      Navigator.of(context).pushNamedAndRemoveUntil(
+                        '/signup',
+                        (route) => false,
+                      );
+                    }
+                  },
+                  icon: Icon(Icons.arrow_back_ios_new_rounded, size: 16, color: green),
+                  label: const Text(
+                    'Back to sign up',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: green,
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
               Text(
                 'STEP 1 OF 3',
                 style: TextStyle(
@@ -161,6 +211,16 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
                         color: green,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'You must be aged $_kMinSignupAge–$_kMaxSignupAge for this app.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: green.withValues(alpha: 0.72),
+                        height: 1.3,
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -329,6 +389,24 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
       ),
     );
   }
+}
+
+/// Same calendar month/day, [years] earlier, with day clamped to the target month.
+DateTime _subtractCalendarYears(DateTime from, int years) {
+  final y = from.year - years;
+  final m = from.month;
+  var d = from.day;
+  final daysInMonth = DateTime(y, m + 1, 0).day;
+  if (d > daysInMonth) d = daysInMonth;
+  return DateTime(y, m, d);
+}
+
+int _ageInWholeYears(DateTime birth, DateTime on) {
+  var age = on.year - birth.year;
+  if (on.month < birth.month || (on.month == birth.month && on.day < birth.day)) {
+    age--;
+  }
+  return age;
 }
 
 InputDecoration _inputDecoration({

@@ -10,11 +10,21 @@ DateTime _parseEventStartAt(Object? v) {
     if (raw.isEmpty) {
       return DateTime.now();
     }
-    // Dart: if there is no zone in the string, [tryParse] interprets the time
-    // as *local* wall clock — this matches events saved from the app when the
-    // backend returns the same string without an offset. Forcing `Z` on
-    // naive strings was wrong and shifted calendar/list times by several hours.
-    return DateTime.tryParse(raw) ?? DateTime.now();
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) {
+      return DateTime.now();
+    }
+
+    // Keep naive timestamps as local wall-clock time, but normalize timezone-
+    // aware values (e.g. "...Z", "...+08:00") into local time so all events
+    // render consistently in the UI.
+    final hasExplicitTimezone = RegExp(
+      r'(?:Z|z|[+\-]\d{2}(?::?\d{2})?)$',
+    ).hasMatch(raw);
+    if (hasExplicitTimezone) {
+      return parsed.toLocal();
+    }
+    return parsed;
   }
   return DateTime.now();
 }
@@ -51,6 +61,8 @@ class Event {
   privacy; // "Public (anyone can join)" | "Private (invites only)"
   final List<String> invitedUserIds;
   final List<String> rejectedInviteUserIds;
+  /// Users who asked to join (request-to-join private events). Creator approves in event detail.
+  final List<String> pendingJoinRequestUserIds;
 
   // File ID stored in Appwrite Storage for event thumbnail.
   final String? thumbnailFileId;
@@ -80,6 +92,7 @@ class Event {
     this.privacy,
     this.invitedUserIds = const [],
     this.rejectedInviteUserIds = const [],
+    this.pendingJoinRequestUserIds = const [],
     this.thumbnailFileId,
   });
 
@@ -202,6 +215,10 @@ class Event {
       rejectedInviteUserIds: parseStringList(
         data['rejectedInviteUserIds'] ?? data['rejected_invite_user_ids'],
       ),
+      pendingJoinRequestUserIds: parseStringList(
+        data['pendingJoinRequestUserIds'] ??
+            data['pending_join_request_user_ids'],
+      ),
       thumbnailFileId:
           data['thumbnailFileId']?.toString() ??
           data['thumbnail_file_id']?.toString() ??
@@ -235,6 +252,7 @@ class Event {
       'privacy': privacy,
       'invitedUserIds': invitedUserIds,
       'rejectedInviteUserIds': rejectedInviteUserIds,
+      'pendingJoinRequestUserIds': pendingJoinRequestUserIds,
       'thumbnailFileId': thumbnailFileId,
     };
   }
@@ -264,6 +282,7 @@ class Event {
     String? privacy,
     List<String>? invitedUserIds,
     List<String>? rejectedInviteUserIds,
+    List<String>? pendingJoinRequestUserIds,
     String? thumbnailFileId,
   }) {
     return Event(
@@ -292,6 +311,8 @@ class Event {
       invitedUserIds: invitedUserIds ?? this.invitedUserIds,
       rejectedInviteUserIds:
           rejectedInviteUserIds ?? this.rejectedInviteUserIds,
+      pendingJoinRequestUserIds:
+          pendingJoinRequestUserIds ?? this.pendingJoinRequestUserIds,
       thumbnailFileId: thumbnailFileId ?? this.thumbnailFileId,
     );
   }

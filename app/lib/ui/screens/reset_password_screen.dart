@@ -1,6 +1,8 @@
 import 'package:appwrite/appwrite.dart';
 import 'package:flutter/material.dart';
+import 'dart:async';
 
+import '../../appwrite/appwrite_config.dart';
 import '../../appwrite/appwrite_service.dart';
 import '../../auth/session_persistence.dart';
 import '../../utils/recovery_uri.dart';
@@ -20,9 +22,13 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   final _secretCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
+  final _recoveryEmailCtrl = TextEditingController();
   bool _obscureA = true;
   bool _obscureB = true;
   bool _isLoading = false;
+  bool _isSendingSecretCode = false;
+  Timer? _recoverCooldownTimer;
+  int _recoverCooldownSeconds = 0;
 
   @override
   void initState() {
@@ -32,10 +38,12 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
   @override
   void dispose() {
+    _recoverCooldownTimer?.cancel();
     _userIdCtrl.dispose();
     _secretCtrl.dispose();
     _passwordCtrl.dispose();
     _confirmCtrl.dispose();
+    _recoveryEmailCtrl.dispose();
     super.dispose();
   }
 
@@ -96,6 +104,76 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     }
   }
 
+  Future<void> _sendSecretCode() async {
+    if (_recoverCooldownSeconds > 0 || _isSendingSecretCode) {
+      return;
+    }
+    final email = _recoveryEmailCtrl.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter your email first.')),
+      );
+      return;
+    }
+    setState(() => _isSendingSecretCode = true);
+    try {
+      await AppwriteService.account.createRecovery(
+        email: email,
+        url: AppwriteConfig.passwordRecoveryUrl,
+      );
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Secret code email sent. Check your inbox.')),
+      );
+      _startRecoverCooldown(
+        seconds: AppwriteConfig.passwordRecoveryCooldownSeconds,
+      );
+    } on AppwriteException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Failed to send secret code email.')),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to send secret code email.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSendingSecretCode = false);
+      }
+    }
+  }
+
+  void _startRecoverCooldown({int seconds = 60}) {
+    _recoverCooldownTimer?.cancel();
+    setState(() {
+      _recoverCooldownSeconds = seconds;
+    });
+    _recoverCooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_recoverCooldownSeconds <= 1) {
+        timer.cancel();
+        setState(() {
+          _recoverCooldownSeconds = 0;
+        });
+        return;
+      }
+      setState(() {
+        _recoverCooldownSeconds -= 1;
+      });
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -115,6 +193,39 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                const Text(
+                  'Send secret code',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _recoveryEmailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Email',
+                    hintText: 'your@email.com',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed:
+                        (_isSendingSecretCode || _recoverCooldownSeconds > 0)
+                        ? null
+                        : _sendSecretCode,
+                    child: Text(
+                      _isSendingSecretCode
+                          ? 'Sending...'
+                          : _recoverCooldownSeconds > 0
+                          ? 'Send secret code (${_recoverCooldownSeconds}s)'
+                          : 'Send secret code',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Divider(),
+                const SizedBox(height: 12),
                 Text(
                   'Paste the User ID and Secret from your recovery email link.',
                   style: TextStyle(color: Colors.black.withValues(alpha: 0.6)),

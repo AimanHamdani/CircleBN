@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
+import '../../../auth/current_user.dart';
+import '../../../data/club_chat_repository.dart';
 import '../../../data/club_repository.dart';
+import '../../../data/membership_repository.dart';
 import '../../../data/sample_clubs.dart';
 import '../../../models/club.dart';
+import '../../widgets/ad_banner.dart';
 import 'club_chat_screen.dart';
 
 class ClubsScreen extends StatefulWidget {
@@ -18,19 +23,24 @@ class ClubsScreen extends StatefulWidget {
 
 class _ClubsScreenState extends State<ClubsScreen> {
   final _searchCtrl = TextEditingController();
+  final _chatRepository = clubChatRepository();
 
   String _selectedSport = 'All';
   late Future<List<Club>> _clubsFuture;
+  late Future<MembershipStatus> _membershipFuture;
+  int _chatMetaRefreshToken = 0;
 
   @override
   void initState() {
     super.initState();
     _clubsFuture = clubRepository().listClubs();
+    _membershipFuture = membershipRepository().getStatus();
   }
 
   void _refreshClubs() {
     setState(() {
       _clubsFuture = clubRepository().listClubs();
+      _chatMetaRefreshToken++;
     });
   }
 
@@ -55,6 +65,86 @@ class _ClubsScreenState extends State<ClubsScreen> {
     return '';
   }
 
+  String _chatReadKey(String clubId) {
+    return 'club_chat_last_read_${currentUserId}_$clubId';
+  }
+
+  Future<void> _markClubChatRead(String clubId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_chatReadKey(clubId), DateTime.now().toIso8601String());
+  }
+
+  Future<Map<String, _ClubChatMeta>> _loadChatMeta(List<Club> clubs) async {
+    final prefs = await SharedPreferences.getInstance();
+    final result = <String, _ClubChatMeta>{};
+    for (final club in clubs) {
+      try {
+        final items = await _chatRepository.listForClub(club.id, limit: 120);
+        if (items.isEmpty) {
+          result[club.id] = const _ClubChatMeta.empty();
+          continue;
+        }
+        final sorted = [...items]
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        final latest = sorted.first;
+        final readRaw = prefs.getString(_chatReadKey(club.id));
+        final lastReadAt = readRaw == null ? null : DateTime.tryParse(readRaw);
+        final unread = sorted
+            .where((m) => m.senderId.trim() != currentUserId.trim())
+            .where((m) {
+              if (lastReadAt == null) {
+                return true;
+              }
+              return m.createdAt.isAfter(lastReadAt);
+            })
+            .length;
+        final searchableText = sorted
+            .map((m) {
+              final text = m.text.trim();
+              final sender = m.senderName.trim();
+              return sender.isEmpty ? text : '$sender $text';
+            })
+            .where((chunk) => chunk.trim().isNotEmpty)
+            .join(' ')
+            .toLowerCase();
+        result[club.id] = _ClubChatMeta(
+          latestSender: latest.senderName.trim().isEmpty
+              ? 'Member'
+              : latest.senderName.trim(),
+          latestText: latest.text.trim().isEmpty
+              ? (latest.imageFileId?.trim().isNotEmpty == true
+                    ? 'sent a photo'
+                    : '')
+              : latest.text.trim(),
+          latestAt: latest.createdAt,
+          unreadCount: unread,
+          searchableText: searchableText,
+        );
+      } catch (_) {
+        result[club.id] = const _ClubChatMeta.empty();
+      }
+    }
+    return result;
+  }
+
+  String _formatChatTime(DateTime time) {
+    final now = DateTime.now();
+    final local = time.toLocal();
+    if (now.year == local.year &&
+        now.month == local.month &&
+        now.day == local.day) {
+      final h = local.hour;
+      final hour12 = ((h + 11) % 12) + 1;
+      final ampm = h >= 12 ? 'PM' : 'AM';
+      final min = local.minute.toString().padLeft(2, '0');
+      return '$hour12:$min $ampm';
+    }
+    if (now.difference(local).inDays == 1) {
+      return 'Yesterday';
+    }
+    return '${local.month}/${local.day}';
+  }
+
   bool _clubMatchesSearch(Club c, String searchLower) {
     if (searchLower.isEmpty) {
       return true;
@@ -72,6 +162,31 @@ class _ClubsScreenState extends State<ClubsScreen> {
       if (s.toLowerCase().contains(searchLower)) {
         return true;
       }
+    }
+    return false;
+  }
+
+  bool _clubMatchesSearchWithMeta(
+    Club c,
+    String searchLower,
+    _ClubChatMeta meta,
+  ) {
+    if (_clubMatchesSearch(c, searchLower)) {
+      return true;
+    }
+    if (searchLower.isEmpty) {
+      return true;
+    }
+    final latestText = meta.latestText.toLowerCase();
+    if (latestText.contains(searchLower)) {
+      return true;
+    }
+    final latestSender = meta.latestSender.toLowerCase();
+    if (latestSender.contains(searchLower)) {
+      return true;
+    }
+    if (meta.searchableText.contains(searchLower)) {
+      return true;
     }
     return false;
   }
@@ -178,12 +293,7 @@ class _ClubsScreenState extends State<ClubsScreen> {
                         Icons.search,
                         color: Color(0xFFBDE7E3),
                       ),
-                      suffixIcon: const Icon(
-                        Icons.tune,
-                        size: 18,
-                        color: Color(0xFFBDE7E3),
-                      ),
-                      hintText: 'Search for clubs...',
+                      hintText: 'Search keyword',
                       hintStyle: const TextStyle(color: Color(0xFFBDE7E3)),
                       fillColor: Colors.white.withValues(alpha: 0.14),
                       filled: true,
@@ -223,6 +333,15 @@ class _ClubsScreenState extends State<ClubsScreen> {
                 ],
               ),
             ),
+            FutureBuilder<MembershipStatus>(
+              future: _membershipFuture,
+              builder: (context, membershipSnap) {
+                if (membershipSnap.data?.isPremium == true) {
+                  return const SizedBox.shrink();
+                }
+                return const AppAdBanner();
+              },
+            ),
             const SizedBox(height: 8),
             Expanded(
               child: FutureBuilder<List<Club>>(
@@ -258,17 +377,17 @@ class _ClubsScreenState extends State<ClubsScreen> {
                   }
 
                   final clubs = snap.data ?? const <Club>[];
-                  final filtered = clubs.where((c) {
+                  final sportFiltered = clubs.where((c) {
                     final sportOk =
                         _selectedSport == 'All' ||
                         c.sports.contains(_selectedSport);
                     if (!sportOk) {
                       return false;
                     }
-                    return _clubMatchesSearch(c, searchLower);
-                  }).toList()..sort((a, b) => a.name.compareTo(b.name));
+                    return true;
+                  }).toList();
 
-                  if (filtered.isEmpty) {
+                  if (sportFiltered.isEmpty) {
                     return Center(
                       child: Text(
                         clubs.isEmpty
@@ -279,118 +398,152 @@ class _ClubsScreenState extends State<ClubsScreen> {
                     );
                   }
 
-                  return ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-                    itemCount: filtered.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, idx) {
-                      final c = filtered[idx];
-                      final subtitle = _clubSubtitle(c);
+                  return FutureBuilder<Map<String, _ClubChatMeta>>(
+                    key: ValueKey(
+                      '${sportFiltered.map((c) => c.id).join("|")}#$_chatMetaRefreshToken',
+                    ),
+                    future: _loadChatMeta(sportFiltered),
+                    builder: (context, metaSnap) {
+                      final metaByClub = metaSnap.data ?? const <String, _ClubChatMeta>{};
+                      final filtered = sportFiltered.where((c) {
+                        final meta = metaByClub[c.id] ?? const _ClubChatMeta.empty();
+                        return _clubMatchesSearchWithMeta(c, searchLower, meta);
+                      }).toList()..sort((a, b) => a.name.compareTo(b.name));
+                      if (filtered.isEmpty) {
+                        return const Center(
+                          child: Text(
+                            'No clubs match your filters.',
+                            textAlign: TextAlign.center,
+                          ),
+                        );
+                      }
+                      return ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (context, idx) {
+                          final c = filtered[idx];
+                          final fallbackSubtitle = _clubSubtitle(c);
+                          final meta = metaByClub[c.id] ?? const _ClubChatMeta.empty();
+                          final sender = meta.latestSender.trim();
+                          final latestText = meta.latestText.trim();
+                          final subtitle = latestText.isNotEmpty
+                              ? (sender.isNotEmpty ? '$sender: $latestText' : latestText)
+                              : fallbackSubtitle;
 
-                      return InkWell(
-                        borderRadius: BorderRadius.circular(16),
-                        onTap: () {
-                          // Defer push so web pointer/hover teardown finishes before chat builds
-                          // (avoids hit-test / mouse_tracker / hasSize assertions).
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              if (!context.mounted) {
-                                return;
-                              }
-                              Navigator.of(context)
-                                  .pushNamed(
-                                    ClubChatScreen.routeName,
-                                    arguments: c,
-                                  )
-                                  .then((_) {
-                                    if (context.mounted) {
-                                      _refreshClubs();
-                                    }
-                                  });
-                            });
-                          });
-                        },
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
+                          return InkWell(
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: const Color(0xFFDDE8E5)),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 44,
-                                  height: 44,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFDDF3F0),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(12),
-                                    clipBehavior: Clip.antiAlias,
-                                    child:
-                                        c.thumbnailFileId != null &&
-                                            c.thumbnailFileId!.isNotEmpty
-                                        ? FutureBuilder(
-                                            future:
-                                                AppwriteService.getFileViewBytes(
-                                                  bucketId: AppwriteConfig
-                                                      .storageBucketId,
-                                                  fileId: c.thumbnailFileId!,
-                                                ),
-                                            builder: (context, snap) {
-                                              if (snap.hasData) {
-                                                return Image.memory(
-                                                  snap.data!,
-                                                  fit: BoxFit.cover,
-                                                );
-                                              }
-                                              return const Icon(
-                                                Icons.groups,
-                                                size: 20,
-                                              );
-                                            },
-                                          )
-                                        : const Icon(Icons.groups, size: 20),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        c.name,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 14.5,
-                                        ),
+                            onTap: () {
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  if (!context.mounted) {
+                                    return;
+                                  }
+                                  () async {
+                                    await _markClubChatRead(c.id);
+                                    if (!context.mounted) {
+                                      return;
+                                    }
+                                    _refreshClubs();
+                                    Navigator.of(context)
+                                        .pushNamed(
+                                          ClubChatScreen.routeName,
+                                          arguments: c,
+                                        )
+                                        .then((_) async {
+                                          if (!context.mounted) {
+                                            return;
+                                          }
+                                          await _markClubChatRead(c.id);
+                                          _refreshClubs();
+                                        });
+                                  }();
+                                });
+                              });
+                            },
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: const Color(0xFFDDE8E5)),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 44,
+                                      height: 44,
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFDDF3F0),
+                                        borderRadius: BorderRadius.circular(12),
                                       ),
-                                      if (subtitle.isNotEmpty) ...[
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          subtitle,
-                                          style: TextStyle(
-                                            color: Colors.black.withValues(
-                                              alpha: 0.55,
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        clipBehavior: Clip.antiAlias,
+                                        child:
+                                            c.thumbnailFileId != null &&
+                                                c.thumbnailFileId!.isNotEmpty
+                                            ? FutureBuilder(
+                                                future:
+                                                    AppwriteService.getFileViewBytes(
+                                                      bucketId: AppwriteConfig
+                                                          .storageBucketId,
+                                                      fileId: c.thumbnailFileId!,
+                                                    ),
+                                                builder: (context, snap) {
+                                                  if (snap.hasData) {
+                                                    return Image.memory(
+                                                      snap.data!,
+                                                      fit: BoxFit.cover,
+                                                    );
+                                                  }
+                                                  return const Icon(
+                                                    Icons.groups,
+                                                    size: 20,
+                                                  );
+                                                },
+                                              )
+                                            : const Icon(Icons.groups, size: 20),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            c.name,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w900,
+                                              fontSize: 14.5,
                                             ),
-                                            fontSize: 12.5,
                                           ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ],
-                                    ],
-                                  ),
+                                          if (subtitle.isNotEmpty) ...[
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              subtitle,
+                                              style: TextStyle(
+                                                color: Colors.black.withValues(
+                                                  alpha: 0.55,
+                                                ),
+                                                fontSize: 12.5,
+                                              ),
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                    _rightMetaPill(meta),
+                                  ],
                                 ),
-                                _rightMetaPill(idx),
-                              ],
+                              ),
                             ),
-                          ),
-                        ),
+                          );
+                        },
                       );
                     },
                   );
@@ -403,43 +556,65 @@ class _ClubsScreenState extends State<ClubsScreen> {
     );
   }
 
-  Widget _rightMetaPill(int idx) {
-    if (idx % 3 == 0) {
-      return const Text(
-        '1:30',
-        style: TextStyle(
-          color: Color(0xFF9AA6A3),
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-        ),
-      );
-    }
-    if (idx % 3 == 1) {
-      return Container(
-        width: 18,
-        height: 18,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: const Color(0xFF12B7AA),
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: const Text(
-          '2',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 10,
-            fontWeight: FontWeight.w800,
+  Widget _rightMetaPill(_ClubChatMeta meta) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        if (meta.latestAt != null)
+          Text(
+            _formatChatTime(meta.latestAt!),
+            style: const TextStyle(
+              color: Color(0xFF9AA6A3),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-        ),
-      );
-    }
-    return const Text(
-      'Yesterday',
-      style: TextStyle(
-        color: Color(0xFF9AA6A3),
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
-      ),
+        if (meta.unreadCount > 0) ...[
+          const SizedBox(height: 6),
+          Container(
+            constraints: const BoxConstraints(minWidth: 18),
+            height: 18,
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 5),
+            decoration: BoxDecoration(
+              color: const Color(0xFF12B7AA),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              meta.unreadCount > 99 ? '99+' : meta.unreadCount.toString(),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
+}
+
+class _ClubChatMeta {
+  final String latestSender;
+  final String latestText;
+  final DateTime? latestAt;
+  final int unreadCount;
+  final String searchableText;
+
+  const _ClubChatMeta({
+    required this.latestSender,
+    required this.latestText,
+    required this.latestAt,
+    required this.unreadCount,
+    required this.searchableText,
+  });
+
+  const _ClubChatMeta.empty()
+    : latestSender = '',
+      latestText = '',
+      latestAt = null,
+      unreadCount = 0,
+      searchableText = '';
 }

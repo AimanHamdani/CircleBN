@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_route_observer.dart';
 import 'auth_gate_screen.dart';
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
@@ -21,6 +22,8 @@ import 'screens/profile/edit_profile_screen.dart';
 import 'screens/profile/change_password_screen.dart';
 import 'screens/profile/achievements_screen.dart';
 import 'screens/profile/membership_screen.dart';
+import 'screens/profile/billing_checkout_screen.dart';
+import 'screens/profile/billing_history_screen.dart';
 import 'screens/profile/profile_screen.dart';
 import 'screens/profile/free_stats_screen.dart';
 import 'screens/profile/pro_stats_screen.dart';
@@ -39,6 +42,7 @@ class AppRoot extends StatelessWidget {
     return MaterialApp(
       title: 'CircleBN',
       debugShowCheckedModeBanner: false,
+      navigatorObservers: [appRouteObserver],
       theme: AppTheme.light(),
       builder: (context, child) {
         if (child == null) {
@@ -91,6 +95,8 @@ class AppRoot extends StatelessWidget {
         ProStatsHubScreen.routeName: (_) => const ProStatsHubScreen(),
         ProMatchHistoryScreen.routeName: (_) => const ProMatchHistoryScreen(),
         MembershipScreen.routeName: (_) => const MembershipScreen(),
+        BillingCheckoutScreen.routeName: (_) => const BillingCheckoutScreen(),
+        BillingHistoryScreen.routeName: (_) => const BillingHistoryScreen(),
         UserProfileViewScreen.routeName: (_) => const UserProfileViewScreen(),
         EditProfileScreen.routeName: (_) => const EditProfileScreen(),
         ChangePasswordScreen.routeName: (_) => const ChangePasswordScreen(),

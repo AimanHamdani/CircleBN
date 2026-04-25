@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:appwrite/appwrite.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:printing/printing.dart';
 
@@ -11,11 +13,17 @@ import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
 import '../../../utils/web_storage.dart';
 import '../../../data/event_repository.dart';
+import '../../../data/event_chat_repository.dart';
 import '../../../data/club_repository.dart';
 import '../../../data/event_invite_repository.dart';
 import '../../../data/event_registration_repository.dart';
 import '../../../data/profile_repository.dart';
+import '../../../data/membership_repository.dart';
+import '../../../data/notification_repository.dart';
+import '../../../models/app_notification.dart';
 import '../../../models/event.dart';
+import '../../../models/event_chat_message.dart';
+import '../../../models/event_privacy.dart';
 import '../../../models/user_profile.dart';
 import '../../../services/attendance_service.dart';
 import '../../../services/ticket_service.dart';
@@ -69,6 +77,7 @@ class EventDetailScreen extends StatefulWidget {
 class _EventDetailScreenState extends State<EventDetailScreen> {
   _EventDetailTab _tab = _EventDetailTab.details;
   final _composerCtrl = TextEditingController();
+  final _imagePicker = ImagePicker();
   bool _isDeleting = false;
   Event? _eventOverride;
   EventDetailArgs? _argsOverride;
@@ -77,6 +86,15 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   bool _isAttendedByMe = false;
   int? _joinedCount;
   List<_ParticipantItem>? _participants;
+  final _eventChatRepo = eventChatRepository();
+  List<EventChatMessage> _chatMessages = const <EventChatMessage>[];
+  Timer? _chatPollTimer;
+  RealtimeSubscription? _chatRealtimeSubscription;
+  String? _chatSubscribedEventId;
+  bool _isChatLoading = false;
+  bool _isChatSending = false;
+  String? _chatError;
+  String? _chatSenderName;
 
   bool _didTryReloadAfterRefresh = false;
   bool _didTryInitialRouteRefresh = false;
@@ -85,6 +103,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
 
   @override
   void dispose() {
+    _chatPollTimer?.cancel();
+    _chatRealtimeSubscription?.close();
     _composerCtrl.dispose();
     super.dispose();
   }
@@ -123,6 +143,14 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         _refreshEvent(eventId: stored.event.id);
       }
     }
+
+    if (_chatPollTimer == null) {
+      _chatPollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+        _loadChatMessages(silent: true);
+      });
+    }
+    _ensureChatRealtimeSubscription();
+    _loadChatMessages(silent: _chatMessages.isNotEmpty);
   }
 
   EventDetailArgs _argsFromRoute(BuildContext context) {
@@ -159,11 +187,13 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     final args = _argsFromRoute(context);
     final e = _eventOverride ?? args.event;
     _syncLocalEventState(e);
+    final isRegisteredByMe = _isRegisteredByMe ?? e.joinedByMe;
     final canSendChat =
         args.chatEnabledUntil == null ||
         DateTime.now().isBefore(args.chatEnabledUntil!);
-    final messages = _sampleMessagesFor(e.id);
-    final isRegisteredByMe = _isRegisteredByMe ?? e.joinedByMe;
+    final canCurrentUserSendEventChat =
+        isRegisteredByMe || (e.creatorId ?? '').trim() == currentUserId.trim();
+    final canSendEventChatNow = canSendChat && canCurrentUserSendEventChat;
     final joinedCount = (_joinedCount ?? e.joined).clamp(
       0,
       e.capacity > 0 ? e.capacity : 999999,
@@ -275,7 +305,12 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                 padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
                 child: _TabHeader(
                   selected: _tab,
-                  onSelect: (t) => setState(() => _tab = t),
+                  onSelect: (t) {
+                    setState(() => _tab = t);
+                    if (t == _EventDetailTab.chat) {
+                      _loadChatMessages();
+                    }
+                  },
                 ),
               ),
               Expanded(
@@ -293,7 +328,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                       ? _ChatTab(
                           key: const ValueKey('chat'),
                           eventTitle: e.title,
-                          messages: messages,
+                          isLoading: _isChatLoading,
+                          errorMessage: _chatError,
+                          messages: _chatMessages,
                         )
                       : _ParticipantsTab(
                           key: const ValueKey('participants'),
@@ -310,24 +347,106 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             ],
           ),
         ),
-        bottomNavigationBar: _tab == _EventDetailTab.details
-            ? ((args.showRegisterButton &&
-                      (e.creatorId == null || e.creatorId != currentUserId))
-                  ? _registerBar(
-                      context,
-                      isRegistered: isRegisteredByMe,
-                      joinedCount: joinedCount,
-                      capacity: e.capacity,
-                      onTap: () => _toggleRegistration(e),
-                      event: e,
-                      userProfile: null,
-                    )
-                  : null)
-            : (_tab == _EventDetailTab.chat
-                  ? _chatComposerBar(context, canSendChat: canSendChat)
-                  : null),
+        bottomNavigationBar: _tab == _EventDetailTab.chat
+            ? _chatComposerBar(context, canSendChat: canSendEventChatNow)
+            : _tab == _EventDetailTab.details
+            ? _detailsBottomBars(
+                context,
+                args: args,
+                event: e,
+                isRegistered: isRegisteredByMe,
+                joinedCount: joinedCount,
+              )
+            : null,
       ),
     );
+  }
+
+  Widget? _detailsBottomBars(
+    BuildContext context, {
+    required EventDetailArgs args,
+    required Event event,
+    required bool isRegistered,
+    required int joinedCount,
+  }) {
+    final creatorId = (event.creatorId ?? '').trim();
+    final isCreator = creatorId == currentUserId;
+    final showJoinRequestsStrip =
+        args.allowCreatorActions &&
+        isCreator &&
+        eventInviteRepository().isRequestJoinPrivate(event) &&
+        event.pendingJoinRequestUserIds.isNotEmpty;
+    final showRegisterBar =
+        args.showRegisterButton && (event.creatorId == null || !isCreator);
+
+    if (!showJoinRequestsStrip && !showRegisterBar) {
+      return null;
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (showJoinRequestsStrip)
+          _JoinRequestsCreatorStrip(
+            event: event,
+            onChanged: () => _refreshEvent(eventId: event.id),
+          ),
+        if (showRegisterBar)
+          _registerBar(
+            context,
+            isRegistered: isRegistered,
+            joinedCount: joinedCount,
+            capacity: event.capacity,
+            onTap: () => _toggleRegistration(event),
+            event: event,
+            userProfile: null,
+          ),
+      ],
+    );
+  }
+
+  Future<void> _submitJoinRequest(Event event) async {
+    if (!AppwriteService.isConfigured ||
+        AppwriteConfig.eventsCollectionId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Appwrite is not configured.')),
+        );
+      }
+      return;
+    }
+    try {
+      await eventInviteRepository().submitJoinRequest(
+        eventId: event.id,
+        userId: currentUserId,
+      );
+      final creatorId = (event.creatorId ?? '').trim();
+      if (creatorId.isNotEmpty && creatorId != currentUserId) {
+        final createdAt = DateTime.now();
+        await notificationRepository().upsertMany(creatorId, [
+          AppNotification(
+            id:
+                'join_request_${event.id}_${currentUserId}_${createdAt.millisecondsSinceEpoch}',
+            userId: creatorId,
+            type: AppNotificationType.eventJoinRequest,
+            title: 'New join request',
+            message: 'Someone requested to join ${event.title}.',
+            createdAt: createdAt,
+            targetEventId: event.id,
+          ),
+        ]);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Join request sent to the host.')),
+      );
+      await _refreshEvent(eventId: event.id);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not send request: $e')),
+      );
+    }
   }
 
   Widget _registerBar(
@@ -341,9 +460,28 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     final isFull = capacity > 0 && joinedCount >= capacity;
-    final label = isRegistered
-        ? 'Cancel Registration'
-        : (isFull ? 'Event Full' : 'Register');
+    final requestMode = eventInviteRepository().isRequestJoinPrivate(event);
+    final pendingRequest =
+        event.pendingJoinRequestUserIds.contains(currentUserId);
+
+    final String label;
+    final VoidCallback? effectiveOnTap;
+    if (isRegistered) {
+      label = 'Cancel Registration';
+      effectiveOnTap = onTap;
+    } else if (requestMode && pendingRequest) {
+      label = 'Request pending';
+      effectiveOnTap = null;
+    } else if (requestMode && !pendingRequest) {
+      label = 'Request to join';
+      effectiveOnTap = () => _submitJoinRequest(event);
+    } else if (isFull) {
+      label = 'Event Full';
+      effectiveOnTap = null;
+    } else {
+      label = 'Register';
+      effectiveOnTap = onTap;
+    }
     final counterText = capacity > 0
         ? '$joinedCount / $capacity joined'
         : '$joinedCount joined';
@@ -391,7 +529,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
               ],
             ],
             FilledButton(
-              onPressed: (!isRegistered && isFull) ? null : onTap,
+              onPressed: (!isRegistered && isFull && !requestMode)
+                  ? null
+                  : effectiveOnTap,
               style: FilledButton.styleFrom(
                 backgroundColor: isRegistered
                     ? Colors.white
@@ -484,6 +624,19 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }
 
   Future<void> _onEditEvent(Event event) async {
+    if (!_canEditEvent(event)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Event editing is only allowed until 1 hour before start time.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
     final result = await Navigator.of(
       context,
     ).pushNamed(CreateEventScreen.routeName, arguments: event);
@@ -518,6 +671,11 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     return (event.creatorId ?? '').trim() == currentUserId || _isAttendedByMe;
   }
 
+  bool _canEditEvent(Event event) {
+    final editCutoff = event.startAt.subtract(const Duration(hours: 1));
+    return DateTime.now().isBefore(editCutoff);
+  }
+
   Widget _chatComposerBar(BuildContext context, {required bool canSendChat}) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return SafeArea(
@@ -530,14 +688,37 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
               child: TextField(
                 controller: _composerCtrl,
                 enabled: canSendChat,
-                decoration: const InputDecoration(hintText: 'Message (mock)'),
+                decoration: const InputDecoration(hintText: 'Message'),
                 textInputAction: TextInputAction.send,
-                onSubmitted: canSendChat ? (_) => _sendMock() : (_) {},
+                onSubmitted: canSendChat ? (_) => _sendChatMessage() : (_) {},
               ),
             ),
             const SizedBox(width: 10),
             InkWell(
-              onTap: canSendChat ? _sendMock : null,
+              onTap: canSendChat && !_isChatSending ? _sendChatImage : null,
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary.withValues(
+                    alpha: 0.14,
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  Icons.image_outlined,
+                  color: canSendChat
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.45),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            InkWell(
+              onTap: canSendChat && !_isChatSending ? _sendChatMessage : null,
               borderRadius: BorderRadius.circular(14),
               child: Container(
                 width: 48,
@@ -546,12 +727,23 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                   color: Theme.of(context).colorScheme.primary,
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(
-                  Icons.send,
-                  color: canSendChat
-                      ? Colors.white
-                      : Colors.white.withValues(alpha: 0.45),
-                ),
+                child: _isChatSending
+                    ? const Center(
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        ),
+                      )
+                    : Icon(
+                        Icons.send,
+                        color: canSendChat
+                            ? Colors.white
+                            : Colors.white.withValues(alpha: 0.45),
+                      ),
               ),
             ),
           ],
@@ -560,11 +752,24 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     );
   }
 
-  void _sendMock() {
+  Future<void> _sendChatMessage() async {
     final args = _argsFromRoute(context);
+    final event = _eventOverride ?? args.event;
     final canSendChat =
         args.chatEnabledUntil == null ||
         DateTime.now().isBefore(args.chatEnabledUntil!);
+    final isRegisteredByMe = _isRegisteredByMe ?? event.joinedByMe;
+    final canCurrentUserSendEventChat =
+        isRegisteredByMe ||
+        (event.creatorId ?? '').trim() == currentUserId.trim();
+    if (!canCurrentUserSendEventChat) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Only joined participants can chat in this event.'),
+        ),
+      );
+      return;
+    }
     if (!canSendChat) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Messaging is locked for this event.')),
@@ -572,11 +777,209 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       return;
     }
     final txt = _composerCtrl.text.trim();
-    _composerCtrl.clear();
-    if (txt.isEmpty) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Message sent (mock). Not stored yet.')),
-    );
+    if (txt.isEmpty || _isChatSending) {
+      return;
+    }
+    final eventId = (_eventOverride ?? args.event).id.trim();
+    if (eventId.isEmpty) {
+      return;
+    }
+    setState(() {
+      _isChatSending = true;
+    });
+    try {
+      final senderName = await _getChatSenderName();
+      await _eventChatRepo.sendMessage(
+        eventId: eventId,
+        senderId: currentUserId,
+        senderName: senderName,
+        text: txt,
+      );
+      _composerCtrl.clear();
+      await _loadChatMessages(silent: true);
+    } on AppwriteException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Failed to send message.')),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to send message.')),
+      );
+    } finally {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isChatSending = false;
+      });
+    }
+  }
+
+  Future<void> _sendChatImage() async {
+    final args = _argsFromRoute(context);
+    final event = _eventOverride ?? args.event;
+    final canSendChat =
+        args.chatEnabledUntil == null ||
+        DateTime.now().isBefore(args.chatEnabledUntil!);
+    final isRegisteredByMe = _isRegisteredByMe ?? event.joinedByMe;
+    final canCurrentUserSendEventChat =
+        isRegisteredByMe ||
+        (event.creatorId ?? '').trim() == currentUserId.trim();
+    if (!canCurrentUserSendEventChat) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Only joined participants can chat in this event.'),
+        ),
+      );
+      return;
+    }
+    if (!canSendChat || _isChatSending) {
+      return;
+    }
+    final eventId = (_eventOverride ?? args.event).id.trim();
+    if (eventId.isEmpty) {
+      return;
+    }
+    try {
+      final picked = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 82,
+      );
+      if (picked == null) {
+        return;
+      }
+      setState(() {
+        _isChatSending = true;
+      });
+      final senderName = await _getChatSenderName();
+      final bytes = await picked.readAsBytes();
+      final uploaded = await AppwriteService.uploadFile(
+        bucketId: AppwriteConfig.storageBucketId,
+        path: picked.path,
+        bytes: bytes,
+        filename: picked.name,
+      );
+      await _eventChatRepo.sendMessage(
+        eventId: eventId,
+        senderId: currentUserId,
+        senderName: senderName,
+        text: _composerCtrl.text.trim(),
+        imageFileId: uploaded.$id,
+      );
+      _composerCtrl.clear();
+      await _loadChatMessages(silent: true);
+    } on AppwriteException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Failed to send image.')),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to send image.')),
+      );
+    } finally {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isChatSending = false;
+      });
+    }
+  }
+
+  Future<String> _getChatSenderName() async {
+    if (_chatSenderName != null && _chatSenderName!.trim().isNotEmpty) {
+      return _chatSenderName!;
+    }
+    try {
+      final profile = await profileRepository().getMyProfile();
+      final realName = profile.realName.trim();
+      if (realName.isNotEmpty && realName.toLowerCase() != 'name') {
+        _chatSenderName = realName;
+        return realName;
+      }
+      final username = profile.username.trim();
+      if (username.isNotEmpty && username.toLowerCase() != 'username') {
+        _chatSenderName = username;
+        return username;
+      }
+    } catch (_) {}
+    _chatSenderName = 'Member';
+    return _chatSenderName!;
+  }
+
+  Future<void> _loadChatMessages({bool silent = false}) async {
+    if (!mounted) {
+      return;
+    }
+    final args = _argsFromRoute(context);
+    final eventId = (_eventOverride ?? args.event).id.trim();
+    if (eventId.isEmpty) {
+      return;
+    }
+    if (!silent) {
+      setState(() {
+        _isChatLoading = true;
+        _chatError = null;
+      });
+    }
+    try {
+      final items = await _eventChatRepo.listForEvent(eventId);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _chatMessages = items;
+        _isChatLoading = false;
+        _chatError = null;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isChatLoading = false;
+        _chatError = 'Failed to load chat.';
+      });
+    }
+  }
+
+  void _ensureChatRealtimeSubscription() {
+    if (!mounted) {
+      return;
+    }
+    final args = _argsFromRoute(context);
+    final eventId = (_eventOverride ?? args.event).id.trim();
+    if (eventId.isEmpty ||
+        eventId == _chatSubscribedEventId ||
+        !AppwriteService.isConfigured ||
+        AppwriteConfig.databaseId.isEmpty ||
+        AppwriteConfig.eventMessagesCollectionId.isEmpty) {
+      return;
+    }
+    _chatSubscribedEventId = eventId;
+    _chatRealtimeSubscription?.close();
+    _chatRealtimeSubscription = AppwriteService.realtime.subscribe([
+      'databases.${AppwriteConfig.databaseId}.collections.${AppwriteConfig.eventMessagesCollectionId}.documents',
+    ]);
+    _chatRealtimeSubscription?.stream.listen((event) {
+      final payload = event.payload;
+      final payloadEventId = payload['eventId']?.toString() ?? '';
+      if (payloadEventId == _chatSubscribedEventId) {
+        _loadChatMessages(silent: true);
+      }
+    });
   }
 
   Future<void> _confirmDeleteEvent(Event event) async {
@@ -808,6 +1211,47 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     return items;
   }
 
+  List<_ParticipantItem> _participantsFromUserIds(
+    List<String> userIds, {
+    Set<String> attendedUserIds = const <String>{},
+    Set<String> hostVerifiedUserIds = const <String>{},
+  }) {
+    final fallbackProfiles = userIds
+        .where((id) => id.trim().isNotEmpty)
+        .map((id) => UserProfile.empty(id.trim()))
+        .toList();
+    return _participantsFromProfiles(
+      fallbackProfiles,
+      attendedUserIds: attendedUserIds,
+      hostVerifiedUserIds: hostVerifiedUserIds,
+    );
+  }
+
+  List<_ParticipantItem> _participantsWithProfileFallback({
+    required List<String> userIds,
+    required List<UserProfile> profiles,
+    Set<String> attendedUserIds = const <String>{},
+    Set<String> hostVerifiedUserIds = const <String>{},
+  }) {
+    final byId = <String, UserProfile>{
+      for (final p in profiles)
+        if (p.userId.trim().isNotEmpty) p.userId.trim(): p,
+    };
+    final resolved = <UserProfile>[];
+    for (final id in userIds) {
+      final trimmed = id.trim();
+      if (trimmed.isEmpty) {
+        continue;
+      }
+      resolved.add(byId[trimmed] ?? UserProfile.empty(trimmed));
+    }
+    return _participantsFromProfiles(
+      resolved,
+      attendedUserIds: attendedUserIds,
+      hostVerifiedUserIds: hostVerifiedUserIds,
+    );
+  }
+
   Future<void> _loadParticipantsFromProfiles(Event event) async {
     final ids = _resolveParticipantIds(event);
     if (ids.isEmpty) {
@@ -832,14 +1276,20 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         return;
       }
       setState(() {
-        _participants = _participantsFromProfiles(
-          profiles,
+        _participants = _participantsWithProfileFallback(
+          userIds: ids,
+          profiles: profiles,
           attendedUserIds: attendedIds,
           hostVerifiedUserIds: hostVerifiedIds,
         );
       });
     } catch (_) {
-      // Keep fallback participants if profile fetch fails.
+      if (!mounted || _activeEventId != event.id) {
+        return;
+      }
+      setState(() {
+        _participants = _participantsFromUserIds(ids);
+      });
     }
   }
 
@@ -864,15 +1314,24 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       if (ids.isEmpty) {
         items = const [];
       } else {
-        final profiles = await profileRepository().getProfilesByIds(ids);
-        if (!mounted || _activeEventId != event.id) {
-          return;
+        try {
+          final profiles = await profileRepository().getProfilesByIds(ids);
+          if (!mounted || _activeEventId != event.id) {
+            return;
+          }
+          items = _participantsWithProfileFallback(
+            userIds: ids,
+            profiles: profiles,
+            attendedUserIds: attendedIds,
+            hostVerifiedUserIds: hostVerifiedIds,
+          );
+        } catch (_) {
+          items = _participantsFromUserIds(
+            ids,
+            attendedUserIds: attendedIds,
+            hostVerifiedUserIds: hostVerifiedIds,
+          );
         }
-        items = _participantsFromProfiles(
-          profiles,
-          attendedUserIds: attendedIds,
-          hostVerifiedUserIds: hostVerifiedIds,
-        );
       }
 
       if (!mounted || _activeEventId != event.id) {
@@ -931,6 +1390,26 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     }
 
     if (!currentRegistered) {
+      if (EventPrivacy.isPrivateish(event.privacy)) {
+        final isInvited = event.invitedUserIds.contains(currentUserId);
+        if (!isInvited) {
+          final membership = await membershipRepository().getStatus();
+          if (!mounted) {
+            return;
+          }
+          if (!membership.isPremium) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Only members or invited users can join private events.',
+                ),
+              ),
+            );
+            return;
+          }
+        }
+      }
+
       final canAccessPrivate = _canAccessPrivateEvent(event);
       if (!canAccessPrivate) {
         if (mounted) {
@@ -1015,6 +1494,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }
 
   bool _canAccessPrivateEvent(Event event) {
+    if (eventInviteRepository().isRequestJoinPrivate(event)) {
+      return true;
+    }
     final isPrivate = eventInviteRepository().isPrivate(event);
     if (!isPrivate) {
       return true;
@@ -1186,6 +1668,105 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }
 
   // Gender / Age Group have restrictions; Host Role is display-only.
+}
+
+class _JoinRequestsCreatorStrip extends StatelessWidget {
+  const _JoinRequestsCreatorStrip({
+    required this.event,
+    required this.onChanged,
+  });
+
+  final Event event;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFFFF7ED),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Join requests (${event.pendingJoinRequestUserIds.length})',
+              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            FutureBuilder<List<UserProfile>>(
+              future: profileRepository().getProfilesByIds(
+                event.pendingJoinRequestUserIds,
+              ),
+              builder: (context, snap) {
+                final profiles = snap.data ?? const <UserProfile>[];
+                if (snap.connectionState != ConnectionState.done &&
+                    profiles.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                return Column(
+                  children: [
+                    for (final p in profiles)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                p.username.trim().isNotEmpty
+                                    ? p.username
+                                    : p.userId,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () async {
+                                await eventInviteRepository().rejectJoinRequest(
+                                  eventId: event.id,
+                                  userId: p.userId,
+                                );
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Request declined.')),
+                                  );
+                                  onChanged();
+                                }
+                              },
+                              child: const Text('Decline'),
+                            ),
+                            const SizedBox(width: 6),
+                            FilledButton(
+                              onPressed: () async {
+                                await eventInviteRepository().approveJoinRequest(
+                                  eventId: event.id,
+                                  userId: p.userId,
+                                );
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Player approved and added.')),
+                                  );
+                                  onChanged();
+                                }
+                              },
+                              child: const Text('Approve'),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _TabHeader extends StatelessWidget {
@@ -1959,43 +2540,206 @@ class _PolicyRow extends StatelessWidget {
 
 class _ChatTab extends StatelessWidget {
   final String eventTitle;
-  final List<_ChatMessage> messages;
-  const _ChatTab({super.key, required this.eventTitle, required this.messages});
+  final bool isLoading;
+  final String? errorMessage;
+  final List<EventChatMessage> messages;
+  const _ChatTab({
+    super.key,
+    required this.eventTitle,
+    required this.isLoading,
+    required this.errorMessage,
+    required this.messages,
+  });
 
   @override
   Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (errorMessage != null) {
+      return Center(child: Text(errorMessage!));
+    }
     if (messages.isEmpty) {
-      return const Center(child: Text('No messages yet (mock).'));
+      return const Center(child: Text('No messages yet.'));
     }
 
-    return ListView.separated(
+    return ListView.builder(
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
       itemCount: messages.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, idx) {
         final m = messages[idx];
-        final bubble = _MessageBubble(text: m.text, isMe: m.isMe);
+        final isMe = m.senderId.trim() == currentUserId;
+        final bubble = _MessageBubble(
+          text: m.text,
+          imageFileId: m.imageFileId,
+          sentAt: m.editedAt ?? m.createdAt,
+          isEdited: m.editedAt != null,
+          isMe: isMe,
+        );
 
-        return Row(
-          mainAxisAlignment: m.isMe
-              ? MainAxisAlignment.end
-              : MainAxisAlignment.start,
-          children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 280),
-              child: bubble,
-            ),
-          ],
+        final showDateHeader =
+            idx == 0 ||
+            !_isSameDate(messages[idx - 1].createdAt, m.createdAt);
+
+        return Padding(
+          padding: EdgeInsets.only(bottom: idx == messages.length - 1 ? 0 : 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (showDateHeader) ...[
+                _DateSeparator(date: m.createdAt),
+                const SizedBox(height: 10),
+              ],
+              Row(
+                mainAxisAlignment: isMe
+                    ? MainAxisAlignment.end
+                    : MainAxisAlignment.start,
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 280),
+                    child: GestureDetector(
+                      onLongPress: isMe
+                          ? () => _showEditDialog(
+                              context: context,
+                              messageId: m.id,
+                              currentText: m.text,
+                            )
+                          : null,
+                      child: bubble,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         );
       },
+    );
+  }
+
+  Future<void> _showEditDialog({
+    required BuildContext context,
+    required String messageId,
+    required String currentText,
+  }) async {
+    final controller = TextEditingController(text: currentText.trim());
+    final newText = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Edit message'),
+        content: TextField(
+          controller: controller,
+          maxLines: 4,
+          minLines: 1,
+          autofocus: true,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) =>
+              Navigator.of(dialogContext).pop(controller.text.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    final trimmed = newText?.trim() ?? '';
+    if (trimmed.isEmpty || trimmed == currentText.trim()) {
+      return;
+    }
+    try {
+      await eventChatRepository().editMessage(
+        messageId: messageId,
+        newText: trimmed,
+      );
+      if (!context.mounted) {
+        return;
+      }
+      final state = context.findAncestorStateOfType<_EventDetailScreenState>();
+      await state?._loadChatMessages(silent: true);
+    } on AppwriteException catch (e) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Failed to edit message.')),
+      );
+    } catch (_) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to edit message.')),
+      );
+    }
+  }
+}
+
+bool _isSameDate(DateTime a, DateTime b) {
+  final la = a.toLocal();
+  final lb = b.toLocal();
+  return la.year == lb.year && la.month == lb.month && la.day == lb.day;
+}
+
+String _dateSeparatorLabel(DateTime d) {
+  final local = d.toLocal();
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final date = DateTime(local.year, local.month, local.day);
+  final diff = today.difference(date).inDays;
+  if (diff == 0) {
+    return 'Today';
+  }
+  if (diff == 1) {
+    return 'Yesterday';
+  }
+  return '${local.month}/${local.day}/${local.year}';
+}
+
+class _DateSeparator extends StatelessWidget {
+  final DateTime date;
+
+  const _DateSeparator({required this.date});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = Theme.of(context).colorScheme;
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: c.primary.withValues(alpha: 0.35)),
+        ),
+        child: Text(
+          _dateSeparatorLabel(date),
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11),
+        ),
+      ),
     );
   }
 }
 
 class _MessageBubble extends StatelessWidget {
   final String text;
+  final String? imageFileId;
+  final DateTime sentAt;
+  final bool isEdited;
   final bool isMe;
-  const _MessageBubble({required this.text, required this.isMe});
+  const _MessageBubble({
+    required this.text,
+    this.imageFileId,
+    required this.sentAt,
+    this.isEdited = false,
+    required this.isMe,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2011,12 +2755,152 @@ class _MessageBubble extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: border),
       ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: Colors.black.withValues(alpha: 0.85),
-          fontWeight: FontWeight.w600,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (imageFileId != null && imageFileId!.trim().isNotEmpty)
+            _EventChatImage(fileId: imageFileId!),
+          if (imageFileId != null &&
+              imageFileId!.trim().isNotEmpty &&
+              text.trim().isNotEmpty)
+            const SizedBox(height: 8),
+          if (text.trim().isNotEmpty)
+            Text(
+              text,
+              style: TextStyle(
+                color: Colors.black.withValues(alpha: 0.85),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isEdited) ...[
+                Text(
+                  'edited',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.black.withValues(alpha: 0.45),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                _formatMessageTime(sentAt),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.black.withValues(alpha: 0.45),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _formatMessageTime(DateTime dt) {
+  final t = dt.toLocal();
+  final hour12 = ((t.hour + 11) % 12) + 1;
+  final minute = t.minute.toString().padLeft(2, '0');
+  final ampm = t.hour >= 12 ? 'PM' : 'AM';
+  return '$hour12:$minute $ampm';
+}
+
+class _EventChatImage extends StatelessWidget {
+  final String fileId;
+
+  const _EventChatImage({required this.fileId});
+
+  @override
+  Widget build(BuildContext context) {
+    Future<void> downloadImage() async {
+      try {
+        final uri = AppwriteService.getFileDownloadUri(
+          bucketId: AppwriteConfig.storageBucketId,
+          fileId: fileId,
+        );
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } catch (_) {}
+    }
+
+    void openPreview(Uint8List bytes) {
+      showDialog<void>(
+        context: context,
+        builder: (dialogContext) => Dialog(
+          backgroundColor: Colors.black,
+          insetPadding: const EdgeInsets.all(8),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: InteractiveViewer(
+                  minScale: 0.8,
+                  maxScale: 4,
+                  child: Center(
+                    child: Image.memory(bytes, fit: BoxFit.contain),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 52,
+                child: IconButton(
+                  onPressed: downloadImage,
+                  icon: const Icon(Icons.download_rounded, color: Colors.white),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IconButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  icon: const Icon(Icons.close, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
         ),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: FutureBuilder<Uint8List>(
+        future: AppwriteService.getFileViewBytes(
+          bucketId: AppwriteConfig.storageBucketId,
+          fileId: fileId,
+        ),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const SizedBox(
+              width: 180,
+              height: 140,
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            );
+          }
+          final bytes = snap.data;
+          if (bytes == null || bytes.isEmpty) {
+            return const SizedBox(
+              width: 180,
+              height: 80,
+              child: Center(child: Text('Image unavailable')),
+            );
+          }
+          return InkWell(
+            onTap: () => openPreview(bytes),
+            child: Image.memory(
+              bytes,
+              width: 180,
+              height: 140,
+              fit: BoxFit.cover,
+            ),
+          );
+        },
       ),
     );
   }
@@ -2283,34 +3167,3 @@ String _titleSkill(String normalizedLower) {
   return normalizedLower;
 }
 
-class _ChatMessage {
-  final bool isMe;
-  final String text;
-  const _ChatMessage({required this.isMe, required this.text});
-}
-
-List<_ChatMessage> _sampleMessagesFor(String eventId) {
-  final map = <String, List<_ChatMessage>>{
-    'lets_go_volley': const [
-      _ChatMessage(isMe: false, text: 'Hi everyone! Court is confirmed.'),
-      _ChatMessage(isMe: true, text: 'Nice, what time should we arrive?'),
-      _ChatMessage(
-        isMe: false,
-        text: 'Try to be there 15 mins earlier for warm-up.',
-      ),
-    ],
-    'badminton_meet': const [
-      _ChatMessage(
-        isMe: false,
-        text: 'Hi! Please bring a dark shirt if possible.',
-      ),
-      _ChatMessage(isMe: true, text: 'Got it. Are shuttlecocks provided?'),
-      _ChatMessage(isMe: false, text: 'Yes, we will bring them.'),
-    ],
-    'fun_run': const [
-      _ChatMessage(isMe: false, text: 'Welcome! Route will be shared soon.'),
-      _ChatMessage(isMe: true, text: 'Thanks! Looking forward to it.'),
-    ],
-  };
-  return map[eventId] ?? const [];
-}

@@ -5,12 +5,14 @@ import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
 import '../../../data/event_repository.dart';
 import '../../../data/event_registration_repository.dart';
+import '../../../data/membership_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
 import '../../../services/ticket_service.dart';
 import '../../../auth/current_user.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/ad_banner.dart';
 
 import 'event_detail_screen.dart';
 import '../../widgets/event_thumbnail_header.dart';
@@ -29,6 +31,13 @@ enum _ActivityTab { ticket, created, history }
 class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
   _ActivityTab _tab = _ActivityTab.ticket;
   final Set<String> _cancellingEventIds = <String>{};
+  late Future<MembershipStatus> _membershipFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _membershipFuture = membershipRepository().getStatus();
+  }
 
   String _headerTitleForTab(_ActivityTab tab) {
     switch (tab) {
@@ -134,6 +143,17 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
                 _ActivityTabHeader(
                   selected: _tab,
                   onSelect: (t) => setState(() => _tab = t),
+                ),
+                FutureBuilder<MembershipStatus>(
+                  future: _membershipFuture,
+                  builder: (context, membershipSnap) {
+                    if (membershipSnap.data?.isPremium == true) {
+                      return const SizedBox.shrink();
+                    }
+                    return const AppAdBanner(
+                      padding: EdgeInsets.fromLTRB(18, 10, 18, 0),
+                    );
+                  },
                 ),
                 const SizedBox(height: 12),
                 Expanded(

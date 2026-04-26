@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -488,77 +490,94 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
     );
   }
 
-  Widget? _buildScannerOverlay() {
-    return Scaffold(
-      body: Column(
-        children: [
-          Expanded(
-            child: Container(color: Colors.black.withValues(alpha: 0.5)),
+  Widget _buildScannerOverlay() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final horizontalPadding = math.max(24.0, constraints.maxWidth * 0.12);
+        final maxScanWidth = constraints.maxWidth - (horizontalPadding * 2);
+        final maxScanHeight = constraints.maxHeight * 0.42;
+        final scanSize = math.min(300.0, math.min(maxScanWidth, maxScanHeight));
+        final scanRect = Rect.fromCenter(
+          center: Offset(
+            constraints.maxWidth / 2,
+            constraints.maxHeight * 0.45,
           ),
-          SizedBox(
-            height: 250,
-            child: Stack(
-              children: [
-                Container(
-                  color: Colors.transparent,
-                  child: Center(
-                    child: Container(
-                      width: 250,
-                      height: 250,
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.green, width: 3),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
+          width: scanSize,
+          height: scanSize,
+        );
+        const scanBorderRadius = 14.0;
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            CustomPaint(
+              painter: _ScannerMaskPainter(
+                scanRect: scanRect,
+                borderRadius: scanBorderRadius,
+                overlayColor: Colors.black.withValues(alpha: 0.55),
+              ),
+            ),
+            Positioned.fromRect(
+              rect: scanRect,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.green, width: 3),
+                  borderRadius: BorderRadius.circular(scanBorderRadius),
                 ),
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    color: Colors.black.withValues(alpha: 0.5),
-                    padding: const EdgeInsets.all(16),
-                    child: Center(
-                      child: Column(
-                        children: [
-                          Text(
-                            _isProcessing
-                                ? 'Processing...'
-                                : 'Align QR code within frame',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          if (_isProcessing)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation(
-                                    Colors.green.shade400,
-                                  ),
-                                ),
+              ),
+            ),
+            Positioned(
+              left: 20,
+              right: 20,
+              bottom: 20,
+              child: SafeArea(
+                top: false,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (_isProcessing)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 10),
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation(
+                                Colors.green.shade400,
                               ),
                             ),
-                        ],
+                          ),
+                        ),
+                      Flexible(
+                        child: Text(
+                          _isProcessing
+                              ? 'Processing...'
+                              : 'Align QR code within frame',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
-          Expanded(
-            child: Container(color: Colors.black.withValues(alpha: 0.5)),
-          ),
-        ],
-      ),
+          ],
+        );
+      },
     );
   }
 
@@ -588,5 +607,36 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
         ],
       ),
     );
+  }
+}
+
+class _ScannerMaskPainter extends CustomPainter {
+  const _ScannerMaskPainter({
+    required this.scanRect,
+    required this.borderRadius,
+    required this.overlayColor,
+  });
+
+  final Rect scanRect;
+  final double borderRadius;
+  final Color overlayColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final maskPath = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(Offset.zero & size)
+      ..addRRect(
+        RRect.fromRectAndRadius(scanRect, Radius.circular(borderRadius)),
+      );
+
+    canvas.drawPath(maskPath, Paint()..color = overlayColor);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ScannerMaskPainter oldDelegate) {
+    return oldDelegate.scanRect != scanRect ||
+        oldDelegate.borderRadius != borderRadius ||
+        oldDelegate.overlayColor != overlayColor;
   }
 }

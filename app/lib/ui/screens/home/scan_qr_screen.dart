@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../../auth/current_user.dart';
@@ -9,7 +10,6 @@ import '../../../data/profile_repository.dart';
 import '../../../models/event.dart';
 import '../../../services/attendance_service.dart';
 import '../../../services/ticket_service.dart';
-import '../profile/user_profile_view_screen.dart';
 
 class ScanQrScreen extends StatefulWidget {
   static const routeName = '/scan-qr';
@@ -33,17 +33,6 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
 
   final _registrationRepo = EventRegistrationRepository();
   final _profileRepo = ProfileRepository();
-
-  bool get _isHostScanner {
-    final event = widget.event;
-    if (event == null) {
-      return false;
-    }
-    return (event.creatorId ?? '').trim() == currentUserId;
-  }
-
-  String get _scannerRoleLabel =>
-      _isHostScanner ? 'Host scanner' : 'Helper scanner';
 
   @override
   void initState() {
@@ -180,11 +169,52 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
         rawData: ticketIdStr,
         event: event,
       );
-      if (!validation.isValid || validation.ticketId == null) {
+      if (!validation.isValid) {
         _showErrorDialog(validation.errorMessage ?? 'Invalid QR code');
         return;
       }
-      final ticketId = validation.ticketId!;
+
+      // Find user who owns this ticket (by registration order)
+      final participantIds = await _registrationRepo.listParticipantUserIds(
+        event.id,
+      );
+      if (participantIds.isEmpty) {
+        _showErrorDialog('No participants are registered for this event yet');
+        return;
+      }
+
+      var ticketId = validation.ticketId;
+      var userId = validation.userId?.trim();
+
+      if (ticketId == null) {
+        if (userId == null || userId.isEmpty) {
+          _showErrorDialog('Invalid QR code format');
+          return;
+        }
+
+        final resolvedTicketId = participantIds.indexOf(userId);
+        if (resolvedTicketId < 0) {
+          _showErrorDialog('This QR code is not registered for this event');
+          return;
+        }
+
+        ticketId = resolvedTicketId;
+      }
+
+      if (ticketId < 0 || ticketId >= participantIds.length) {
+        _showErrorDialog('Ticket ID does not match any registered participant');
+        return;
+      }
+
+      final expectedUserId = participantIds[ticketId];
+      if (userId == null || userId.isEmpty) {
+        userId = expectedUserId;
+      } else if (userId != expectedUserId) {
+        _showErrorDialog(
+          'This QR code does not match the registered participant',
+        );
+        return;
+      }
 
       // Check if attendance already marked
       final alreadyMarked = await AttendanceService.isAttendanceMarked(
@@ -199,144 +229,24 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
         return;
       }
 
-      // Find user who owns this ticket (by registration order)
-      final participantIds = await _registrationRepo.listParticipantUserIds(
-        event.id,
-      );
-      if (ticketId < 0 || ticketId >= participantIds.length) {
-        _showErrorDialog('Ticket ID does not match any registered participant');
-        return;
-      }
-
-      final expectedUserId = participantIds[ticketId];
-      final userId = validation.userId ?? expectedUserId;
-      if (!validation.isLegacy && userId != expectedUserId) {
-        _showErrorDialog(
-          'This QR code does not match the registered participant',
-        );
-        return;
-      }
-
       // Fetch user profile for confirmation display
       final profiles = await _profileRepo.getProfilesByIds([userId]);
       final userProfile = profiles.isNotEmpty ? profiles.first : null;
 
-      if (!mounted) return;
-
-      // Show confirmation dialog
-      _showConfirmationDialog(
+      final userName = userProfile?.realName ?? 'Unknown';
+      await _markAttendance(
         event: event,
         ticketId: ticketId,
         userId: userId,
-        userName: userProfile?.realName ?? 'Unknown',
+        userName: userName,
       );
     } catch (e) {
-      _showErrorDialog('Error processing ticket: $e');
+      _showErrorDialog('Error processing ticket: ${_cleanErrorMessage(e)}');
     } finally {
       if (mounted) {
         setState(() => _isProcessing = false);
       }
     }
-  }
-
-  void _showConfirmationDialog({
-    required Event event,
-    required int ticketId,
-    required String userId,
-    required String userName,
-  }) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Confirm Attendance'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildAttendanceInfo('Event', event.title),
-              const SizedBox(height: 12),
-              _buildAttendanceInfo('Attendee', userName),
-              const SizedBox(height: 12),
-              _buildAttendanceInfo(
-                'Ticket ID',
-                ticketId.toString().padLeft(5, '0'),
-              ),
-              const SizedBox(height: 12),
-              _buildAttendanceInfo('Scanner', _scannerRoleLabel),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: _isHostScanner
-                      ? Colors.green.shade50
-                      : Colors.blue.shade50,
-                  border: Border.all(
-                    color: _isHostScanner
-                        ? Colors.green.shade300
-                        : Colors.blue.shade300,
-                  ),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      _isHostScanner
-                          ? Icons.verified_rounded
-                          : Icons.groups_rounded,
-                      color: _isHostScanner ? Colors.green : Colors.blue,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _isHostScanner
-                            ? 'Confirm this check-in as the event host?'
-                            : 'Confirm this check-in as a verified helper?',
-                        style: TextStyle(
-                          color: _isHostScanner
-                              ? Colors.green.shade800
-                              : Colors.blue.shade800,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                if (!mounted) {
-                  return;
-                }
-                ScaffoldMessenger.of(this.context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Attendance scan cancelled.'),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-              },
-              child: const Text('No'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _markAttendance(
-                  event: event,
-                  ticketId: ticketId,
-                  userId: userId,
-                  userName: userName,
-                );
-              },
-              child: const Text('Yes, Confirm'),
-            ),
-          ],
-        );
-      },
-    );
   }
 
   Future<void> _markAttendance({
@@ -355,96 +265,39 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
 
       if (!mounted) return;
 
-      // Reset for next scan
-      setState(() => _isProcessing = false);
+      await _emitSuccessFeedback();
+      if (!mounted) {
+        return;
+      }
 
-      _showAttendanceSuccessDialog(
-        ticketId: ticketId,
-        userId: userId,
-        userName: userName,
-      );
+      final ticketCode = ticketId.toString().padLeft(5, '0');
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            content: Text('Scan successful: $userName (Ticket $ticketCode)'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
     } catch (e) {
-      _showErrorDialog('Error marking attendance: $e');
+      _showErrorDialog('Error marking attendance: ${_cleanErrorMessage(e)}');
     }
   }
 
-  void _showAttendanceSuccessDialog({
-    required int ticketId,
-    required String userId,
-    required String userName,
-  }) {
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Attendance Confirmed'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Attendee: $userName'),
-              const SizedBox(height: 8),
-              Text('Ticket ID: ${ticketId.toString().padLeft(5, '0')}'),
-              const SizedBox(height: 8),
-              Text('Scanner: $_scannerRoleLabel'),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: _isHostScanner
-                      ? Colors.green.shade50
-                      : Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: _isHostScanner
-                        ? Colors.green.shade300
-                        : Colors.blue.shade300,
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      _isHostScanner
-                          ? Icons.verified_rounded
-                          : Icons.groups_rounded,
-                      color: _isHostScanner ? Colors.green : Colors.blue,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _isHostScanner
-                            ? 'Attendance successfully marked by the host.'
-                            : 'Attendance successfully marked by a verified helper.',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Ok'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                if (!mounted) {
-                  return;
-                }
-                Navigator.of(context).pushNamed(
-                  UserProfileViewScreen.routeName,
-                  arguments: UserProfileViewArgs(userId: userId),
-                );
-              },
-              child: const Text('Profile'),
-            ),
-          ],
-        );
-      },
-    );
+  String _cleanErrorMessage(Object error) {
+    final raw = error.toString().trim();
+    return raw.replaceFirst(RegExp(r'^Exception:\s*'), '').trim();
+  }
+
+  Future<void> _emitSuccessFeedback() async {
+    try {
+      await HapticFeedback.mediumImpact();
+    } catch (_) {}
+
+    try {
+      await SystemSound.play(SystemSoundType.click);
+    } catch (_) {}
   }
 
   void _showErrorDialog(String message) {
@@ -465,29 +318,6 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
     );
 
     setState(() => _isProcessing = false);
-  }
-
-  Widget _buildAttendanceInfo(String label, String value) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 80,
-          child: Text(
-            label,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(fontSize: 14),
-            overflow: TextOverflow.ellipsis,
-            maxLines: 2,
-          ),
-        ),
-      ],
-    );
   }
 
   Widget _buildScannerOverlay() {

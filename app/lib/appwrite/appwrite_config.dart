@@ -28,6 +28,10 @@ class AppwriteConfig {
     'APPWRITE_EVENT_REGISTRATIONS_COLLECTION_ID',
     defaultValue: 'event_registrations',
   );
+  static const attendanceCollectionId = String.fromEnvironment(
+    'APPWRITE_ATTENDANCE_COLLECTION_ID',
+    defaultValue: 'attendance',
+  );
   static const notificationsCollectionId = String.fromEnvironment(
     'APPWRITE_NOTIFICATIONS_COLLECTION_ID',
     defaultValue: 'notifications',
@@ -72,4 +76,3 @@ class AppwriteConfig {
 
   static bool get isConfigured => endpoint.isNotEmpty && projectId.isNotEmpty;
 }
-

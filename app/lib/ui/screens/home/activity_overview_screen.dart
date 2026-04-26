@@ -147,7 +147,8 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
                 FutureBuilder<MembershipStatus>(
                   future: _membershipFuture,
                   builder: (context, membershipSnap) {
-                    if (membershipSnap.connectionState != ConnectionState.done &&
+                    if (membershipSnap.connectionState !=
+                            ConnectionState.done &&
                         membershipSnap.data == null) {
                       return const SizedBox.shrink();
                     }
@@ -577,7 +578,10 @@ class _ActivityTabBody extends StatelessWidget {
                               userId: currentUserId,
                               ticketId: ticketId,
                             )
-                          : '${e.id}_$currentUserId';
+                          : TicketService.buildLegacyUserLookupQrData(
+                              eventId: e.id,
+                              userId: currentUserId,
+                            );
                       final eventDate = _fmtTemplateDate(e.startAt);
                       final eventTime = _fmtTime(e.startAt);
                       final validUntil = _fmtTime(e.startAt.add(e.duration));

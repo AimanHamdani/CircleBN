@@ -1054,7 +1054,7 @@ class _BillingHistoryCard extends StatelessWidget {
 
   String _formatAmount(MembershipBillingRecord record) {
     final dollars = (record.amountCents / 100).toStringAsFixed(2);
-    return '\$${dollars} ${record.currency}';
+    return '\$$dollars ${record.currency}';
   }
 
   String _formatPlan(String planId) {

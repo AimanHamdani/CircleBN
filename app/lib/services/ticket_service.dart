@@ -72,193 +72,182 @@ class TicketService {
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(20),
         build: (pw.Context context) {
-          return pw.Container(
-            color: PdfColors.black,
-            alignment: pw.Alignment.center,
+          return pw.Center(
             child: pw.ConstrainedBox(
-              constraints: const pw.BoxConstraints(maxWidth: 440),
-              child: pw.Column(
-                mainAxisSize: pw.MainAxisSize.min,
-                crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-                children: [
-                  pw.Container(
-                    decoration: const pw.BoxDecoration(
-                      color: PdfColors.grey100,
-                      borderRadius: pw.BorderRadius.only(
-                        topLeft: pw.Radius.circular(28),
-                        topRight: pw.Radius.circular(28),
-                        bottomLeft: pw.Radius.circular(28),
-                        bottomRight: pw.Radius.circular(28),
-                      ),
-                    ),
-                    child: pw.Column(
-                      children: [
-                        pw.Container(
-                          height: 52,
-                          color: const PdfColor(0, 0.45, 0.14),
-                          alignment: pw.Alignment.center,
-                          child: pw.Text(
-                            'CIRCLE.BN',
-                            style: pw.TextStyle(
-                              color: PdfColors.white,
-                              fontSize: 20,
-                              letterSpacing: 1.2,
-                              fontWeight: pw.FontWeight.normal,
+              constraints: const pw.BoxConstraints(maxWidth: 460),
+              child: pw.Container(
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.black,
+                  borderRadius: pw.BorderRadius.circular(24),
+                ),
+                padding: const pw.EdgeInsets.all(10),
+                child: pw.Column(
+                  mainAxisSize: pw.MainAxisSize.min,
+                  crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                  children: [
+                    pw.ClipRRect(
+                      horizontalRadius: 18,
+                      verticalRadius: 18,
+                      child: pw.Container(
+                        color: const PdfColor(0.949, 0.949, 0.949),
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                          children: [
+                            pw.Container(
+                              height: 44,
+                              color: const PdfColor(0, 0.439, 0.122),
+                              alignment: pw.Alignment.center,
+                              child: pw.Text(
+                                'CIRCLE.BN',
+                                style: pw.TextStyle(
+                                  color: PdfColors.white,
+                                  fontSize: 18,
+                                  letterSpacing: 1,
+                                  fontWeight: pw.FontWeight.normal,
+                                ),
+                              ),
                             ),
-                          ),
+                            pw.Padding(
+                              padding: const pw.EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 26,
+                              ),
+                              child: pw.Text(
+                                event.title.toUpperCase(),
+                                textAlign: pw.TextAlign.center,
+                                maxLines: 2,
+                                style: pw.TextStyle(
+                                  color: PdfColors.black,
+                                  fontSize: 32,
+                                  height: 1,
+                                  letterSpacing: 0.4,
+                                  fontWeight: pw.FontWeight.normal,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.fromLTRB(16, 34, 16, 34),
-                          child: pw.Text(
-                            event.title.toUpperCase(),
-                            textAlign: pw.TextAlign.center,
-                            style: pw.TextStyle(
-                              color: PdfColors.black,
-                              fontSize: 40,
-                              letterSpacing: 0.8,
-                              fontWeight: pw.FontWeight.normal,
+                      ),
+                    ),
+                    pw.SizedBox(height: 8),
+                    pw.ClipRRect(
+                      horizontalRadius: 18,
+                      verticalRadius: 18,
+                      child: pw.Container(
+                        color: const PdfColor(0.949, 0.949, 0.949),
+                        padding: const pw.EdgeInsets.fromLTRB(16, 18, 16, 18),
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                          children: [
+                            pw.Row(
+                              crossAxisAlignment: pw.CrossAxisAlignment.start,
+                              children: [
+                                pw.Expanded(
+                                  child: _buildTicketField(
+                                    'NAME',
+                                    attendeeName,
+                                  ),
+                                ),
+                                pw.SizedBox(width: 12),
+                                pw.Expanded(
+                                  child: _buildTicketField('DATE', eventDate),
+                                ),
+                              ],
                             ),
-                          ),
+                            pw.SizedBox(height: 16),
+                            pw.Row(
+                              crossAxisAlignment: pw.CrossAxisAlignment.start,
+                              children: [
+                                pw.Expanded(
+                                  child: _buildTicketField(
+                                    'TICKET ID',
+                                    ticketCode,
+                                  ),
+                                ),
+                                pw.SizedBox(width: 12),
+                                pw.Expanded(
+                                  child: _buildTicketField('TIME', eventTime),
+                                ),
+                              ],
+                            ),
+                            pw.SizedBox(height: 16),
+                            pw.Row(
+                              crossAxisAlignment: pw.CrossAxisAlignment.start,
+                              children: [
+                                pw.Expanded(
+                                  child: _buildTicketField(
+                                    'SPORT',
+                                    event.sport,
+                                  ),
+                                ),
+                                pw.SizedBox(width: 12),
+                                pw.Expanded(
+                                  child: _buildTicketField(
+                                    'VALID UNTIL',
+                                    validUntil,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            pw.SizedBox(height: 16),
+                            pw.Center(
+                              child: pw.Container(
+                                color: PdfColors.white,
+                                padding: const pw.EdgeInsets.all(8),
+                                child: pw.Image(
+                                  qrImageData,
+                                  width: 190,
+                                  height: 190,
+                                ),
+                              ),
+                            ),
+                            pw.SizedBox(height: 10),
+                            pw.Container(height: 2, color: PdfColors.black),
+                            pw.SizedBox(height: 8),
+                            pw.Text(
+                              'Present this QR code at the entrance',
+                              textAlign: pw.TextAlign.center,
+                              style: const pw.TextStyle(
+                                fontSize: 12,
+                                color: PdfColors.black,
+                              ),
+                            ),
+                            pw.SizedBox(height: 6),
+                            pw.Text(
+                              'Valid until $validUntil',
+                              textAlign: pw.TextAlign.center,
+                              style: const pw.TextStyle(
+                                fontSize: 11,
+                                color: PdfColor(0.4, 0.4, 0.4),
+                              ),
+                            ),
+                            pw.SizedBox(height: 14),
+                            pw.Text(
+                              'LOCATION',
+                              textAlign: pw.TextAlign.center,
+                              style: const pw.TextStyle(
+                                fontSize: 12,
+                                color: PdfColor(0.4, 0.4, 0.4),
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                            pw.SizedBox(height: 4),
+                            pw.Text(
+                              location.toUpperCase(),
+                              textAlign: pw.TextAlign.center,
+                              maxLines: 2,
+                              style: pw.TextStyle(
+                                fontSize: 20,
+                                color: PdfColors.black,
+                                fontWeight: pw.FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  ),
-
-                  pw.Padding(
-                    padding: const pw.EdgeInsets.symmetric(vertical: 3),
-                    child: _buildDashedTearLine(),
-                  ),
-
-                  pw.Container(
-                    decoration: const pw.BoxDecoration(
-                      color: PdfColors.grey100,
-                      borderRadius: pw.BorderRadius.only(
-                        topLeft: pw.Radius.circular(28),
-                        topRight: pw.Radius.circular(28),
-                        bottomLeft: pw.Radius.circular(28),
-                        bottomRight: pw.Radius.circular(28),
                       ),
                     ),
-                    child: pw.Padding(
-                      padding: const pw.EdgeInsets.fromLTRB(36, 30, 36, 30),
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-                        children: [
-                          pw.Row(
-                            crossAxisAlignment: pw.CrossAxisAlignment.start,
-                            children: [
-                              pw.Expanded(
-                                child: _buildTicketField(
-                                  'NAME',
-                                  attendeeName,
-                                  leftAligned: true,
-                                ),
-                              ),
-                              pw.SizedBox(width: 18),
-                              pw.Expanded(
-                                child: _buildTicketField(
-                                  'DATE',
-                                  eventDate,
-                                  leftAligned: true,
-                                ),
-                              ),
-                            ],
-                          ),
-                          pw.SizedBox(height: 26),
-                          pw.Row(
-                            crossAxisAlignment: pw.CrossAxisAlignment.start,
-                            children: [
-                              pw.Expanded(
-                                child: _buildTicketField(
-                                  'TICKET ID',
-                                  ticketCode,
-                                  leftAligned: true,
-                                ),
-                              ),
-                              pw.SizedBox(width: 18),
-                              pw.Expanded(
-                                child: _buildTicketField(
-                                  'TIME',
-                                  eventTime,
-                                  leftAligned: true,
-                                ),
-                              ),
-                            ],
-                          ),
-                          pw.SizedBox(height: 26),
-                          pw.Row(
-                            crossAxisAlignment: pw.CrossAxisAlignment.start,
-                            children: [
-                              pw.Expanded(
-                                child: _buildTicketField(
-                                  'SPORT',
-                                  event.sport,
-                                  leftAligned: true,
-                                ),
-                              ),
-                              pw.SizedBox(width: 18),
-                              pw.Expanded(
-                                child: _buildTicketField(
-                                  'VALID UNTIL',
-                                  validUntil,
-                                  leftAligned: true,
-                                ),
-                              ),
-                            ],
-                          ),
-                          pw.SizedBox(height: 26),
-                          pw.Center(
-                            child: pw.Image(
-                              qrImageData,
-                              width: 220,
-                              height: 220,
-                            ),
-                          ),
-                          pw.SizedBox(height: 12),
-                          pw.Container(height: 2, color: PdfColors.black),
-                          pw.SizedBox(height: 8),
-                          pw.Text(
-                            'Present this QR code at the entrance',
-                            textAlign: pw.TextAlign.center,
-                            style: pw.TextStyle(
-                              fontSize: 12,
-                              color: PdfColors.black,
-                            ),
-                          ),
-                          pw.SizedBox(height: 6),
-                          pw.Text(
-                            'Valid until $validUntil',
-                            textAlign: pw.TextAlign.center,
-                            style: pw.TextStyle(
-                              fontSize: 11,
-                              color: PdfColors.grey700,
-                            ),
-                          ),
-                          pw.SizedBox(height: 20),
-                          pw.Text(
-                            'LOCATION',
-                            textAlign: pw.TextAlign.center,
-                            style: pw.TextStyle(
-                              fontSize: 13,
-                              color: PdfColors.grey700,
-                              letterSpacing: 0.4,
-                            ),
-                          ),
-                          pw.SizedBox(height: 5),
-                          pw.Text(
-                            location.toUpperCase(),
-                            textAlign: pw.TextAlign.center,
-                            style: pw.TextStyle(
-                              fontSize: 19,
-                              color: PdfColors.black,
-                              fontWeight: pw.FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           );
@@ -269,50 +258,29 @@ class TicketService {
     return pdf.save();
   }
 
-  static pw.Widget _buildTicketField(
-    String label,
-    String value, {
-    required bool leftAligned,
-  }) {
+  static pw.Widget _buildTicketField(String label, String value) {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         pw.Text(
           label,
-          style: pw.TextStyle(
-            fontSize: 12,
-            fontWeight: pw.FontWeight.normal,
-            color: PdfColors.grey700,
-            letterSpacing: 0.3,
+          style: const pw.TextStyle(
+            fontSize: 11,
+            color: PdfColor(0.4, 0.4, 0.4),
+            letterSpacing: 0.2,
           ),
         ),
         pw.SizedBox(height: 4),
         pw.Text(
           value,
-          textAlign: leftAligned ? pw.TextAlign.left : pw.TextAlign.center,
           style: pw.TextStyle(
-            fontSize: 28,
+            fontSize: 18,
             fontWeight: pw.FontWeight.bold,
             color: PdfColors.black,
           ),
           maxLines: 2,
         ),
       ],
-    );
-  }
-
-  static pw.Widget _buildDashedTearLine() {
-    return pw.Row(
-      mainAxisAlignment: pw.MainAxisAlignment.center,
-      children: List<pw.Widget>.generate(
-        44,
-        (index) => pw.Container(
-          width: 7,
-          height: 2,
-          margin: const pw.EdgeInsets.symmetric(horizontal: 2),
-          color: PdfColors.grey700,
-        ),
-      ),
     );
   }
 

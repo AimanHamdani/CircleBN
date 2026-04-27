@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
 import '../../../data/club_member_repository.dart';
 import '../../../data/club_repository.dart';
@@ -51,6 +52,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
     _payloadFuture = _loadCalendarPayload();
     _membershipFuture = membershipRepository().getStatus();
     _selectedDate = DateTime.now();
+    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
+  }
+
+  @override
+  void dispose() {
+    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
+    super.dispose();
   }
 
   Future<_CalendarPayload> _loadCalendarPayload() async {
@@ -71,6 +79,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
     setState(() {
       _payloadFuture = _loadCalendarPayload();
     });
+  }
+
+  void _handleGlobalDataChange() {
+    if (!mounted) {
+      return;
+    }
+    _refreshPayload();
   }
 
   static Set<String> _joinedOrCreatedClubIds({

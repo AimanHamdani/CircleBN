@@ -686,9 +686,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                           decoration: BoxDecoration(
                             color: const Color(0xFFFFF9E8),
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: const Color(0xFFE8C15A),
-                            ),
+                            border: Border.all(color: const Color(0xFFE8C15A)),
                           ),
                           child: const Row(
                             children: [
@@ -741,51 +739,48 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                           children: [
                             ChoiceChip(
                               label: const Text('Request to join'),
-                              selected: EventPrivacy.privateSubModeValue(
-                                    _privacy,
-                                  ) ==
+                              selected:
+                                  EventPrivacy.privateSubModeValue(_privacy) ==
                                   EventPrivacy.privateRequestJoin,
                               onSelected: !_isPremiumUser
                                   ? null
                                   : (sel) {
-                                if (sel) {
-                                  _setPrivateSubMode(
-                                    EventPrivacy.privateRequestJoin,
-                                  );
-                                }
-                              },
+                                      if (sel) {
+                                        _setPrivateSubMode(
+                                          EventPrivacy.privateRequestJoin,
+                                        );
+                                      }
+                                    },
                             ),
                             ChoiceChip(
                               label: const Text('Invite people'),
-                              selected: EventPrivacy.privateSubModeValue(
-                                    _privacy,
-                                  ) ==
+                              selected:
+                                  EventPrivacy.privateSubModeValue(_privacy) ==
                                   EventPrivacy.privateInviteSearch,
                               onSelected: !_isPremiumUser
                                   ? null
                                   : (sel) {
-                                if (sel) {
-                                  _setPrivateSubMode(
-                                    EventPrivacy.privateInviteSearch,
-                                  );
-                                }
-                              },
+                                      if (sel) {
+                                        _setPrivateSubMode(
+                                          EventPrivacy.privateInviteSearch,
+                                        );
+                                      }
+                                    },
                             ),
                             ChoiceChip(
                               label: const Text('Club members'),
-                              selected: EventPrivacy.privateSubModeValue(
-                                    _privacy,
-                                  ) ==
+                              selected:
+                                  EventPrivacy.privateSubModeValue(_privacy) ==
                                   EventPrivacy.privateClubNotify,
                               onSelected: !_isPremiumUser
                                   ? null
                                   : (sel) {
-                                if (sel) {
-                                  _setPrivateSubMode(
-                                    EventPrivacy.privateClubNotify,
-                                  );
-                                }
-                              },
+                                      if (sel) {
+                                        _setPrivateSubMode(
+                                          EventPrivacy.privateClubNotify,
+                                        );
+                                      }
+                                    },
                             ),
                           ],
                         ),
@@ -836,10 +831,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                             _inviteSearchDebounce = Timer(
                               const Duration(milliseconds: 320),
                               () async {
-                                final rows =
-                                    await profileRepository().searchProfilesForInvite(
-                                  q,
-                                );
+                                final rows = await profileRepository()
+                                    .searchProfilesForInvite(q);
                                 if (!mounted) return;
                                 setState(() => _inviteSuggestions = rows);
                               },
@@ -1924,16 +1917,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       final hasMeaningfulUpdate =
           _isEditMode &&
           initialEvent != null &&
-          (
-                initialEvent.title.trim() != title ||
-                initialEvent.startAt.toIso8601String() !=
-                    startAt.toIso8601String() ||
-                initialEvent.duration.inMinutes != durationMinutes ||
-                initialEvent.location.trim() != location ||
-                initialEvent.capacity != capacity ||
-                initialEvent.entryFeeLabel.trim() != fee ||
-                (initialEvent.privacy ?? '').trim() != (_privacy ?? '').trim()
-              );
+          (initialEvent.title.trim() != title ||
+              initialEvent.startAt.toIso8601String() !=
+                  startAt.toIso8601String() ||
+              initialEvent.duration.inMinutes != durationMinutes ||
+              initialEvent.location.trim() != location ||
+              initialEvent.capacity != capacity ||
+              initialEvent.entryFeeLabel.trim() != fee ||
+              (initialEvent.privacy ?? '').trim() != (_privacy ?? '').trim());
       if (_isEditMode) {
         eventId = _initialEvent!.id;
         await AppwriteService.updateDocument(
@@ -1956,6 +1947,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               eventId: eventId,
               eventTitle: title,
               eventStartAt: startAt,
+              eventEndAt: startAt.add(Duration(minutes: durationMinutes)),
               eventLocation: location,
             );
           } catch (_) {}
@@ -1968,8 +1960,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             .where((id) => id.trim().isNotEmpty)
             .map(
               (inviteeId) => AppNotification(
-                id:
-                    'invite_${eventId}_${inviteeId}_${createdAt.millisecondsSinceEpoch}',
+                id: 'invite_${eventId}_${inviteeId}_${createdAt.millisecondsSinceEpoch}',
                 userId: inviteeId,
                 type: AppNotificationType.eventInvite,
                 title: 'Private event invite',
@@ -1997,8 +1988,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           final notifications = updateRecipientIds
               .map(
                 (recipientId) => AppNotification(
-                  id:
-                      'update_${eventId}_${recipientId}_${createdAt.millisecondsSinceEpoch}',
+                  id: 'update_${eventId}_${recipientId}_${createdAt.millisecondsSinceEpoch}',
                   userId: recipientId,
                   type: AppNotificationType.eventUpdated,
                   title: 'Event updated',
@@ -2608,10 +2598,7 @@ class _InvitePickerAvatar extends StatelessWidget {
   final String? avatarFileId;
   final String label;
 
-  const _InvitePickerAvatar({
-    required this.avatarFileId,
-    required this.label,
-  });
+  const _InvitePickerAvatar({required this.avatarFileId, required this.label});
 
   static const double _size = 40;
 

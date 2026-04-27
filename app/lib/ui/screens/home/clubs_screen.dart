@@ -52,6 +52,7 @@ class _ClubsScreenState extends State<ClubsScreen> {
     _membershipFuture = appPreloadService().membershipStatus();
     _dmThreadsFuture = appPreloadService().myDmThreads();
     _tabUnreadFuture = _loadTabUnreadCounts();
+    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
   }
 
   void _refreshClubs() {
@@ -68,8 +69,16 @@ class _ClubsScreenState extends State<ClubsScreen> {
 
   @override
   void dispose() {
+    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  void _handleGlobalDataChange() {
+    if (!mounted) {
+      return;
+    }
+    _refreshClubs();
   }
 
   String _clubSubtitle(Club c) {
@@ -176,6 +185,17 @@ class _ClubsScreenState extends State<ClubsScreen> {
               return m.createdAt.isAfter(lastReadAt);
             })
             .length;
+        final latestUnreadAt = sorted
+            .where((m) => _normalizedUserId(m.senderId) != meId)
+            .where((m) {
+              if (lastReadAt == null) {
+                return true;
+              }
+              return m.createdAt.isAfter(lastReadAt);
+            })
+            .map((m) => m.createdAt)
+            .cast<DateTime?>()
+            .firstWhere((v) => v != null, orElse: () => null);
         final searchableText = sorted
             .map((m) {
               final text = m.text.trim();
@@ -196,6 +216,7 @@ class _ClubsScreenState extends State<ClubsScreen> {
               : latest.text.trim(),
           latestAt: latest.createdAt,
           unreadCount: unread,
+          latestUnreadAt: latestUnreadAt,
           searchableText: searchableText,
         );
       } catch (_) {
@@ -830,9 +851,53 @@ class _ClubsScreenState extends State<ClubsScreen> {
                                         searchLower,
                                         meta,
                                       );
-                                    }).toList()..sort(
-                                      (a, b) => a.name.compareTo(b.name),
-                                    );
+                                    }).toList()..sort((a, b) {
+                                      final aMeta =
+                                          metaByClub[a.id] ??
+                                          const _ClubChatMeta.empty();
+                                      final bMeta =
+                                          metaByClub[b.id] ??
+                                          const _ClubChatMeta.empty();
+                                      final aHasUnread = aMeta.unreadCount > 0;
+                                      final bHasUnread = bMeta.unreadCount > 0;
+                                      if (aHasUnread != bHasUnread) {
+                                        return bHasUnread ? 1 : -1;
+                                      }
+                                      if (aHasUnread && bHasUnread) {
+                                        final aUnreadAt =
+                                            aMeta.latestUnreadAt ??
+                                            DateTime.fromMillisecondsSinceEpoch(
+                                              0,
+                                            );
+                                        final bUnreadAt =
+                                            bMeta.latestUnreadAt ??
+                                            DateTime.fromMillisecondsSinceEpoch(
+                                              0,
+                                            );
+                                        final unreadTimeCompare = bUnreadAt
+                                            .compareTo(aUnreadAt);
+                                        if (unreadTimeCompare != 0) {
+                                          return unreadTimeCompare;
+                                        }
+                                      }
+                                      final aLatest =
+                                          aMeta.latestAt ??
+                                          DateTime.fromMillisecondsSinceEpoch(
+                                            0,
+                                          );
+                                      final bLatest =
+                                          bMeta.latestAt ??
+                                          DateTime.fromMillisecondsSinceEpoch(
+                                            0,
+                                          );
+                                      final latestCompare = bLatest.compareTo(
+                                        aLatest,
+                                      );
+                                      if (latestCompare != 0) {
+                                        return latestCompare;
+                                      }
+                                      return a.name.compareTo(b.name);
+                                    });
                                 if (filtered.isEmpty) {
                                   return const Center(
                                     child: Text(
@@ -1362,6 +1427,7 @@ class _ClubChatMeta {
   final String latestText;
   final DateTime? latestAt;
   final int unreadCount;
+  final DateTime? latestUnreadAt;
   final String searchableText;
 
   const _ClubChatMeta({
@@ -1369,6 +1435,7 @@ class _ClubChatMeta {
     required this.latestText,
     required this.latestAt,
     required this.unreadCount,
+    required this.latestUnreadAt,
     required this.searchableText,
   });
 
@@ -1377,6 +1444,7 @@ class _ClubChatMeta {
       latestText = '',
       latestAt = null,
       unreadCount = 0,
+      latestUnreadAt = null,
       searchableText = '';
 }
 

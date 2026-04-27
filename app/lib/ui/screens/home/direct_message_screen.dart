@@ -32,6 +32,7 @@ class DirectMessageScreen extends StatefulWidget {
 }
 
 class _DirectMessageScreenState extends State<DirectMessageScreen> {
+  static const Duration _editWindow = Duration(minutes: 30);
   final _repo = directMessageRepository();
   final _textCtrl = TextEditingController();
   final _picker = ImagePicker();
@@ -248,6 +249,16 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
     if (message.senderId.trim() != me) {
       return;
     }
+    if (!_canEditMessage(message)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Messages can only be edited within 30 minutes.'),
+          ),
+        );
+      }
+      return;
+    }
     final controller = TextEditingController(text: message.text.trim());
     final nextText = await showDialog<String>(
       context: context,
@@ -308,7 +319,7 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
   Future<void> _showMessageActions(DirectMessage message) async {
     final me = currentUserId.trim();
     final isMine = message.senderId.trim() == me;
-    if (!isMine) {
+    if (!isMine || !_canEditMessage(message)) {
       return;
     }
     final action = await showModalBottomSheet<String>(
@@ -329,6 +340,12 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
     if (action == 'edit') {
       await _editMessage(message);
     }
+  }
+
+  bool _canEditMessage(DirectMessage message) {
+    final createdAtUtc = message.createdAt.toUtc();
+    final deadline = createdAtUtc.add(_editWindow);
+    return DateTime.now().toUtc().isBefore(deadline);
   }
 
   @override

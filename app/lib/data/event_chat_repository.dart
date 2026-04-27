@@ -5,6 +5,7 @@ import '../appwrite/appwrite_service.dart';
 import '../models/event_chat_message.dart';
 
 class EventChatRepository {
+  static const Duration _editWindow = Duration(minutes: 30);
   bool get _isConfigured =>
       AppwriteService.isConfigured &&
       AppwriteConfig.databaseId.isNotEmpty &&
@@ -47,27 +48,25 @@ class EventChatRepository {
   Future<List<EventChatMessage>> _listForEventLowercase(String eventId) async {
     final docs = await AppwriteService.listDocuments(
       collectionId: AppwriteConfig.eventMessagesCollectionId,
-      queries: [
-        Query.equal('eventid', eventId),
-        Query.limit(500),
-      ],
+      queries: [Query.equal('eventid', eventId), Query.limit(500)],
     );
-    final items = docs.documents
-        .map(
-          (doc) => EventChatMessage.fromMap(
-            Map<String, dynamic>.from(doc.data),
-            id: doc.$id,
-            documentCreatedAt: doc.$createdAt,
-            documentUpdatedAt: doc.$updatedAt,
-          ),
-        )
-        .where(
-          (item) =>
-              item.text.trim().isNotEmpty ||
-              (item.imageFileId?.trim().isNotEmpty ?? false),
-        )
-        .toList()
-      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final items =
+        docs.documents
+            .map(
+              (doc) => EventChatMessage.fromMap(
+                Map<String, dynamic>.from(doc.data),
+                id: doc.$id,
+                documentCreatedAt: doc.$createdAt,
+                documentUpdatedAt: doc.$updatedAt,
+              ),
+            )
+            .where(
+              (item) =>
+                  item.text.trim().isNotEmpty ||
+                  (item.imageFileId?.trim().isNotEmpty ?? false),
+            )
+            .toList()
+          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     return items;
   }
 
@@ -88,7 +87,9 @@ class EventChatRepository {
         !_isConfigured) {
       return;
     }
-    final resolvedName = senderName.trim().isEmpty ? 'Member' : senderName.trim();
+    final resolvedName = senderName.trim().isEmpty
+        ? 'Member'
+        : senderName.trim();
     final resolvedImageId = imageFileId?.trim().isEmpty == true
         ? null
         : imageFileId?.trim();
@@ -121,6 +122,20 @@ class EventChatRepository {
     final trimmedText = newText.trim();
     if (!_isConfigured || trimmedId.isEmpty || trimmedText.isEmpty) {
       return;
+    }
+    final doc = await AppwriteService.getDocument(
+      collectionId: AppwriteConfig.eventMessagesCollectionId,
+      documentId: trimmedId,
+    );
+    final createdAt =
+        DateTime.tryParse(doc.$createdAt) ??
+        DateTime.tryParse((doc.data['createdAt'] ?? '').toString());
+    if (createdAt == null ||
+        DateTime.now().toUtc().isAfter(createdAt.toUtc().add(_editWindow))) {
+      throw AppwriteException(
+        'Messages can only be edited within 30 minutes.',
+        400,
+      );
     }
     await AppwriteService.updateDocument(
       collectionId: AppwriteConfig.eventMessagesCollectionId,

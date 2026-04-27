@@ -9,6 +9,8 @@ import 'appwrite_config.dart';
 class AppwriteService {
   AppwriteService._();
 
+  static final ValueNotifier<int> dataVersion = ValueNotifier<int>(0);
+
   static final Client _client = Client()
     ..setEndpoint(AppwriteConfig.endpoint)
     ..setProject(AppwriteConfig.projectId);
@@ -78,13 +80,15 @@ class AppwriteService {
     String? documentId,
     List<String>? permissions,
   }) async {
-    return await databases.createDocument(
+    final created = await databases.createDocument(
       databaseId: AppwriteConfig.databaseId,
       collectionId: collectionId,
       documentId: documentId ?? ID.unique(),
       data: data,
       permissions: permissions,
     );
+    _bumpDataVersion();
+    return created;
   }
 
   static Future<models.Document> updateDocument({
@@ -93,13 +97,15 @@ class AppwriteService {
     required Map<String, dynamic> data,
     List<String>? permissions,
   }) async {
-    return await databases.updateDocument(
+    final updated = await databases.updateDocument(
       databaseId: AppwriteConfig.databaseId,
       collectionId: collectionId,
       documentId: documentId,
       data: data,
       permissions: permissions,
     );
+    _bumpDataVersion();
+    return updated;
   }
 
   static Future<void> deleteDocument({
@@ -111,6 +117,7 @@ class AppwriteService {
       collectionId: collectionId,
       documentId: documentId,
     );
+    _bumpDataVersion();
   }
 
   static Future<models.File> uploadFile({
@@ -123,19 +130,18 @@ class AppwriteService {
   }) async {
     final resolvedFileId = fileId ?? _contentBasedFileId(bytes) ?? ID.unique();
     final inputFile = kIsWeb
-        ? InputFile.fromBytes(
-            bytes: bytes!,
-            filename: filename ?? 'upload.jpg',
-          )
+        ? InputFile.fromBytes(bytes: bytes!, filename: filename ?? 'upload.jpg')
         : InputFile.fromPath(path: path);
 
     try {
-      return await storage.createFile(
+      final created = await storage.createFile(
         bucketId: bucketId,
         fileId: resolvedFileId,
         file: inputFile,
         permissions: permissions,
       );
+      _bumpDataVersion();
+      return created;
     } on AppwriteException catch (e) {
       if (e.code == 409) {
         return await storage.getFile(
@@ -151,17 +157,17 @@ class AppwriteService {
     required String bucketId,
     required String fileId,
   }) async {
-    return await storage.getFileView(
-      bucketId: bucketId,
-      fileId: fileId,
-    );
+    return await storage.getFileView(bucketId: bucketId, fileId: fileId);
   }
 
   static Uri getFileDownloadUri({
     required String bucketId,
     required String fileId,
   }) {
-    final endpoint = AppwriteConfig.endpoint.trim().replaceFirst(RegExp(r'/$'), '');
+    final endpoint = AppwriteConfig.endpoint.trim().replaceFirst(
+      RegExp(r'/$'),
+      '',
+    );
     return Uri.parse(
       '$endpoint/storage/buckets/$bucketId/files/$fileId/download?project=${AppwriteConfig.projectId}',
     );
@@ -172,10 +178,8 @@ class AppwriteService {
     required String fileId,
   }) async {
     try {
-      await storage.deleteFile(
-        bucketId: bucketId,
-        fileId: fileId,
-      );
+      await storage.deleteFile(bucketId: bucketId, fileId: fileId);
+      _bumpDataVersion();
     } on AppwriteException catch (e) {
       // If the file is already deleted or inaccessible, treat as best-effort.
       if (e.code == 404) {
@@ -206,17 +210,13 @@ class AppwriteService {
       final detail = execution.errors.trim().isNotEmpty
           ? execution.errors.trim()
           : execution.responseBody.trim();
-      throw Exception(
-        detail.isNotEmpty ? detail : 'Function execution failed',
-      );
+      throw Exception(detail.isNotEmpty ? detail : 'Function execution failed');
     }
 
     final code = execution.responseStatusCode;
     if (code >= 400) {
       final body = execution.responseBody.trim();
-      throw Exception(
-        body.isNotEmpty ? body : 'Function returned HTTP $code',
-      );
+      throw Exception(body.isNotEmpty ? body : 'Function returned HTTP $code');
     }
 
     final raw = execution.responseBody.trim();
@@ -254,5 +254,8 @@ class AppwriteService {
     final hex = hash.toRadixString(16).padLeft(8, '0');
     return 'img_$hex';
   }
-}
 
+  static void _bumpDataVersion() {
+    dataVersion.value = dataVersion.value + 1;
+  }
+}

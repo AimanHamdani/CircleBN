@@ -20,6 +20,7 @@ import '../../../auth/current_user.dart';
 import '../../../auth/session_persistence.dart';
 import '../login_screen.dart';
 import '../../../data/event_invite_repository.dart';
+import '../../../data/event_registration_repository.dart';
 import 'all_events_screen.dart';
 import 'create_event_screen.dart';
 import 'create_club_screen.dart';
@@ -61,12 +62,22 @@ class _HomeScreenState extends State<HomeScreen> {
     _circleUnreadTimer = Timer.periodic(const Duration(seconds: 8), (_) {
       _refreshCircleUnread();
     });
+    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
   }
 
   @override
   void dispose() {
+    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
     _circleUnreadTimer?.cancel();
     super.dispose();
+  }
+
+  void _handleGlobalDataChange() {
+    if (!mounted) {
+      return;
+    }
+    _refreshCircleUnread();
+    setState(() {});
   }
 
   Future<void> _refreshCircleUnread() async {
@@ -703,6 +714,7 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
     _profileFuture = appPreloadService().myProfile();
     _unreadNotificationsFuture = _loadUnreadNotificationsCount();
     _membershipFuture = appPreloadService().membershipStatus();
+    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
   }
 
   @override
@@ -716,6 +728,7 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
 
   @override
   void dispose() {
+    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
     appRouteObserver.unsubscribe(this);
     super.dispose();
   }
@@ -724,6 +737,19 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
   void didPopNext() {
     if (!mounted) return;
     setState(() {
+      _membershipFuture = appPreloadService().membershipStatus(
+        forceRefresh: true,
+      );
+    });
+  }
+
+  void _handleGlobalDataChange() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _profileFuture = appPreloadService().myProfile(forceRefresh: true);
+      _unreadNotificationsFuture = _loadUnreadNotificationsCount();
       _membershipFuture = appPreloadService().membershipStatus(
         forceRefresh: true,
       );
@@ -1200,17 +1226,56 @@ class _PrivateInvitesSection extends StatefulWidget {
   State<_PrivateInvitesSection> createState() => _PrivateInvitesSectionState();
 }
 
-class _PrivateInvitesSectionState extends State<_PrivateInvitesSection> {
+class _PrivateInvitesSectionState extends State<_PrivateInvitesSection>
+    with RouteAware {
   late Future<_PrivateInvitesPayload> _future;
 
   @override
   void initState() {
     super.initState();
     _future = _loadInvites();
+    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute<dynamic>) {
+      appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void dispose() {
+    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
+    appRouteObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  @override
+  void didPopNext() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _future = _loadInvites();
+    });
+  }
+
+  void _handleGlobalDataChange() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _future = _loadInvites();
+    });
   }
 
   Future<_PrivateInvitesPayload> _loadInvites() async {
     final events = await eventRepository().listEvents();
+    final registeredEventIds = await eventRegistrationRepository()
+        .listMyRegisteredEventIds(currentUserId);
     final clubs = await clubRepository().listClubs();
     final clubNameById = <String, String>{
       for (final club in clubs) club.id: club.name,
@@ -1226,7 +1291,9 @@ class _PrivateInvitesSectionState extends State<_PrivateInvitesSection> {
         e,
         userId: currentUserId,
       );
-      if (!invited || e.joinedByMe) {
+      final alreadyRegistered =
+          e.joinedByMe || registeredEventIds.contains(e.id);
+      if (!invited || alreadyRegistered) {
         return false;
       }
       final rejected = e.rejectedInviteUserIds.contains(currentUserId);

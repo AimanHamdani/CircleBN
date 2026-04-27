@@ -5,6 +5,7 @@ import '../appwrite/appwrite_service.dart';
 import '../models/direct_message.dart';
 
 class DirectMessageRepository {
+  static const Duration _editWindow = Duration(minutes: 30);
   Future<List<DirectMessage>> listConversation({
     required String userA,
     required String userB,
@@ -132,6 +133,16 @@ class DirectMessageRepository {
     final senderId = (doc.data['senderId'] ?? '').toString().trim();
     if (senderId != editor) {
       throw AppwriteException('You can only edit your own messages.', 401);
+    }
+    final createdAt =
+        DateTime.tryParse(doc.$createdAt) ??
+        DateTime.tryParse((doc.data['createdAt'] ?? '').toString());
+    if (createdAt == null ||
+        DateTime.now().toUtc().isAfter(createdAt.toUtc().add(_editWindow))) {
+      throw AppwriteException(
+        'Messages can only be edited within 30 minutes.',
+        400,
+      );
     }
     await AppwriteService.updateDocument(
       collectionId: AppwriteConfig.directMessagesCollectionId,

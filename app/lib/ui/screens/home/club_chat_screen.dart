@@ -34,6 +34,7 @@ class ClubChatScreen extends StatefulWidget {
 enum _ChatListTab { all, pinned }
 
 class _ClubChatScreenState extends State<ClubChatScreen> {
+  static const Duration _editWindow = Duration(minutes: 30);
   final _composerCtrl = TextEditingController();
   final _imagePicker = ImagePicker();
   final List<ClubChatMessage> _messages = <ClubChatMessage>[];
@@ -50,6 +51,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
   _ChatListTab _activeTab = _ChatListTab.all;
   bool _canPinAnyMessage = false;
   bool _canSendMessages = false;
+  final Set<String> _syncedPinnedEventIds = <String>{};
 
   String _chatReadKey(String clubId) {
     final me = currentUserId.trim().toLowerCase();
@@ -271,14 +273,22 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     }
     try {
       final items = await _chatRepo.listForClub(clubId);
-      await _markClubRead(clubId, items);
+      final correctedPinnedTimes = await _syncPinnedEventTimes(items);
+      final afterSyncItems = correctedPinnedTimes
+          ? await _chatRepo.listForClub(clubId)
+          : items;
+      final removedExpiredPins = await _unpinEndedEventMessages(afterSyncItems);
+      final resolvedItems = removedExpiredPins
+          ? await _chatRepo.listForClub(clubId)
+          : afterSyncItems;
+      await _markClubRead(clubId, resolvedItems);
       if (!mounted) {
         return;
       }
       setState(() {
         _messages
           ..clear()
-          ..addAll(items);
+          ..addAll(resolvedItems);
         _isLoading = false;
         _loadError = null;
       });
@@ -298,6 +308,97 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         _loadError = 'Failed to load chat.';
       });
     }
+  }
+
+  Future<bool> _syncPinnedEventTimes(List<ClubChatMessage> items) async {
+    final candidates = items
+        .where(
+          (message) =>
+              message.messageType == 'event_pinned' &&
+              (message.targetEventId?.trim().isNotEmpty ?? false),
+        )
+        .toList();
+    if (candidates.isEmpty) {
+      return false;
+    }
+
+    final eventIds = candidates
+        .map((message) => message.targetEventId!.trim())
+        .where((id) => id.isNotEmpty && !_syncedPinnedEventIds.contains(id))
+        .toSet();
+    if (eventIds.isEmpty) {
+      return false;
+    }
+
+    var changed = false;
+    for (final eventId in eventIds) {
+      try {
+        final doc = await AppwriteService.getDocument(
+          collectionId: AppwriteConfig.eventsCollectionId,
+          documentId: eventId,
+        );
+        final event = Event.fromMap(
+          Map<String, dynamic>.from(doc.data),
+          id: doc.$id,
+        );
+        final expectedStartUtc = event.startAt.toUtc();
+        final expectedEndUtc = event.startAt.add(event.duration).toUtc();
+        final linkedMessages = candidates
+            .where((message) => message.targetEventId?.trim() == eventId)
+            .toList();
+        for (final message in linkedMessages) {
+          final actualStartUtc = message.eventStartAt?.toUtc();
+          final actualEndUtc = message.eventEndAt?.toUtc();
+          final startMatches =
+              actualStartUtc != null &&
+              actualStartUtc.difference(expectedStartUtc).inMinutes.abs() <= 1;
+          final endMatches =
+              actualEndUtc != null &&
+              actualEndUtc.difference(expectedEndUtc).inMinutes.abs() <= 1;
+          if (startMatches && endMatches) {
+            continue;
+          }
+          await AppwriteService.updateDocument(
+            collectionId: AppwriteConfig.clubMessagesCollectionId,
+            documentId: message.id,
+            data: <String, dynamic>{
+              'eventStartAt': expectedStartUtc.toIso8601String(),
+              'eventEndAt': expectedEndUtc.toIso8601String(),
+            },
+          );
+          changed = true;
+        }
+      } catch (_) {
+        // Best-effort correction for legacy pinned messages.
+      } finally {
+        _syncedPinnedEventIds.add(eventId);
+      }
+    }
+    return changed;
+  }
+
+  Future<bool> _unpinEndedEventMessages(List<ClubChatMessage> items) async {
+    final nowUtc = DateTime.now().toUtc();
+    final expiredPinned = items
+        .where(
+          (message) =>
+              message.isPinned &&
+              message.messageType == 'event_pinned' &&
+              message.eventEndAt != null &&
+              nowUtc.isAfter(message.eventEndAt!.toUtc()),
+        )
+        .toList();
+    if (expiredPinned.isEmpty) {
+      return false;
+    }
+    var changed = false;
+    for (final message in expiredPinned) {
+      try {
+        await _chatRepo.setPinned(messageId: message.id, isPinned: false);
+        changed = true;
+      } catch (_) {}
+    }
+    return changed;
   }
 
   Future<void> _sendMessage() async {
@@ -372,6 +473,16 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
   }
 
   Future<void> _editMessage(ClubChatMessage message) async {
+    if (!_canEditMessage(message)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Messages can only be edited within 30 minutes.'),
+          ),
+        );
+      }
+      return;
+    }
     final existing = message.text.trim();
     final controller = TextEditingController(text: existing);
     final newText = await showDialog<String>(
@@ -462,6 +573,10 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
 
   Future<void> _showMessageActions(ClubChatMessage message) async {
     final isMine = message.senderId.trim() == currentUserId.trim();
+    final canEditThisMessage =
+        isMine &&
+        message.messageType != 'event_pinned' &&
+        _canEditMessage(message);
     final canPinThisMessage = _canPinAnyMessage || isMine;
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -469,7 +584,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (isMine && message.messageType != 'event_pinned')
+            if (canEditThisMessage)
               ListTile(
                 leading: const Icon(Icons.edit_outlined),
                 title: const Text('Edit message'),
@@ -494,6 +609,12 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     if (action == 'pin') {
       await _togglePin(message);
     }
+  }
+
+  bool _canEditMessage(ClubChatMessage message) {
+    final createdAtUtc = message.createdAt.toUtc();
+    final deadline = createdAtUtc.add(_editWindow);
+    return DateTime.now().toUtc().isBefore(deadline);
   }
 
   Future<void> _sendImageMessage() async {
@@ -611,6 +732,10 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
 
   Widget _buildChatItem(BuildContext context, ClubChatMessage message) {
     final isMine = message.senderId.trim() == currentUserId.trim();
+    final isEnded =
+        message.messageType == 'event_pinned' &&
+        message.eventEndAt != null &&
+        DateTime.now().toUtc().isAfter(message.eventEndAt!.toUtc());
     final content = message.messageType == 'event_pinned'
         ? _PinnedEventCard(
             title: message.eventTitle?.trim().isNotEmpty == true
@@ -618,6 +743,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                 : 'Event',
             location: message.eventLocation ?? '',
             startAt: message.eventStartAt ?? message.createdAt,
+            isEnded: isEnded,
             onView: () => _openPinnedEvent(message),
           )
         : isMine
@@ -643,6 +769,10 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
       onLongPress: () => _showMessageActions(message),
       child: content,
     );
+  }
+
+  DateTime _messageDateForList(ClubChatMessage message) {
+    return message.createdAt;
   }
 
   List<ClubChatMessage> _visibleMessages() {
@@ -864,13 +994,13 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                     itemBuilder: (context, index) {
                       final items = _visibleMessages();
                       final item = items[index];
+                      final itemDate = _messageDateForList(item);
                       final showDateHeader =
-                          _activeTab == _ChatListTab.all &&
-                          (index == 0 ||
-                              !_isSameDate(
-                                items[index - 1].createdAt,
-                                item.createdAt,
-                              ));
+                          index == 0 ||
+                          !_isSameDate(
+                            _messageDateForList(items[index - 1]),
+                            itemDate,
+                          );
                       return Padding(
                         padding: EdgeInsets.only(
                           bottom: index == items.length - 1 ? 0 : 10,
@@ -879,7 +1009,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             if (showDateHeader) ...[
-                              _buildDateSeparator(item.createdAt),
+                              _buildDateSeparator(itemDate),
                               const SizedBox(height: 10),
                             ],
                             _buildChatItem(context, item),
@@ -889,122 +1019,88 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                     },
                   ),
           ),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (!_canSendMessages)
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFF8ED),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFFFDBA74)),
-                      ),
-                      child: const Text(
-                        'Join this club to send messages.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF92400E),
-                        ),
-                      ),
-                    ),
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: _teal.withValues(alpha: 0.35)),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _composerCtrl,
-                            decoration: InputDecoration(
-                              hintText: _canSendMessages
-                                  ? 'Message...'
-                                  : 'Join to chat in ${club.name}',
-                              border: InputBorder.none,
-                              isCollapsed: true,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 2,
-                                vertical: 10,
-                              ),
-                            ),
-                            enabled:
-                                _canSendMessages &&
-                                _activeTab == _ChatListTab.all,
-                            minLines: 1,
-                            maxLines: 4,
-                            textInputAction: TextInputAction.send,
-                            onSubmitted: (_) => _sendMessage(),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        IconButton(
-                          onPressed:
-                              (_isSending ||
-                                  _activeTab == _ChatListTab.pinned ||
-                                  !_canSendMessages)
-                              ? null
-                              : _sendImageMessage,
-                          icon: const Icon(
-                            Icons.image_outlined,
-                            color: Color(0xFF0F5549),
-                            size: 20,
-                          ),
-                        ),
-                        Material(
-                          color: _teal,
-                          borderRadius: BorderRadius.circular(999),
-                          clipBehavior: Clip.antiAlias,
-                          child: InkWell(
-                            onTap:
-                                (_isSending ||
-                                    _activeTab == _ChatListTab.pinned ||
-                                    !_canSendMessages)
-                                ? null
-                                : _sendMessage,
-                            borderRadius: BorderRadius.circular(999),
-                            child: SizedBox(
-                              width: 42,
-                              height: 42,
-                              child: Center(
-                                child: _isSending
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(
-                                        Icons.send,
-                                        color: Colors.white,
-                                        size: 18,
-                                      ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+          if (_canSendMessages)
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: _teal.withValues(alpha: 0.35)),
                   ),
-                ],
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _composerCtrl,
+                          decoration: const InputDecoration(
+                            hintText: 'Message...',
+                            border: InputBorder.none,
+                            isCollapsed: true,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 2,
+                              vertical: 10,
+                            ),
+                          ),
+                          enabled: _activeTab == _ChatListTab.all,
+                          minLines: 1,
+                          maxLines: 4,
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _sendMessage(),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      IconButton(
+                        onPressed:
+                            (_isSending || _activeTab == _ChatListTab.pinned)
+                            ? null
+                            : _sendImageMessage,
+                        icon: const Icon(
+                          Icons.image_outlined,
+                          color: Color(0xFF0F5549),
+                          size: 20,
+                        ),
+                      ),
+                      Material(
+                        color: _teal,
+                        borderRadius: BorderRadius.circular(999),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          onTap:
+                              (_isSending || _activeTab == _ChatListTab.pinned)
+                              ? null
+                              : _sendMessage,
+                          borderRadius: BorderRadius.circular(999),
+                          child: SizedBox(
+                            width: 42,
+                            height: 42,
+                            child: Center(
+                              child: _isSending
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.send,
+                                      color: Colors.white,
+                                      size: 18,
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -1298,12 +1394,14 @@ class _PinnedEventCard extends StatelessWidget {
   final String title;
   final String location;
   final DateTime startAt;
+  final bool isEnded;
   final VoidCallback onView;
 
   const _PinnedEventCard({
     required this.title,
     required this.location,
     required this.startAt,
+    required this.isEnded,
     required this.onView,
   });
 
@@ -1313,12 +1411,13 @@ class _PinnedEventCard extends StatelessWidget {
     const mint = Color(0xFFF0FDFA);
     const green = Color(0xFF0F5549);
     String two(int n) => n.toString().padLeft(2, '0');
-    final month = two(startAt.month);
-    final day = two(startAt.day);
-    final h = startAt.hour;
+    final localStartAt = startAt.toLocal();
+    final month = two(localStartAt.month);
+    final day = two(localStartAt.day);
+    final h = localStartAt.hour;
     final hour12 = ((h + 11) % 12) + 1;
     final ampm = h >= 12 ? 'pm' : 'am';
-    final min = two(startAt.minute);
+    final min = two(localStartAt.minute);
     final when = '$month/$day $hour12:$min$ampm';
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1343,6 +1442,31 @@ class _PinnedEventCard extends StatelessWidget {
                   color: Colors.black.withValues(alpha: 0.45),
                 ),
               ),
+              if (isEnded) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: Colors.red.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: const Text(
+                    'ENDED',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.4,
+                      color: Colors.red,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 8),

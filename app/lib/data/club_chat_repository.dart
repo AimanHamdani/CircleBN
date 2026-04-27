@@ -5,6 +5,7 @@ import '../appwrite/appwrite_service.dart';
 import '../models/club_chat_message.dart';
 
 class ClubChatRepository {
+  static const Duration _editWindow = Duration(minutes: 30);
   bool get _isConfigured =>
       AppwriteService.isConfigured &&
       AppwriteConfig.databaseId.isNotEmpty &&
@@ -58,30 +59,28 @@ class ClubChatRepository {
   }) async {
     final docs = await AppwriteService.listDocuments(
       collectionId: AppwriteConfig.clubMessagesCollectionId,
-      queries: [
-        Query.equal('clubid', clubId),
-        Query.limit(limit),
-      ],
+      queries: [Query.equal('clubid', clubId), Query.limit(limit)],
     );
-    final items = docs.documents
-        .map(
-          (doc) => ClubChatMessage.fromMap(
-            Map<String, dynamic>.from(doc.data),
-            id: doc.$id,
-            documentCreatedAt: doc.$createdAt,
-            documentUpdatedAt: doc.$updatedAt,
-          ),
-        )
-        .where(
-          (message) =>
-              message.clubId.isNotEmpty &&
-              message.senderId.isNotEmpty &&
-              (message.messageType == 'event_pinned' ||
-                  message.text.trim().isNotEmpty ||
-                  (message.imageFileId?.trim().isNotEmpty ?? false)),
-        )
-        .toList()
-      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final items =
+        docs.documents
+            .map(
+              (doc) => ClubChatMessage.fromMap(
+                Map<String, dynamic>.from(doc.data),
+                id: doc.$id,
+                documentCreatedAt: doc.$createdAt,
+                documentUpdatedAt: doc.$updatedAt,
+              ),
+            )
+            .where(
+              (message) =>
+                  message.clubId.isNotEmpty &&
+                  message.senderId.isNotEmpty &&
+                  (message.messageType == 'event_pinned' ||
+                      message.text.trim().isNotEmpty ||
+                      (message.imageFileId?.trim().isNotEmpty ?? false)),
+            )
+            .toList()
+          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     return items;
   }
 
@@ -103,7 +102,9 @@ class ClubChatRepository {
       return;
     }
 
-    final resolvedName = senderName.trim().isEmpty ? 'Member' : senderName.trim();
+    final resolvedName = senderName.trim().isEmpty
+        ? 'Member'
+        : senderName.trim();
     final resolvedImageId = imageFileId?.trim().isEmpty == true
         ? null
         : imageFileId?.trim();
@@ -137,6 +138,20 @@ class ClubChatRepository {
     if (!_isConfigured || trimmedId.isEmpty || trimmedText.isEmpty) {
       return;
     }
+    final doc = await AppwriteService.getDocument(
+      collectionId: AppwriteConfig.clubMessagesCollectionId,
+      documentId: trimmedId,
+    );
+    final createdAt =
+        DateTime.tryParse(doc.$createdAt) ??
+        DateTime.tryParse((doc.data['createdAt'] ?? '').toString());
+    if (createdAt == null ||
+        DateTime.now().toUtc().isAfter(createdAt.toUtc().add(_editWindow))) {
+      throw AppwriteException(
+        'Messages can only be edited within 30 minutes.',
+        400,
+      );
+    }
     await AppwriteService.updateDocument(
       collectionId: AppwriteConfig.clubMessagesCollectionId,
       documentId: trimmedId,
@@ -151,6 +166,7 @@ class ClubChatRepository {
     required String eventId,
     required String eventTitle,
     required DateTime eventStartAt,
+    required DateTime eventEndAt,
     required String eventLocation,
   }) async {
     if (!_isConfigured) {
@@ -170,7 +186,10 @@ class ClubChatRepository {
       'targetEventId': eventId.trim(),
       'eventTitle': eventTitle.trim(),
       'eventStartAt': eventStartAt.toUtc().toIso8601String(),
+      'eventEndAt': eventEndAt.toUtc().toIso8601String(),
       'eventLocation': eventLocation.trim(),
+      'isPinned': true,
+      'pinnedAt': DateTime.now().toUtc().toIso8601String(),
       'createdAt': DateTime.now().toUtc().toIso8601String(),
     };
     await AppwriteService.createDocument(

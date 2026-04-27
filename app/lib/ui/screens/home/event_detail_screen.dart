@@ -145,8 +145,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     }
 
     _chatPollTimer ??= Timer.periodic(const Duration(seconds: 20), (_) {
-        _loadChatMessages(silent: true);
-      });
+      _loadChatMessages(silent: true);
+    });
     _ensureChatRealtimeSubscription();
     _loadChatMessages(silent: _chatMessages.isNotEmpty);
   }
@@ -423,8 +423,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         final createdAt = DateTime.now();
         await notificationRepository().upsertMany(creatorId, [
           AppNotification(
-            id:
-                'join_request_${event.id}_${currentUserId}_${createdAt.millisecondsSinceEpoch}',
+            id: 'join_request_${event.id}_${currentUserId}_${createdAt.millisecondsSinceEpoch}',
             userId: creatorId,
             type: AppNotificationType.eventJoinRequest,
             title: 'New join request',
@@ -441,9 +440,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       await _refreshEvent(eventId: event.id);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not send request: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not send request: $e')));
     }
   }
 
@@ -458,15 +457,20 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     final isFull = capacity > 0 && joinedCount >= capacity;
+    final eventEnded = _hasEventEnded(event);
     final requestMode = eventInviteRepository().isRequestJoinPrivate(event);
-    final pendingRequest =
-        event.pendingJoinRequestUserIds.contains(currentUserId);
+    final pendingRequest = event.pendingJoinRequestUserIds.contains(
+      currentUserId,
+    );
 
     final String label;
     final VoidCallback? effectiveOnTap;
     if (isRegistered) {
       label = 'Cancel Registration';
       effectiveOnTap = onTap;
+    } else if (eventEnded) {
+      label = 'Event Ended';
+      effectiveOnTap = null;
     } else if (requestMode && pendingRequest) {
       label = 'Request pending';
       effectiveOnTap = null;
@@ -686,7 +690,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             color: Colors.white,
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
+              color: Theme.of(
+                context,
+              ).colorScheme.primary.withValues(alpha: 0.35),
             ),
           ),
           child: Row(
@@ -710,7 +716,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
               ),
               const SizedBox(width: 6),
               IconButton(
-                onPressed: canSendChat && !_isChatSending ? _sendChatImage : null,
+                onPressed: canSendChat && !_isChatSending
+                    ? _sendChatImage
+                    : null,
                 icon: Icon(
                   Icons.image_outlined,
                   color: canSendChat
@@ -726,7 +734,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                 borderRadius: BorderRadius.circular(999),
                 clipBehavior: Clip.antiAlias,
                 child: InkWell(
-                  onTap: canSendChat && !_isChatSending ? _sendChatMessage : null,
+                  onTap: canSendChat && !_isChatSending
+                      ? _sendChatMessage
+                      : null,
                   borderRadius: BorderRadius.circular(999),
                   child: SizedBox(
                     width: 42,
@@ -822,9 +832,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to send message.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to send message.')));
     } finally {
       if (!mounted) {
         return;
@@ -905,9 +915,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to send image.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to send image.')));
     } finally {
       if (!mounted) {
         return;
@@ -948,9 +958,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     try {
       final participantIds = await eventRegistrationRepository()
           .listParticipantUserIds(event.id);
-      final recipientIds = <String>{
-        for (final id in participantIds) id.trim(),
-      }..removeWhere((id) => id.isEmpty || id == currentUserId.trim());
+      final recipientIds = <String>{for (final id in participantIds) id.trim()}
+        ..removeWhere((id) => id.isEmpty || id == currentUserId.trim());
       final creatorId = (event.creatorId ?? '').trim();
       if (creatorId.isNotEmpty && creatorId != currentUserId.trim()) {
         recipientIds.add(creatorId);
@@ -965,8 +974,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       final createdAt = DateTime.now();
       for (final userId in recipientIds) {
         final note = AppNotification(
-          id:
-              'event_chat_${event.id}_${userId}_${createdAt.microsecondsSinceEpoch}',
+          id: 'event_chat_${event.id}_${userId}_${createdAt.microsecondsSinceEpoch}',
           userId: userId,
           type: AppNotificationType.chatMessage,
           title: 'New event message',
@@ -1432,6 +1440,16 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     final currentJoined = _joinedCount ?? event.joined;
     final maxCapacity = event.capacity > 0 ? event.capacity : 999999;
     final currentParticipantIds = [..._resolveParticipantIds(event)];
+    final eventEnded = _hasEventEnded(event);
+
+    if (!currentRegistered && eventEnded) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('This event has ended.')));
+      }
+      return;
+    }
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -1579,6 +1597,11 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       return true;
     }
     return event.invitedUserIds.contains(currentUserId);
+  }
+
+  bool _hasEventEnded(Event event) {
+    final endAt = event.startAt.add(event.duration);
+    return !endAt.isAfter(DateTime.now());
   }
 
   Future<bool> _persistRegistration({
@@ -1806,7 +1829,9 @@ class _JoinRequestsCreatorStrip extends StatelessWidget {
                                 );
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Request declined.')),
+                                    const SnackBar(
+                                      content: Text('Request declined.'),
+                                    ),
                                   );
                                   onChanged();
                                 }
@@ -1816,13 +1841,18 @@ class _JoinRequestsCreatorStrip extends StatelessWidget {
                             const SizedBox(width: 6),
                             FilledButton(
                               onPressed: () async {
-                                await eventInviteRepository().approveJoinRequest(
-                                  eventId: event.id,
-                                  userId: p.userId,
-                                );
+                                await eventInviteRepository()
+                                    .approveJoinRequest(
+                                      eventId: event.id,
+                                      userId: p.userId,
+                                    );
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Player approved and added.')),
+                                    const SnackBar(
+                                      content: Text(
+                                        'Player approved and added.',
+                                      ),
+                                    ),
                                   );
                                   onChanged();
                                 }
@@ -2612,6 +2642,7 @@ class _PolicyRow extends StatelessWidget {
 }
 
 class _ChatTab extends StatelessWidget {
+  static const Duration _editWindow = Duration(minutes: 30);
   final String eventTitle;
   final bool isLoading;
   final String? errorMessage;
@@ -2651,8 +2682,7 @@ class _ChatTab extends StatelessWidget {
         );
 
         final showDateHeader =
-            idx == 0 ||
-            !_isSameDate(messages[idx - 1].createdAt, m.createdAt);
+            idx == 0 || !_isSameDate(messages[idx - 1].createdAt, m.createdAt);
 
         return Padding(
           padding: EdgeInsets.only(bottom: idx == messages.length - 1 ? 0 : 10),
@@ -2672,11 +2702,20 @@ class _ChatTab extends StatelessWidget {
                     constraints: const BoxConstraints(maxWidth: 280),
                     child: GestureDetector(
                       onLongPress: isMe
-                          ? () => _showEditDialog(
-                              context: context,
-                              messageId: m.id,
-                              currentText: m.text,
-                            )
+                          ? (_canEditMessage(m)
+                                ? () => _showEditDialog(
+                                    context: context,
+                                    messageId: m.id,
+                                    currentText: m.text,
+                                    createdAt: m.createdAt,
+                                  )
+                                : () => ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Messages can only be edited within 30 minutes.',
+                                      ),
+                                    ),
+                                  ))
                           : null,
                       child: bubble,
                     ),
@@ -2690,11 +2729,27 @@ class _ChatTab extends StatelessWidget {
     );
   }
 
+  bool _canEditMessage(EventChatMessage message) {
+    final createdAtUtc = message.createdAt.toUtc();
+    final deadline = createdAtUtc.add(_editWindow);
+    return DateTime.now().toUtc().isBefore(deadline);
+  }
+
   Future<void> _showEditDialog({
     required BuildContext context,
     required String messageId,
     required String currentText,
+    required DateTime createdAt,
   }) async {
+    final deadline = createdAt.toUtc().add(_editWindow);
+    if (DateTime.now().toUtc().isAfter(deadline)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Messages can only be edited within 30 minutes.'),
+        ),
+      );
+      return;
+    }
     final controller = TextEditingController(text: currentText.trim());
     final newText = await showDialog<String>(
       context: context,
@@ -2726,6 +2781,17 @@ class _ChatTab extends StatelessWidget {
     if (trimmed.isEmpty || trimmed == currentText.trim()) {
       return;
     }
+    if (DateTime.now().toUtc().isAfter(deadline)) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Edit window expired while editing this message.'),
+        ),
+      );
+      return;
+    }
     try {
       await eventChatRepository().editMessage(
         messageId: messageId,
@@ -2747,9 +2813,9 @@ class _ChatTab extends StatelessWidget {
       if (!context.mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to edit message.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to edit message.')));
     }
   }
 }
@@ -3239,4 +3305,3 @@ String _titleSkill(String normalizedLower) {
   }
   return normalizedLower;
 }
-

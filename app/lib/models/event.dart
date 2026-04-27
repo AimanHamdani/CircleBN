@@ -15,14 +15,25 @@ DateTime _parseEventStartAt(Object? v) {
       return DateTime.now();
     }
 
-    // Keep naive timestamps as local wall-clock time, but normalize timezone-
-    // aware values (e.g. "...Z", "...+08:00") into local time so all events
-    // render consistently in the UI.
+    // Preserve wall-clock time across formats.
+    // Some stored values include explicit timezone markers even though the hour
+    // is already intended as local event time; converting those with `toLocal()`
+    // can shift 1 PM to 9 PM. We normalize everything to a local wall-clock
+    // DateTime using the parsed calendar/time components.
     final hasExplicitTimezone = RegExp(
       r'(?:Z|z|[+\-]\d{2}(?::?\d{2})?)$',
     ).hasMatch(raw);
     if (hasExplicitTimezone) {
-      return parsed.toLocal();
+      return DateTime(
+        parsed.year,
+        parsed.month,
+        parsed.day,
+        parsed.hour,
+        parsed.minute,
+        parsed.second,
+        parsed.millisecond,
+        parsed.microsecond,
+      );
     }
     return parsed;
   }
@@ -61,6 +72,7 @@ class Event {
   privacy; // "Public (anyone can join)" | "Private (invites only)"
   final List<String> invitedUserIds;
   final List<String> rejectedInviteUserIds;
+
   /// Users who asked to join (request-to-join private events). Creator approves in event detail.
   final List<String> pendingJoinRequestUserIds;
 

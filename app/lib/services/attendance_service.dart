@@ -13,73 +13,6 @@ class AttendanceService {
     'attendances',
   ];
 
-  static const List<_AttendancePayloadKeySet> _payloadKeySets =
-      <_AttendancePayloadKeySet>[
-        _AttendancePayloadKeySet(
-          event: 'eventId',
-          ticket: 'ticketId',
-          user: 'userId',
-          markedAt: 'markedAt',
-          scanner: 'scannerUserId',
-        ),
-        _AttendancePayloadKeySet(
-          event: 'eventid',
-          ticket: 'ticketid',
-          user: 'userid',
-          markedAt: 'markedat',
-          scanner: 'scanneruserid',
-        ),
-        _AttendancePayloadKeySet(
-          event: 'event_id',
-          ticket: 'ticket_id',
-          user: 'user_id',
-          markedAt: 'marked_at',
-          scanner: 'scanner_user_id',
-        ),
-        _AttendancePayloadKeySet(
-          event: 'eventId',
-          ticket: 'ticketId',
-          user: 'userId',
-          markedAt: 'checkedInAt',
-          scanner: 'scannerUserId',
-        ),
-        _AttendancePayloadKeySet(
-          event: 'event_id',
-          ticket: 'ticket_id',
-          user: 'user_id',
-          markedAt: 'checked_in_at',
-          scanner: 'scanner_user_id',
-        ),
-        _AttendancePayloadKeySet(
-          event: 'eventId',
-          ticket: 'ticketId',
-          user: 'participantId',
-          markedAt: 'markedAt',
-          scanner: 'scannerUserId',
-        ),
-        _AttendancePayloadKeySet(
-          event: 'event_id',
-          ticket: 'ticket_id',
-          user: 'participant_id',
-          markedAt: 'marked_at',
-          scanner: 'scanner_user_id',
-        ),
-        _AttendancePayloadKeySet(
-          event: 'eventId',
-          ticket: 'ticketId',
-          user: 'attendeeId',
-          markedAt: 'markedAt',
-          scanner: 'scannerUserId',
-        ),
-        _AttendancePayloadKeySet(
-          event: 'event_id',
-          ticket: 'ticket_id',
-          user: 'attendee_id',
-          markedAt: 'marked_at',
-          scanner: 'scanner_user_id',
-        ),
-      ];
-
   static const List<String> _eventQueryFields = <String>[
     'eventId',
     'eventid',
@@ -132,6 +65,456 @@ class AttendanceService {
         message.contains('attribute');
   }
 
+  static List<String> _extractRequiredAttributes(String message) {
+    final matches = <String>{};
+
+    final patterns = <RegExp>[
+      RegExp(
+        "required\\s+attribute\\s*:?\\s*[\"'`]([^\"'`]+)[\"'`]",
+        caseSensitive: false,
+      ),
+      RegExp(
+        "attribute\\s*:?\\s*[\"'`]([^\"'`]+)[\"'`]\\s+is\\s+required",
+        caseSensitive: false,
+      ),
+      RegExp(
+        "missing\\s+required\\s+attribute\\s*:?\\s*[\"'`]([^\"'`]+)[\"'`]",
+        caseSensitive: false,
+      ),
+    ];
+
+    for (final pattern in patterns) {
+      for (final match in pattern.allMatches(message)) {
+        final attribute = (match.group(1) ?? '').trim();
+        if (attribute.isNotEmpty) {
+          matches.add(attribute);
+        }
+      }
+    }
+
+    return matches.toList();
+  }
+
+  static List<String> _extractUnknownAttributes(String message) {
+    final matches = <String>{};
+
+    final patterns = <RegExp>[
+      RegExp(
+        "unknown\\s+attribute\\s*:?\\s*[\"'`]([^\"'`]+)[\"'`]",
+        caseSensitive: false,
+      ),
+      RegExp(
+        "attribute\\s*:?\\s*[\"'`]([^\"'`]+)[\"'`]\\s+not\\s+found",
+        caseSensitive: false,
+      ),
+    ];
+
+    for (final pattern in patterns) {
+      for (final match in pattern.allMatches(message)) {
+        final attribute = (match.group(1) ?? '').trim();
+        if (attribute.isNotEmpty) {
+          matches.add(attribute);
+        }
+      }
+    }
+
+    return matches.toList();
+  }
+
+  static String _normalizeAttributeName(String attribute) {
+    return attribute.replaceAll('_', '').toLowerCase();
+  }
+
+  static List<String> _attributeAliases(String attribute) {
+    final normalized = _normalizeAttributeName(attribute);
+
+    switch (normalized) {
+      case 'eventid':
+        return <String>['eventId', 'eventid', 'event_id'];
+      case 'ticketid':
+        return <String>['ticketId', 'ticketid', 'ticket_id'];
+      case 'userid':
+        return <String>['userId', 'userid', 'user_id'];
+      case 'scanneruserid':
+        return <String>['scannerUserId', 'scanneruserid', 'scanner_user_id'];
+      case 'markedat':
+        return <String>['markedAt', 'markedat', 'marked_at'];
+      case 'checkedinat':
+        return <String>['checkedInAt', 'checkedinat', 'checked_in_at'];
+      case 'attendancestatus':
+        return <String>[
+          'attendanceStatus',
+          'attendancestatus',
+          'attendance_status',
+        ];
+      default:
+        return <String>[];
+    }
+  }
+
+  static List<Map<String, dynamic>> _buildAliasPayloadsFromUnknownAttributes({
+    required Map<String, dynamic> payload,
+    required List<String> unknownAttributes,
+  }) {
+    final variants = <Map<String, dynamic>>[];
+
+    for (final unknown in unknownAttributes) {
+      if (!payload.containsKey(unknown)) {
+        continue;
+      }
+
+      final value = payload[unknown];
+      final aliases = _attributeAliases(unknown);
+      for (final alias in aliases) {
+        if (alias == unknown || payload.containsKey(alias)) {
+          continue;
+        }
+
+        final candidate = Map<String, dynamic>.from(payload);
+        candidate.remove(unknown);
+        candidate[alias] = value;
+        variants.add(candidate);
+      }
+    }
+
+    return variants;
+  }
+
+  static Map<String, String> _extractAttributeTypeHints(String message) {
+    final hints = <String, String>{};
+
+    final patterns = <RegExp>[
+      RegExp(
+        "attribute\\s+[\"']([^\"']+)[\"'][^\\n\\r]*?(?:must\\s+be|expects?|expected)[^\\n\\r]*?(string|integer|int|number|double|float|boolean|bool|datetime|date|timestamp)",
+        caseSensitive: false,
+      ),
+      RegExp(
+        "(string|integer|int|number|double|float|boolean|bool|datetime|date|timestamp)[^\\n\\r]*?attribute\\s+[\"']([^\"']+)[\"']",
+        caseSensitive: false,
+      ),
+    ];
+
+    for (final pattern in patterns) {
+      for (final match in pattern.allMatches(message)) {
+        final first = (match.group(1) ?? '').trim();
+        final second = (match.group(2) ?? '').trim();
+        if (first.isEmpty || second.isEmpty) {
+          continue;
+        }
+
+        final firstLooksType =
+            first.contains('int') ||
+            first.contains('string') ||
+            first.contains('number') ||
+            first.contains('double') ||
+            first.contains('float') ||
+            first.contains('bool') ||
+            first.contains('date') ||
+            first.contains('time') ||
+            first.contains('timestamp');
+
+        if (firstLooksType) {
+          hints[second] = first.toLowerCase();
+        } else {
+          hints[first] = second.toLowerCase();
+        }
+      }
+    }
+
+    return hints;
+  }
+
+  static dynamic _coerceValueForType({
+    required dynamic value,
+    required String expectedType,
+    required DateTime markedAt,
+  }) {
+    final type = expectedType.toLowerCase();
+
+    if (type.contains('string')) {
+      return value?.toString() ?? '';
+    }
+
+    if (type.contains('bool')) {
+      if (value is bool) {
+        return value;
+      }
+      final normalized = (value ?? '').toString().trim().toLowerCase();
+      if (normalized == '1' || normalized == 'true' || normalized == 'yes') {
+        return true;
+      }
+      if (normalized == '0' || normalized == 'false' || normalized == 'no') {
+        return false;
+      }
+      return true;
+    }
+
+    if (type.contains('int') || type.contains('number')) {
+      if (value is int) {
+        return value;
+      }
+      if (value is double) {
+        return value.toInt();
+      }
+      return int.tryParse((value ?? '').toString().trim()) ??
+          markedAt.millisecondsSinceEpoch;
+    }
+
+    if (type.contains('double') || type.contains('float')) {
+      if (value is double) {
+        return value;
+      }
+      if (value is int) {
+        return value.toDouble();
+      }
+      return double.tryParse((value ?? '').toString().trim()) ??
+          markedAt.millisecondsSinceEpoch.toDouble();
+    }
+
+    if (type.contains('timestamp')) {
+      return markedAt.millisecondsSinceEpoch;
+    }
+
+    if (type.contains('date') || type.contains('time')) {
+      return markedAt.toIso8601String();
+    }
+
+    return value;
+  }
+
+  static Map<String, dynamic> _coercePayloadTypes({
+    required Map<String, dynamic> payload,
+    required Map<String, String> typeHints,
+    required DateTime markedAt,
+  }) {
+    if (typeHints.isEmpty) {
+      return Map<String, dynamic>.from(payload);
+    }
+
+    final coerced = Map<String, dynamic>.from(payload);
+    for (final entry in typeHints.entries) {
+      if (!coerced.containsKey(entry.key)) {
+        continue;
+      }
+      coerced[entry.key] = _coerceValueForType(
+        value: coerced[entry.key],
+        expectedType: entry.value,
+        markedAt: markedAt,
+      );
+    }
+
+    return coerced;
+  }
+
+  static dynamic _guessRequiredAttributeValue({
+    required String attributeName,
+    required String eventId,
+    required int ticketId,
+    required String userId,
+    required DateTime markedAt,
+    String? scannerUserId,
+  }) {
+    final key = attributeName.toLowerCase();
+
+    if (key.contains('event')) {
+      return eventId;
+    }
+
+    if (key.contains('ticket')) {
+      if (key.contains('code')) {
+        return ticketId.toString().padLeft(5, '0');
+      }
+
+      if (key.contains('str')) {
+        return ticketId.toString();
+      }
+
+      return ticketId;
+    }
+
+    if (key.contains('user') ||
+        key.contains('participant') ||
+        key.contains('attendee')) {
+      if (key.contains('scanner') || key.contains('scannedby')) {
+        return (scannerUserId ?? userId).trim();
+      }
+      return userId;
+    }
+
+    if (key.contains('mark') || key.contains('check') || key.contains('scan')) {
+      if (key.contains('timestamp') ||
+          key.endsWith('_ts') ||
+          key.endsWith('ts')) {
+        return markedAt.millisecondsSinceEpoch;
+      }
+      return markedAt.toIso8601String();
+    }
+
+    if (key.contains('time') || key.contains('date')) {
+      return markedAt.toIso8601String();
+    }
+
+    if (key.contains('status')) {
+      return 'present';
+    }
+
+    if (key.contains('comment') ||
+        key.contains('remark') ||
+        key.contains('note')) {
+      return 'Scanned via QR gate';
+    }
+
+    if (key.startsWith('is') ||
+        key.contains('flag') ||
+        key.contains('checked')) {
+      return true;
+    }
+
+    return 'checked_in';
+  }
+
+  static Map<String, dynamic> _augmentPayloadWithRequiredAttributes({
+    required Map<String, dynamic> payload,
+    required List<String> requiredAttributes,
+    required String eventId,
+    required int ticketId,
+    required String userId,
+    required DateTime markedAt,
+    String? scannerUserId,
+  }) {
+    final augmented = Map<String, dynamic>.from(payload);
+
+    for (final attribute in requiredAttributes) {
+      if (augmented.containsKey(attribute)) {
+        continue;
+      }
+
+      augmented[attribute] = _guessRequiredAttributeValue(
+        attributeName: attribute,
+        eventId: eventId,
+        ticketId: ticketId,
+        userId: userId,
+        markedAt: markedAt,
+        scannerUserId: scannerUserId,
+      );
+    }
+
+    return augmented;
+  }
+
+  static Map<String, dynamic> _removeUnknownPayloadAttributes({
+    required Map<String, dynamic> payload,
+    required List<String> unknownAttributes,
+  }) {
+    if (unknownAttributes.isEmpty) {
+      return Map<String, dynamic>.from(payload);
+    }
+
+    final stripped = Map<String, dynamic>.from(payload);
+    for (final attribute in unknownAttributes) {
+      stripped.remove(attribute);
+    }
+    return stripped;
+  }
+
+  static String _payloadFingerprint(Map<String, dynamic> payload) {
+    final keys = payload.keys.toList()..sort();
+    return keys.map((key) => '$key:${payload[key]}').join('|');
+  }
+
+  static Future<void> _createWithAdaptivePayload({
+    required String collectionId,
+    required String docId,
+    required Map<String, dynamic> basePayload,
+    required String eventId,
+    required int ticketId,
+    required String userId,
+    required DateTime markedAt,
+    String? scannerUserId,
+  }) async {
+    final queue = <Map<String, dynamic>>[
+      Map<String, dynamic>.from(basePayload),
+    ];
+    final attempted = <String>{};
+    AppwriteException? lastStructureError;
+    var safetyCounter = 0;
+
+    while (queue.isNotEmpty && safetyCounter < 10) {
+      safetyCounter += 1;
+      final payload = queue.removeAt(0);
+      final fingerprint = _payloadFingerprint(payload);
+      if (!attempted.add(fingerprint)) {
+        continue;
+      }
+
+      try {
+        await AppwriteService.createDocument(
+          collectionId: collectionId,
+          documentId: docId,
+          data: payload,
+          permissions: _attendanceDocumentPermissions(),
+        );
+        return;
+      } on AppwriteException catch (error) {
+        if (error.code == 409) {
+          rethrow;
+        }
+
+        if (!_isInvalidStructure(error)) {
+          rethrow;
+        }
+
+        lastStructureError = error;
+        final message = (error.message ?? '').trim();
+        final requiredAttrs = _extractRequiredAttributes(message);
+        final unknownAttrs = _extractUnknownAttributes(message);
+        final typeHints = _extractAttributeTypeHints(message);
+
+        if (requiredAttrs.isNotEmpty) {
+          final augmented = _augmentPayloadWithRequiredAttributes(
+            payload: payload,
+            requiredAttributes: requiredAttrs,
+            eventId: eventId,
+            ticketId: ticketId,
+            userId: userId,
+            markedAt: markedAt,
+            scannerUserId: scannerUserId,
+          );
+          queue.add(augmented);
+        }
+
+        if (unknownAttrs.isNotEmpty) {
+          final stripped = _removeUnknownPayloadAttributes(
+            payload: payload,
+            unknownAttributes: unknownAttrs,
+          );
+          queue.add(stripped);
+
+          final aliasedPayloads = _buildAliasPayloadsFromUnknownAttributes(
+            payload: payload,
+            unknownAttributes: unknownAttrs,
+          );
+          queue.addAll(aliasedPayloads);
+        }
+
+        if (typeHints.isNotEmpty) {
+          final coerced = _coercePayloadTypes(
+            payload: payload,
+            typeHints: typeHints,
+            markedAt: markedAt,
+          );
+          queue.add(coerced);
+        }
+      }
+    }
+
+    if (lastStructureError != null) {
+      throw lastStructureError;
+    }
+
+    throw Exception('Unable to create attendance record.');
+  }
+
   static List<String> _attendanceDocumentPermissions() {
     return <String>[Permission.read(Role.users())];
   }
@@ -150,6 +533,9 @@ class AttendanceService {
     }
 
     if (_isInvalidStructure(error)) {
+      if (message.isNotEmpty) {
+        return 'Attendance collection attributes mismatch: $message';
+      }
       return 'Attendance collection attributes do not match expected fields. Required fields should include event ID, ticket ID, user/participant ID, and check-in time. scannerUserId is optional.';
     }
 
@@ -206,65 +592,29 @@ class AttendanceService {
     return '${eventId}_${ticketId.toString().padLeft(5, '0')}';
   }
 
-  static List<Map<String, dynamic>> _buildAttendancePayloadCandidates({
+  static Map<String, dynamic> _buildAttendanceBasePayload({
     required String eventId,
     required int ticketId,
     required String userId,
     required DateTime markedAt,
     String? scannerUserId,
   }) {
-    final payloads = <Map<String, dynamic>>[];
-    final seenFingerprints = <String>{};
+    final payload = <String, dynamic>{
+      'eventId': eventId,
+      'ticketId': ticketId,
+      'userId': userId,
+      'markedAt': markedAt.toIso8601String(),
+      'attendanceStatus': 'present',
+      'comments': 'Scanned via QR gate',
+    };
+
     final scannerId = scannerUserId?.trim();
-    final markedAtIso = markedAt.toIso8601String();
-    final markedAtMs = markedAt.millisecondsSinceEpoch;
 
-    void addPayload({
-      required _AttendancePayloadKeySet keys,
-      required bool ticketAsString,
-      required bool markedAtAsTimestamp,
-      required bool includeScannerId,
-    }) {
-      final payload = <String, dynamic>{
-        keys.event: eventId,
-        keys.ticket: ticketAsString ? ticketId.toString() : ticketId,
-        keys.user: userId,
-        keys.markedAt: markedAtAsTimestamp ? markedAtMs : markedAtIso,
-      };
-
-      if (includeScannerId && scannerId != null && scannerId.isNotEmpty) {
-        payload[keys.scanner] = scannerId;
-      }
-
-      final fingerprint = payload.entries
-          .map((entry) => '${entry.key}:${entry.value}')
-          .join('|');
-
-      if (seenFingerprints.add(fingerprint)) {
-        payloads.add(payload);
-      }
+    if (scannerId != null && scannerId.isNotEmpty) {
+      payload['scannerUserId'] = scannerId;
     }
 
-    for (final keys in _payloadKeySets) {
-      for (final ticketAsString in <bool>[false, true]) {
-        for (final markedAtAsTimestamp in <bool>[false, true]) {
-          addPayload(
-            keys: keys,
-            ticketAsString: ticketAsString,
-            markedAtAsTimestamp: markedAtAsTimestamp,
-            includeScannerId: true,
-          );
-          addPayload(
-            keys: keys,
-            ticketAsString: ticketAsString,
-            markedAtAsTimestamp: markedAtAsTimestamp,
-            includeScannerId: false,
-          );
-        }
-      }
-    }
-
-    return payloads;
+    return payload;
   }
 
   static Future<void> _createAttendanceDocument({
@@ -276,7 +626,7 @@ class AttendanceService {
     required DateTime markedAt,
   }) async {
     await _runOnAttendanceCollection((collectionId) async {
-      final payloadCandidates = _buildAttendancePayloadCandidates(
+      final payload = _buildAttendanceBasePayload(
         eventId: eventId,
         ticketId: ticketId,
         userId: userId,
@@ -284,36 +634,16 @@ class AttendanceService {
         scannerUserId: scannerUserId,
       );
 
-      AppwriteException? lastStructureError;
-
-      for (final payload in payloadCandidates) {
-        try {
-          await AppwriteService.createDocument(
-            collectionId: collectionId,
-            documentId: docId,
-            data: payload,
-            permissions: _attendanceDocumentPermissions(),
-          );
-          return;
-        } on AppwriteException catch (error) {
-          if (error.code == 409) {
-            rethrow;
-          }
-
-          if (_isInvalidStructure(error)) {
-            lastStructureError = error;
-            continue;
-          }
-
-          rethrow;
-        }
-      }
-
-      if (lastStructureError != null) {
-        throw lastStructureError;
-      }
-
-      throw Exception('Unable to create attendance record.');
+      await _createWithAdaptivePayload(
+        collectionId: collectionId,
+        docId: docId,
+        basePayload: payload,
+        eventId: eventId,
+        ticketId: ticketId,
+        userId: userId,
+        markedAt: markedAt,
+        scannerUserId: scannerUserId,
+      );
     });
   }
 
@@ -370,25 +700,6 @@ class AttendanceService {
 
     final docId = _docId(eventId, ticketId);
     final now = DateTime.now();
-
-    try {
-      // Try to get existing record to prevent duplicates
-      await _runOnAttendanceCollection(
-        (collectionId) => AppwriteService.getDocument(
-          collectionId: collectionId,
-          documentId: docId,
-        ),
-      );
-
-      // If we reach here, document already exists (duplicate)
-      throw Exception('Attendance already marked for this ticket');
-    } on AppwriteException catch (e) {
-      if (e.code == 409) {
-        throw Exception('Attendance already marked for this ticket');
-      }
-      // 404 = document doesn't exist, which is good - we can create it
-      // 401/403 may block pre-check but create can still return a definitive error.
-    }
 
     // Create new attendance record
     try {
@@ -500,20 +811,4 @@ class AttendanceService {
     final list = await getAttendanceList(eventId);
     return list.length;
   }
-}
-
-class _AttendancePayloadKeySet {
-  final String event;
-  final String ticket;
-  final String user;
-  final String markedAt;
-  final String scanner;
-
-  const _AttendancePayloadKeySet({
-    required this.event,
-    required this.ticket,
-    required this.user,
-    required this.markedAt,
-    required this.scanner,
-  });
 }

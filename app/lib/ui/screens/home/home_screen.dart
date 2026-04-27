@@ -9,6 +9,7 @@ import '../../../data/club_chat_repository.dart';
 import '../../../data/club_member_repository.dart';
 import '../../../data/club_repository.dart';
 import '../../../data/direct_message_repository.dart';
+import '../../../data/app_preload_service.dart';
 import '../../../data/event_repository.dart';
 import '../../../data/membership_repository.dart';
 import '../../../data/notification_repository.dart';
@@ -47,12 +48,16 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _tabIndex = 0;
   late Future<int> _circleUnreadFuture;
+  late Future<MembershipStatus> _createClubMembershipFuture;
   Timer? _circleUnreadTimer;
 
   @override
   void initState() {
     super.initState();
+    appPreloadService().warmHomeData();
+    appPreloadService().warmCircleData();
     _circleUnreadFuture = _loadCircleUnreadCount();
+    _createClubMembershipFuture = appPreloadService().membershipStatus();
     _circleUnreadTimer = Timer.periodic(const Duration(seconds: 8), (_) {
       _refreshCircleUnread();
     });
@@ -74,15 +79,64 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String _clubReadKey(String clubId) {
+    final me = currentUserId.trim().toLowerCase();
+    return 'club_chat_last_read_${me}_${clubId.trim()}';
+  }
+
+  String _legacyClubReadKey(String clubId) {
     return 'club_chat_last_read_${currentUserId}_$clubId';
   }
 
   String _dmReadKey(String otherUserId) {
+    final me = currentUserId.trim().toLowerCase();
+    final other = otherUserId.trim().toLowerCase();
+    return 'direct_dm_last_read_${me}_$other';
+  }
+
+  String _legacyDmReadKey(String otherUserId) {
     return 'direct_dm_last_read_${currentUserId}_$otherUserId';
   }
 
+  String _normalizedUserId(String value) {
+    return value.trim().toLowerCase();
+  }
+
+  Future<DateTime?> _readClubLastReadWithMigration(
+    SharedPreferences prefs,
+    String clubId,
+  ) async {
+    final normalizedKey = _clubReadKey(clubId);
+    final normalizedRaw = prefs.getString(normalizedKey);
+    if (normalizedRaw != null) {
+      return DateTime.tryParse(normalizedRaw);
+    }
+    final legacyRaw = prefs.getString(_legacyClubReadKey(clubId));
+    if (legacyRaw == null) {
+      return null;
+    }
+    await prefs.setString(normalizedKey, legacyRaw);
+    return DateTime.tryParse(legacyRaw);
+  }
+
+  Future<DateTime?> _readDmLastReadWithMigration(
+    SharedPreferences prefs,
+    String otherUserId,
+  ) async {
+    final normalizedKey = _dmReadKey(otherUserId);
+    final normalizedRaw = prefs.getString(normalizedKey);
+    if (normalizedRaw != null) {
+      return DateTime.tryParse(normalizedRaw);
+    }
+    final legacyRaw = prefs.getString(_legacyDmReadKey(otherUserId));
+    if (legacyRaw == null) {
+      return null;
+    }
+    await prefs.setString(normalizedKey, legacyRaw);
+    return DateTime.tryParse(legacyRaw);
+  }
+
   Future<int> _loadCircleUnreadCount() async {
-    final me = currentUserId.trim();
+    final me = _normalizedUserId(currentUserId);
     if (me.isEmpty) {
       return 0;
     }
@@ -97,34 +151,37 @@ class _HomeScreenState extends State<HomeScreen> {
       final joinedClubIds = <String>{
         for (final m in memberships) m.clubId.trim(),
         for (final c in clubs)
-          if ((c.creatorId ?? '').trim() == me) c.id.trim(),
+          if (_normalizedUserId(c.creatorId ?? '') == me) c.id.trim(),
       }..removeWhere((id) => id.isEmpty);
       for (final clubId in joinedClubIds) {
-        final messages = await clubChatRepository().listForClub(clubId, limit: 120);
-        final raw = prefs.getString(_clubReadKey(clubId));
-        final lastRead = raw == null ? null : DateTime.tryParse(raw);
+        final messages = await clubChatRepository().listForClub(
+          clubId,
+          limit: 120,
+        );
+        final lastRead = await _readClubLastReadWithMigration(prefs, clubId);
         unread += messages
-            .where((m) => m.senderId.trim() != me)
+            .where((m) => _normalizedUserId(m.senderId) != me)
             .where((m) => lastRead == null || m.createdAt.isAfter(lastRead))
             .length;
       }
     } catch (_) {}
 
     try {
-      final threads = await directMessageRepository().listThreadsForUser(userId: me);
+      final threads = await directMessageRepository().listThreadsForUser(
+        userId: me,
+      );
       for (final thread in threads) {
-        final other = thread.otherUserId.trim();
+        final other = _normalizedUserId(thread.otherUserId);
         if (other.isEmpty) {
           continue;
         }
-        final raw = prefs.getString(_dmReadKey(other));
-        final lastRead = raw == null ? null : DateTime.tryParse(raw);
+        final lastRead = await _readDmLastReadWithMigration(prefs, other);
         final convo = await directMessageRepository().listConversation(
-          userA: me,
-          userB: other,
+          userA: currentUserId.trim(),
+          userB: thread.otherUserId.trim(),
         );
         unread += convo
-            .where((m) => m.senderId.trim() == other)
+            .where((m) => _normalizedUserId(m.senderId) == other)
             .where((m) => lastRead == null || m.createdAt.isAfter(lastRead))
             .length;
       }
@@ -200,6 +257,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 badgeCount: circleUnread,
                                 onTap: () {
                                   setState(() => _tabIndex = 1);
+                                  appPreloadService().warmCircleData();
                                   _refreshCircleUnread();
                                 },
                               );
@@ -315,7 +373,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   const Expanded(
                     child: Text(
                       'Create',
-                      style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900),
+                      style: TextStyle(
+                        fontSize: 34,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
                   IconButton(
@@ -340,75 +401,74 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 18),
               FutureBuilder<MembershipStatus>(
-                future: membershipRepository().getStatus(),
+                future: _createClubMembershipFuture,
                 builder: (context, membershipSnap) {
-                  final membershipLoaded =
-                      membershipSnap.connectionState == ConnectionState.done ||
-                      membershipSnap.data != null;
                   final isPremium = membershipSnap.data?.isPremium == true;
                   return Row(
                     children: [
                       Expanded(
                         child: _CreateChoiceCard(
-                      borderColor: const Color(0xFFD9C2FF),
-                      iconBgColor: const Color(0xFFF3E8FF),
-                      iconColor: AppTheme.eventPurple,
-                      icon: Icons.event,
-                      title: 'Create Event',
-                      subtitle: 'Host a sports activity for your club',
-                      enabled: true,
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        Navigator.of(
-                          context,
-                        ).pushNamed(CreateEventScreen.routeName).then((result) {
-                          if (!mounted) {
-                            return;
-                          }
-                          if (result == 'created' ||
-                              result == 'updated' ||
-                              result == true) {
-                            setState(() => _tabIndex = 0);
-                            final text = result == 'updated'
-                                ? 'Event updated.'
-                                : 'Event created.';
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                          borderColor: const Color(0xFFD9C2FF),
+                          iconBgColor: const Color(0xFFF3E8FF),
+                          iconColor: AppTheme.eventPurple,
+                          icon: Icons.event,
+                          title: 'Create Event',
+                          subtitle: 'Host a sports activity for your club',
+                          enabled: true,
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            Navigator.of(
+                              context,
+                            ).pushNamed(CreateEventScreen.routeName).then((
+                              result,
+                            ) {
                               if (!mounted) {
                                 return;
                               }
-                              ScaffoldMessenger.of(
-                                context,
-                              ).showSnackBar(SnackBar(content: Text(text)));
+                              if (result == 'created' ||
+                                  result == 'updated' ||
+                                  result == true) {
+                                setState(() => _tabIndex = 0);
+                                final text = result == 'updated'
+                                    ? 'Event updated.'
+                                    : 'Event created.';
+                                WidgetsBinding.instance.addPostFrameCallback((
+                                  _,
+                                ) {
+                                  if (!mounted) {
+                                    return;
+                                  }
+                                  ScaffoldMessenger.of(
+                                    context,
+                                  ).showSnackBar(SnackBar(content: Text(text)));
+                                });
+                              }
                             });
-                          }
-                        });
-                      },
+                          },
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: _CreateChoiceCard(
-                      borderColor: const Color(0xFF7FD2B8),
-                      iconBgColor: const Color(0xFFD7F5EA),
-                      iconColor: const Color(0xFF1A8A67),
-                      icon: Icons.groups_2_outlined,
-                      title: 'Create Club',
-                      subtitle: !membershipLoaded
-                          ? 'Checking premium...'
-                          : isPremium
-                          ? 'Start a new sports community'
-                          : 'Premium required',
-                      enabled: membershipLoaded && isPremium,
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        Navigator.of(
-                          context,
-                        ).pushNamed(CreateClubScreen.routeName).then((created) {
-                          if (created == true && mounted) {
-                            setState(() => _tabIndex = 0);
-                          }
-                        });
-                      },
+                          borderColor: const Color(0xFF7FD2B8),
+                          iconBgColor: const Color(0xFFD7F5EA),
+                          iconColor: const Color(0xFF1A8A67),
+                          icon: Icons.groups_2_outlined,
+                          title: 'Create Club',
+                          subtitle: isPremium
+                              ? 'Start a new sports community'
+                              : 'Premium required',
+                          enabled: isPremium,
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            Navigator.of(context)
+                                .pushNamed(CreateClubScreen.routeName)
+                                .then((created) {
+                                  if (created == true && mounted) {
+                                    setState(() => _tabIndex = 0);
+                                  }
+                                });
+                          },
                         ),
                       ),
                     ],
@@ -532,7 +592,10 @@ class _BottomNavItem extends StatelessWidget {
                   right: -8,
                   top: -7,
                   child: Container(
-                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
@@ -637,9 +700,9 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
   @override
   void initState() {
     super.initState();
-    _profileFuture = profileRepository().getMyProfile();
+    _profileFuture = appPreloadService().myProfile();
     _unreadNotificationsFuture = _loadUnreadNotificationsCount();
-    _membershipFuture = membershipRepository().getStatus();
+    _membershipFuture = appPreloadService().membershipStatus();
   }
 
   @override
@@ -661,7 +724,9 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
   void didPopNext() {
     if (!mounted) return;
     setState(() {
-      _membershipFuture = membershipRepository().getStatus();
+      _membershipFuture = appPreloadService().membershipStatus(
+        forceRefresh: true,
+      );
     });
   }
 
@@ -844,7 +909,9 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
                                     color: Colors.white.withValues(alpha: 0.22),
                                     borderRadius: BorderRadius.circular(14),
                                     border: Border.all(
-                                      color: Colors.white.withValues(alpha: 0.35),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.35,
+                                      ),
                                     ),
                                   ),
                                   child: Icon(

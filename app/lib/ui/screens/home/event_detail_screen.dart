@@ -1329,13 +1329,19 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
 
     try {
       final profiles = await profileRepository().getProfilesByIds(ids);
-      final attendance = await AttendanceService.getAttendanceList(event.id);
-      final attendedIds = attendance.map((a) => a.userId).toSet();
-      final hostId = (event.creatorId ?? '').trim();
-      final hostVerifiedIds = attendance
-          .where((a) => (a.scannerUserId ?? '').trim() == hostId)
-          .map((a) => a.userId)
-          .toSet();
+      Set<String> attendedIds = <String>{};
+      Set<String> hostVerifiedIds = <String>{};
+      try {
+        final attendance = await AttendanceService.getAttendanceList(event.id);
+        attendedIds = attendance.map((a) => a.userId).toSet();
+        final hostId = (event.creatorId ?? '').trim();
+        hostVerifiedIds = attendance
+            .where((a) => (a.scannerUserId ?? '').trim() == hostId)
+            .map((a) => a.userId)
+            .toSet();
+      } catch (_) {
+        // Attendance is optional for participant visibility.
+      }
       if (!mounted || _activeEventId != event.id) {
         return;
       }
@@ -1361,13 +1367,19 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     try {
       final repo = eventRegistrationRepository();
       final ids = await repo.listParticipantUserIds(event.id);
-      final attendance = await AttendanceService.getAttendanceList(event.id);
-      final attendedIds = attendance.map((a) => a.userId).toSet();
-      final hostId = (event.creatorId ?? '').trim();
-      final hostVerifiedIds = attendance
-          .where((a) => (a.scannerUserId ?? '').trim() == hostId)
-          .map((a) => a.userId)
-          .toSet();
+      Set<String> attendedIds = <String>{};
+      Set<String> hostVerifiedIds = <String>{};
+      try {
+        final attendance = await AttendanceService.getAttendanceList(event.id);
+        attendedIds = attendance.map((a) => a.userId).toSet();
+        final hostId = (event.creatorId ?? '').trim();
+        hostVerifiedIds = attendance
+            .where((a) => (a.scannerUserId ?? '').trim() == hostId)
+            .map((a) => a.userId)
+            .toSet();
+      } catch (_) {
+        // Attendance is optional for participant visibility.
+      }
       if (!mounted || _activeEventId != event.id) {
         return;
       }
@@ -2197,7 +2209,6 @@ class _ParticipantsTabState extends State<_ParticipantsTab> {
     final helperVerifiedCount = participants
         .where((p) => p.isAttended && !p.isHostVerified)
         .length;
-
     final visibleParticipants = switch (_filter) {
       _ParticipantsFilter.all => participants,
       _ParticipantsFilter.attended =>

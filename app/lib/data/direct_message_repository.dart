@@ -52,7 +52,9 @@ class DirectMessageRepository {
     final seen = <String>{};
     final threads = <DirectMessageThread>[];
     for (final message in merged) {
-      final other = message.senderId == me ? message.receiverId : message.senderId;
+      final other = message.senderId == me
+          ? message.receiverId
+          : message.senderId;
       if (other.trim().isEmpty || seen.contains(other)) {
         continue;
       }
@@ -83,7 +85,9 @@ class DirectMessageRepository {
     final to = receiverId.trim();
     final body = text.trim();
     final imageId = imageFileId?.trim();
-    if (from.isEmpty || to.isEmpty || (body.isEmpty && (imageId ?? '').isEmpty)) {
+    if (from.isEmpty ||
+        to.isEmpty ||
+        (body.isEmpty && (imageId ?? '').isEmpty)) {
       return;
     }
     if (!AppwriteService.isConfigured ||
@@ -92,21 +96,16 @@ class DirectMessageRepository {
       return;
     }
     final now = DateTime.now().toUtc();
+    final payload = <String, dynamic>{
+      'senderId': from,
+      'receiverId': to,
+      'text': body,
+      if ((imageId ?? '').isNotEmpty) 'imageFileId': imageId,
+      'createdAt': now.toIso8601String(),
+    };
     await AppwriteService.createDocument(
       collectionId: AppwriteConfig.directMessagesCollectionId,
-      data: <String, dynamic>{
-        'senderId': from,
-        'receiverId': to,
-        'text': body,
-        if ((imageId ?? '').isNotEmpty) 'imageFileId': imageId,
-        'createdAt': now.toIso8601String(),
-      },
-      permissions: [
-        Permission.read(Role.user(from)),
-        Permission.read(Role.user(to)),
-        Permission.update(Role.user(from)),
-        Permission.delete(Role.user(from)),
-      ],
+      data: payload,
     );
   }
 
@@ -132,17 +131,12 @@ class DirectMessageRepository {
     );
     final senderId = (doc.data['senderId'] ?? '').toString().trim();
     if (senderId != editor) {
-      throw AppwriteException(
-        'You can only edit your own messages.',
-        401,
-      );
+      throw AppwriteException('You can only edit your own messages.', 401);
     }
     await AppwriteService.updateDocument(
       collectionId: AppwriteConfig.directMessagesCollectionId,
       documentId: id,
-      data: <String, dynamic>{
-        'text': text,
-      },
+      data: <String, dynamic>{'text': text},
     );
   }
 
@@ -165,6 +159,8 @@ class DirectMessageRepository {
           (d) => DirectMessage.fromMap(
             Map<String, dynamic>.from(d.data),
             id: d.$id,
+            documentCreatedAt: d.$createdAt,
+            documentUpdatedAt: d.$updatedAt,
           ),
         )
         .toList();
@@ -188,6 +184,8 @@ class DirectMessageRepository {
           (d) => DirectMessage.fromMap(
             Map<String, dynamic>.from(d.data),
             id: d.$id,
+            documentCreatedAt: d.$createdAt,
+            documentUpdatedAt: d.$updatedAt,
           ),
         )
         .toList();

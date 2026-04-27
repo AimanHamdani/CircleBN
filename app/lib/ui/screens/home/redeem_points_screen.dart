@@ -101,26 +101,26 @@ class _RedeemPointsScreenState extends State<RedeemPointsScreen> {
             title: '10% Off Court Booking',
             subtitle: 'Kallang Badminton Centre · Expires 31 Dec',
             icon: '🎾',
-            cost: 150,
+            cost: 1000,
           ),
           const _Voucher(
             title: 'Free Delivery',
             subtitle: 'SportXL Online Store · Expires 15 Nov',
             icon: '👟',
-            cost: 100,
+            cost: 300,
           ),
           const _Voucher(
             title: 'Free Sports Drink',
             subtitle: '100Plus · Used on 10 Sep',
             icon: '🥤',
-            cost: 50,
+            cost: 150,
             isUsed: true,
           ),
           const _Voucher(
             title: 'Free Event Entry',
             subtitle: 'Any Sportly event · No expiry',
             icon: '🏟️',
-            cost: 500,
+            cost: 1500,
           ),
         ];
 

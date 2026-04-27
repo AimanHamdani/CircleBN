@@ -5,6 +5,7 @@ class DirectMessage {
   final String text;
   final String? imageFileId;
   final DateTime createdAt;
+  final DateTime? editedAt;
 
   const DirectMessage({
     required this.id,
@@ -13,11 +14,23 @@ class DirectMessage {
     required this.text,
     this.imageFileId,
     required this.createdAt,
+    this.editedAt,
   });
 
-  factory DirectMessage.fromMap(Map<String, dynamic> map, {required String id}) {
-    final createdRaw = (map['createdAt'] ?? map['\$createdAt']).toString();
-    final createdAt = DateTime.tryParse(createdRaw)?.toLocal() ?? DateTime.now();
+  factory DirectMessage.fromMap(
+    Map<String, dynamic> map, {
+    required String id,
+    String? documentCreatedAt,
+    String? documentUpdatedAt,
+  }) {
+    final createdRaw =
+        (documentCreatedAt ?? map['createdAt'] ?? map['\$createdAt'])
+            .toString();
+    final createdAt =
+        DateTime.tryParse(createdRaw)?.toLocal() ?? DateTime.now();
+    final updatedAt = DateTime.tryParse(
+      (documentUpdatedAt ?? '').toString(),
+    )?.toLocal();
     return DirectMessage(
       id: id,
       senderId: (map['senderId'] ?? '').toString(),
@@ -27,6 +40,11 @@ class DirectMessage {
           ? null
           : (map['imageFileId'] ?? '').toString(),
       createdAt: createdAt,
+      editedAt:
+          updatedAt != null &&
+              updatedAt.isAfter(createdAt.add(const Duration(seconds: 1)))
+          ? updatedAt
+          : null,
     );
   }
 }

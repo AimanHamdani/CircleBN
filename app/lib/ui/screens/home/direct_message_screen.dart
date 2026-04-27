@@ -44,7 +44,9 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
   String _otherName = 'User';
 
   String _dmReadKey(String otherUserId) {
-    return 'direct_dm_last_read_${currentUserId}_$otherUserId';
+    final me = currentUserId.trim().toLowerCase();
+    final other = otherUserId.trim().toLowerCase();
+    return 'direct_dm_last_read_${me}_$other';
   }
 
   @override
@@ -81,14 +83,15 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
     }
   }
 
-  Future<void> _markConversationRead() async {
+  Future<void> _markConversationRead({DateTime? latestMessageAt}) async {
     final me = currentUserId.trim();
     final other = _otherUserId.trim();
     if (me.isEmpty || other.isEmpty) {
       return;
     }
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_dmReadKey(other), DateTime.now().toIso8601String());
+    final readAt = latestMessageAt ?? DateTime.now();
+    await prefs.setString(_dmReadKey(other), readAt.toIso8601String());
   }
 
   Future<void> _loadOtherProfile() async {
@@ -127,7 +130,10 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
       setState(() => _isLoading = true);
     }
     try {
-      final items = await _repo.listConversation(userA: me, userB: _otherUserId);
+      final items = await _repo.listConversation(
+        userA: me,
+        userB: _otherUserId,
+      );
       if (!mounted) {
         return;
       }
@@ -137,6 +143,12 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
           ..addAll(items);
         _isLoading = false;
       });
+      final latestAt = items.isEmpty
+          ? DateTime.now()
+          : items
+                .map((message) => message.createdAt)
+                .reduce((a, b) => a.isAfter(b) ? a : b);
+      await _markConversationRead(latestMessageAt: latestAt);
     } catch (_) {
       if (!mounted) {
         return;
@@ -153,7 +165,11 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
     }
     setState(() => _isSending = true);
     try {
-      await _repo.sendMessage(senderId: me, receiverId: _otherUserId, text: text);
+      await _repo.sendMessage(
+        senderId: me,
+        receiverId: _otherUserId,
+        text: text,
+      );
       _textCtrl.clear();
       await _loadConversation(silent: true);
     } on AppwriteException catch (e) {
@@ -324,7 +340,10 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
         backgroundColor: const Color(0xFF14B8A6),
         title: Text(
           _otherName,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+          ),
         ),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
@@ -362,7 +381,9 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
                               vertical: 10,
                             ),
                             decoration: BoxDecoration(
-                              color: mine ? const Color(0xFF0F5549) : Colors.white,
+                              color: mine
+                                  ? const Color(0xFF0F5549)
+                                  : Colors.white,
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(
                                 color: mine
@@ -383,21 +404,49 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
                                     height: 1.3,
                                   ),
                                 ),
-                                if ((msg.imageFileId ?? '').trim().isNotEmpty) ...[
+                                if ((msg.imageFileId ?? '')
+                                    .trim()
+                                    .isNotEmpty) ...[
                                   if (msg.text.trim().isNotEmpty)
                                     const SizedBox(height: 8),
                                   _DmImage(fileId: msg.imageFileId!),
                                 ],
                                 const SizedBox(height: 5),
-                                Text(
-                                  _formatTime(msg.createdAt),
-                                  style: TextStyle(
-                                    color: mine
-                                        ? Colors.white.withValues(alpha: 0.7)
-                                        : Colors.black.withValues(alpha: 0.45),
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (msg.editedAt != null) ...[
+                                      Text(
+                                        'edited',
+                                        style: TextStyle(
+                                          color: mine
+                                              ? Colors.white.withValues(
+                                                  alpha: 0.7,
+                                                )
+                                              : Colors.black.withValues(
+                                                  alpha: 0.45,
+                                                ),
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                    ],
+                                    Text(
+                                      _formatTime(msg.createdAt),
+                                      style: TextStyle(
+                                        color: mine
+                                            ? Colors.white.withValues(
+                                                alpha: 0.7,
+                                              )
+                                            : Colors.black.withValues(
+                                                alpha: 0.45,
+                                              ),
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -541,7 +590,9 @@ class _DmImage extends StatelessWidget {
                 child: InteractiveViewer(
                   minScale: 0.8,
                   maxScale: 4,
-                  child: Center(child: Image.memory(bytes, fit: BoxFit.contain)),
+                  child: Center(
+                    child: Image.memory(bytes, fit: BoxFit.contain),
+                  ),
                 ),
               ),
               Positioned(

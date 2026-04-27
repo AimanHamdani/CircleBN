@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:appwrite/appwrite.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../appwrite/appwrite_config.dart';
@@ -50,6 +51,39 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
   bool _canPinAnyMessage = false;
   bool _canSendMessages = false;
 
+  String _chatReadKey(String clubId) {
+    final me = currentUserId.trim().toLowerCase();
+    return 'club_chat_last_read_${me}_${clubId.trim()}';
+  }
+
+  Future<void> _markClubRead(String clubId, List<ClubChatMessage> items) async {
+    if (clubId.trim().isEmpty || currentUserId.trim().isEmpty) {
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final latestMessageAt = items.isEmpty
+        ? DateTime.now().toUtc()
+        : items
+              .map((message) => message.createdAt.toUtc())
+              .reduce((a, b) => a.isAfter(b) ? a : b);
+    await prefs.setString(
+      _chatReadKey(clubId),
+      latestMessageAt.toIso8601String(),
+    );
+  }
+
+  Future<void> _markCurrentClubReadNow() async {
+    final clubId = _clubFromRoute(context).id.trim();
+    if (clubId.isEmpty || currentUserId.trim().isEmpty) {
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _chatReadKey(clubId),
+      DateTime.now().toUtc().toIso8601String(),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -89,6 +123,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
       final payload = event.payload;
       final eventClubId = payload['clubId']?.toString() ?? '';
       if (eventClubId == clubId) {
+        _markCurrentClubReadNow();
         _loadMessages(silent: true);
       }
     });
@@ -121,11 +156,19 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     }
     try {
       final members = await clubMemberRepository().listMembers(clubId: club.id);
+      final creatorId = (club.creatorId ?? '').trim();
+      final founderId = (club.founderId ?? club.creatorId ?? '').trim();
+      final syntheticOwnerId = creatorId.isNotEmpty ? creatorId : founderId;
+      var resolvedCount = members.length;
+      if (syntheticOwnerId.isNotEmpty &&
+          !members.any((member) => member.userId.trim() == syntheticOwnerId)) {
+        resolvedCount += 1;
+      }
       if (!mounted) {
         return;
       }
       setState(() {
-        _membersCount = members.length;
+        _membersCount = resolvedCount;
       });
     } catch (_) {}
   }
@@ -228,6 +271,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     }
     try {
       final items = await _chatRepo.listForClub(clubId);
+      await _markClubRead(clubId, items);
       if (!mounted) {
         return;
       }
@@ -314,9 +358,9 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to send message.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to send message.')));
     } finally {
       if (!mounted) {
         return;
@@ -356,7 +400,9 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         ],
       ),
     );
-    if (newText == null || newText.trim().isEmpty || newText.trim() == existing) {
+    if (newText == null ||
+        newText.trim().isEmpty ||
+        newText.trim() == existing) {
       return;
     }
     try {
@@ -373,9 +419,9 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to edit message.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to edit message.')));
     }
   }
 
@@ -408,9 +454,9 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to update pin.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to update pin.')));
     }
   }
 
@@ -513,9 +559,9 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to send image.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to send image.')));
     } finally {
       if (!mounted) {
         return;
@@ -549,8 +595,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
       final createdAt = DateTime.now();
       for (final userId in recipientIds) {
         final notification = AppNotification(
-          id:
-              'club_chat_${club.id}_${userId}_${createdAt.microsecondsSinceEpoch}',
+          id: 'club_chat_${club.id}_${userId}_${createdAt.microsecondsSinceEpoch}',
           userId: userId,
           type: AppNotificationType.chatMessage,
           title: 'New club message',
@@ -566,8 +611,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
 
   Widget _buildChatItem(BuildContext context, ClubChatMessage message) {
     final isMine = message.senderId.trim() == currentUserId.trim();
-    final content =
-        message.messageType == 'event_pinned'
+    final content = message.messageType == 'event_pinned'
         ? _PinnedEventCard(
             title: message.eventTitle?.trim().isNotEmpty == true
                 ? message.eventTitle!
@@ -665,7 +709,10 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
       if (!mounted) {
         return;
       }
-      final event = Event.fromMap(Map<String, dynamic>.from(doc.data), id: doc.$id);
+      final event = Event.fromMap(
+        Map<String, dynamic>.from(doc.data),
+        id: doc.$id,
+      );
       await Navigator.of(context).pushNamed(
         EventDetailScreen.routeName,
         arguments: EventDetailArgs(event: event),
@@ -1469,4 +1516,3 @@ class _ChatImage extends StatelessWidget {
     );
   }
 }
-

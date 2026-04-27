@@ -115,6 +115,17 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
       });
       return;
     }
+    final now = DateTime.now();
+    final scanAllowedAt = event.startAt.subtract(const Duration(minutes: 30));
+    if (now.isBefore(scanAllowedAt)) {
+      setState(() {
+        _isCheckingAccess = false;
+        _canScan = false;
+        _accessMessage =
+            'QR scanning opens 30 minutes before event start time.';
+      });
+      return;
+    }
     final isCreator = (event.creatorId ?? '').trim() == currentUserId;
     if (isCreator) {
       setState(() {

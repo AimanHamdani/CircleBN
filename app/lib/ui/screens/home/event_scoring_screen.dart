@@ -125,6 +125,97 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
     }
   }
 
+  Future<void> _showStatValuesDebug(Event event) async {
+    final sportKey = event.sport.trim().toLowerCase();
+    final byStatKey = <String, Set<String>>{};
+    var eventRecordCount = 0;
+    for (final player in _players) {
+      for (final record in player.matchHistory) {
+        final sameEvent = record.eventId.trim() == event.id.trim();
+        final sameSport = record.sport.trim().toLowerCase() == sportKey;
+        if (!sameEvent && !sameSport) {
+          continue;
+        }
+        if (sameEvent) {
+          eventRecordCount++;
+        }
+        for (final entry in record.statValues.entries) {
+          final key = entry.key.trim();
+          if (key.isEmpty) {
+            continue;
+          }
+          byStatKey.putIfAbsent(key, () => <String>{});
+          byStatKey[key]!.add(entry.value.toString());
+        }
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+    final sortedKeys = byStatKey.keys.toList()..sort();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.65,
+          minChildSize: 0.45,
+          maxChildSize: 0.92,
+          builder: (context, scrollController) => ListView(
+            controller: scrollController,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+            children: [
+              const Text(
+                'Scoring Debug',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Sport: ${event.sport}\nEvent records found: $eventRecordCount',
+                style: TextStyle(color: Colors.black.withValues(alpha: 0.7)),
+              ),
+              const SizedBox(height: 12),
+              if (sortedKeys.isEmpty)
+                const Text(
+                  'No saved statValues yet for this sport/event. Finalize at least one scored match first.',
+                )
+              else
+                for (final key in sortedKeys) ...[
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          key,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 4),
+                        SelectableText(
+                          byStatKey[key]!.join(', '),
+                          style: TextStyle(
+                            color: Colors.black.withValues(alpha: 0.75),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _addMatchDialog() async {
     final sport = _argsFromRoute(context).event.sport.trim().toLowerCase();
     final isRacketSport =
@@ -337,6 +428,16 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
             'Match Scores',
             style: TextStyle(fontWeight: FontWeight.w900),
           ),
+          actions: [
+            if ((event.creatorId ?? '').trim() == currentUserId.trim())
+              IconButton(
+                tooltip: 'Scoring debug',
+                onPressed: _players.isEmpty
+                    ? null
+                    : () => _showStatValuesDebug(event),
+                icon: const Icon(Icons.bug_report_outlined),
+              ),
+          ],
         ),
         body: _isLoading
             ? const Center(child: CircularProgressIndicator())
@@ -687,13 +788,15 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
     final deltaDraws = <String, int>{};
     final deltaLosses = <String, int>{};
     final newMatchRowsByUser = <String, List<ProfileMatchRecord>>{};
-    final trackOutcomes = rules.isBadmintonAdvanced ||
+    final trackOutcomes =
+        rules.isBadmintonAdvanced ||
         rules.isVolleyballAdvanced ||
         rules.isFootballAdvanced ||
         rules.isBasketballAdvanced;
     final recordedAt = DateTime.now().toUtc();
-    final sportKey =
-        event.sport.trim().isEmpty ? 'General' : event.sport.trim();
+    final sportKey = event.sport.trim().isEmpty
+        ? 'General'
+        : event.sport.trim();
 
     Map<String, num> buildStatValues({
       required _PlayerStatEntry stat,
@@ -769,51 +872,51 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
       required _MatchEntry match,
       required bool isTeamA,
     }) {
-        final userId = stat.selectedUserId;
-        if (userId == null || userId.trim().isEmpty) {
-          return;
-        }
-        final uid = userId.trim();
-        final awarded = _awardForStat(stat, rules);
-        awardedByUser[uid] = (awardedByUser[uid] ?? 0) + awarded;
+      final userId = stat.selectedUserId;
+      if (userId == null || userId.trim().isEmpty) {
+        return;
+      }
+      final uid = userId.trim();
+      final awarded = _awardForStat(stat, rules);
+      awardedByUser[uid] = (awardedByUser[uid] ?? 0) + awarded;
 
-        if (trackOutcomes) {
-          switch (stat.footballResult) {
-            case _FootballResult.win:
-              deltaWins[uid] = (deltaWins[uid] ?? 0) + 1;
-              break;
-            case _FootballResult.draw:
-              deltaDraws[uid] = (deltaDraws[uid] ?? 0) + 1;
-              break;
-            case _FootballResult.loss:
-              deltaLosses[uid] = (deltaLosses[uid] ?? 0) + 1;
-              break;
-          }
-          final outcomeStr = switch (stat.footballResult) {
-            _FootballResult.win => 'win',
-            _FootballResult.draw => 'draw',
-            _FootballResult.loss => 'loss',
-          };
-          newMatchRowsByUser
-              .putIfAbsent(uid, () => <ProfileMatchRecord>[])
-              .add(
-                ProfileMatchRecord(
-                  eventId: event.id,
-                  eventTitle: event.title,
-                  sport: sportKey,
-                  outcome: outcomeStr,
-                  pointsAwarded: awarded,
-                  recordedAt: recordedAt,
-                  statSnippet: _awardLabelForStat(stat, rules),
-                  formatLabel: buildFormatLabel(match),
-                  statValues: buildStatValues(
-                    stat: stat,
-                    match: match,
-                    isTeamA: isTeamA,
-                  ),
-                ),
-              );
+      if (trackOutcomes) {
+        switch (stat.footballResult) {
+          case _FootballResult.win:
+            deltaWins[uid] = (deltaWins[uid] ?? 0) + 1;
+            break;
+          case _FootballResult.draw:
+            deltaDraws[uid] = (deltaDraws[uid] ?? 0) + 1;
+            break;
+          case _FootballResult.loss:
+            deltaLosses[uid] = (deltaLosses[uid] ?? 0) + 1;
+            break;
         }
+        final outcomeStr = switch (stat.footballResult) {
+          _FootballResult.win => 'win',
+          _FootballResult.draw => 'draw',
+          _FootballResult.loss => 'loss',
+        };
+        newMatchRowsByUser
+            .putIfAbsent(uid, () => <ProfileMatchRecord>[])
+            .add(
+              ProfileMatchRecord(
+                eventId: event.id,
+                eventTitle: event.title,
+                sport: sportKey,
+                outcome: outcomeStr,
+                pointsAwarded: awarded,
+                recordedAt: recordedAt,
+                statSnippet: _awardLabelForStat(stat, rules),
+                formatLabel: buildFormatLabel(match),
+                statValues: buildStatValues(
+                  stat: stat,
+                  match: match,
+                  isTeamA: isTeamA,
+                ),
+              ),
+            );
+      }
     }
 
     for (final match in _matches) {

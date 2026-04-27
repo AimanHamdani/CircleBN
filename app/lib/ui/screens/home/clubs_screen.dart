@@ -8,8 +8,8 @@ import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
 import '../../../data/club_chat_repository.dart';
 import '../../../data/club_member_repository.dart';
-import '../../../data/club_repository.dart';
 import '../../../data/direct_message_repository.dart';
+import '../../../data/app_preload_service.dart';
 import '../../../data/membership_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../data/sample_clubs.dart';
@@ -41,31 +41,28 @@ class _ClubsScreenState extends State<ClubsScreen> {
   late Future<List<ClubMember>> _membershipsFuture;
   late Future<MembershipStatus> _membershipFuture;
   late Future<List<DirectMessageThread>> _dmThreadsFuture;
+  late Future<_CircleTabUnreadCounts> _tabUnreadFuture;
   int _chatMetaRefreshToken = 0;
 
   @override
   void initState() {
     super.initState();
-    _clubsFuture = clubRepository().listClubs();
-    _membershipsFuture = currentUserId.trim().isEmpty
-        ? Future.value(const <ClubMember>[])
-        : clubMemberRepository().listMembershipsForUser(userId: currentUserId);
-    _membershipFuture = membershipRepository().getStatus();
-    _dmThreadsFuture = directMessageRepository().listThreadsForUser(
-      userId: currentUserId,
-    );
+    _clubsFuture = appPreloadService().clubs();
+    _membershipsFuture = appPreloadService().myClubMemberships();
+    _membershipFuture = appPreloadService().membershipStatus();
+    _dmThreadsFuture = appPreloadService().myDmThreads();
+    _tabUnreadFuture = _loadTabUnreadCounts();
   }
 
   void _refreshClubs() {
     setState(() {
-      _clubsFuture = clubRepository().listClubs();
-      _membershipsFuture = currentUserId.trim().isEmpty
-          ? Future.value(const <ClubMember>[])
-          : clubMemberRepository().listMembershipsForUser(userId: currentUserId);
-      _chatMetaRefreshToken++;
-      _dmThreadsFuture = directMessageRepository().listThreadsForUser(
-        userId: currentUserId,
+      _clubsFuture = appPreloadService().clubs(forceRefresh: true);
+      _membershipsFuture = appPreloadService().myClubMemberships(
+        forceRefresh: true,
       );
+      _chatMetaRefreshToken++;
+      _dmThreadsFuture = appPreloadService().myDmThreads(forceRefresh: true);
+      _tabUnreadFuture = _loadTabUnreadCounts();
     });
   }
 
@@ -91,16 +88,68 @@ class _ClubsScreenState extends State<ClubsScreen> {
   }
 
   String _chatReadKey(String clubId) {
+    final me = currentUserId.trim().toLowerCase();
+    return 'club_chat_last_read_${me}_${clubId.trim()}';
+  }
+
+  String _legacyChatReadKey(String clubId) {
     return 'club_chat_last_read_${currentUserId}_$clubId';
   }
 
   String _dmReadKey(String otherUserId) {
+    final me = currentUserId.trim().toLowerCase();
+    final other = otherUserId.trim().toLowerCase();
+    return 'direct_dm_last_read_${me}_$other';
+  }
+
+  String _legacyDmReadKey(String otherUserId) {
     return 'direct_dm_last_read_${currentUserId}_$otherUserId';
+  }
+
+  String _normalizedUserId(String value) {
+    return value.trim().toLowerCase();
+  }
+
+  Future<DateTime?> _readChatLastReadWithMigration(
+    SharedPreferences prefs,
+    String clubId,
+  ) async {
+    final normalizedKey = _chatReadKey(clubId);
+    final normalizedRaw = prefs.getString(normalizedKey);
+    if (normalizedRaw != null) {
+      return DateTime.tryParse(normalizedRaw);
+    }
+    final legacyRaw = prefs.getString(_legacyChatReadKey(clubId));
+    if (legacyRaw == null) {
+      return null;
+    }
+    await prefs.setString(normalizedKey, legacyRaw);
+    return DateTime.tryParse(legacyRaw);
+  }
+
+  Future<DateTime?> _readDmLastReadWithMigration(
+    SharedPreferences prefs,
+    String otherUserId,
+  ) async {
+    final normalizedKey = _dmReadKey(otherUserId);
+    final normalizedRaw = prefs.getString(normalizedKey);
+    if (normalizedRaw != null) {
+      return DateTime.tryParse(normalizedRaw);
+    }
+    final legacyRaw = prefs.getString(_legacyDmReadKey(otherUserId));
+    if (legacyRaw == null) {
+      return null;
+    }
+    await prefs.setString(normalizedKey, legacyRaw);
+    return DateTime.tryParse(legacyRaw);
   }
 
   Future<void> _markClubChatRead(String clubId) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_chatReadKey(clubId), DateTime.now().toIso8601String());
+    await prefs.setString(
+      _chatReadKey(clubId),
+      DateTime.now().toIso8601String(),
+    );
   }
 
   Future<Map<String, _ClubChatMeta>> _loadChatMeta(List<Club> clubs) async {
@@ -116,10 +165,10 @@ class _ClubsScreenState extends State<ClubsScreen> {
         final sorted = [...items]
           ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
         final latest = sorted.first;
-        final readRaw = prefs.getString(_chatReadKey(club.id));
-        final lastReadAt = readRaw == null ? null : DateTime.tryParse(readRaw);
+        final lastReadAt = await _readChatLastReadWithMigration(prefs, club.id);
+        final meId = _normalizedUserId(currentUserId);
         final unread = sorted
-            .where((m) => m.senderId.trim() != currentUserId.trim())
+            .where((m) => _normalizedUserId(m.senderId) != meId)
             .where((m) {
               if (lastReadAt == null) {
                 return true;
@@ -159,26 +208,25 @@ class _ClubsScreenState extends State<ClubsScreen> {
   Future<Map<String, int>> _loadDmUnreadCounts(
     List<DirectMessageThread> threads,
   ) async {
-    final me = currentUserId.trim();
+    final me = _normalizedUserId(currentUserId);
     if (me.isEmpty || threads.isEmpty) {
       return const <String, int>{};
     }
     final prefs = await SharedPreferences.getInstance();
     final out = <String, int>{};
     for (final thread in threads) {
-      final other = thread.otherUserId.trim();
+      final other = _normalizedUserId(thread.otherUserId);
       if (other.isEmpty) {
         continue;
       }
-      final raw = prefs.getString(_dmReadKey(other));
-      final lastRead = raw == null ? null : DateTime.tryParse(raw);
+      final lastRead = await _readDmLastReadWithMigration(prefs, other);
       try {
         final convo = await directMessageRepository().listConversation(
-          userA: me,
-          userB: other,
+          userA: currentUserId.trim(),
+          userB: thread.otherUserId.trim(),
         );
         final unread = convo
-            .where((m) => m.senderId.trim() == other)
+            .where((m) => _normalizedUserId(m.senderId) == other)
             .where((m) => lastRead == null || m.createdAt.isAfter(lastRead))
             .length;
         out[other] = unread;
@@ -187,6 +235,40 @@ class _ClubsScreenState extends State<ClubsScreen> {
       }
     }
     return out;
+  }
+
+  Future<_CircleTabUnreadCounts> _loadTabUnreadCounts() async {
+    final me = currentUserId.trim();
+    if (me.isEmpty) {
+      return const _CircleTabUnreadCounts(joined: 0, dm: 0);
+    }
+    try {
+      final clubs = await appPreloadService().clubs();
+      final memberships = await appPreloadService().myClubMemberships();
+      final joinedClubIds = <String>{
+        for (final m in memberships) m.clubId.trim(),
+        for (final c in clubs)
+          if ((c.creatorId ?? '').trim() == me) c.id.trim(),
+      }..removeWhere((id) => id.isEmpty);
+      final joinedClubs = clubs
+          .where((c) => joinedClubIds.contains(c.id))
+          .toList();
+      final chatMeta = await _loadChatMeta(joinedClubs);
+      final joinedUnread = chatMeta.values.fold<int>(
+        0,
+        (sum, meta) => sum + meta.unreadCount,
+      );
+
+      final threads = await appPreloadService().myDmThreads();
+      final dmUnreadMap = await _loadDmUnreadCounts(threads);
+      final dmUnread = dmUnreadMap.values.fold<int>(
+        0,
+        (sum, count) => sum + count,
+      );
+      return _CircleTabUnreadCounts(joined: joinedUnread, dm: dmUnread);
+    } catch (_) {
+      return const _CircleTabUnreadCounts(joined: 0, dm: 0);
+    }
   }
 
   String _formatChatTime(DateTime time) {
@@ -393,32 +475,45 @@ class _ClubsScreenState extends State<ClubsScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      _JoinFilterChip(
-                        label: 'Joined',
-                        selected: _joinFilterTab == _ClubJoinFilterTab.joined,
-                        onTap: () => setState(
-                          () => _joinFilterTab = _ClubJoinFilterTab.joined,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      _JoinFilterChip(
-                        label: 'Discover',
-                        selected: _joinFilterTab == _ClubJoinFilterTab.discover,
-                        onTap: () => setState(
-                          () => _joinFilterTab = _ClubJoinFilterTab.discover,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      _JoinFilterChip(
-                        label: 'DM',
-                        selected: _joinFilterTab == _ClubJoinFilterTab.dm,
-                        onTap: () => setState(
-                          () => _joinFilterTab = _ClubJoinFilterTab.dm,
-                        ),
-                      ),
-                    ],
+                  FutureBuilder<_CircleTabUnreadCounts>(
+                    future: _tabUnreadFuture,
+                    builder: (context, unreadSnap) {
+                      final unread =
+                          unreadSnap.data ??
+                          const _CircleTabUnreadCounts(joined: 0, dm: 0);
+                      return Row(
+                        children: [
+                          _JoinFilterChip(
+                            label: 'Joined',
+                            badgeCount: unread.joined,
+                            selected:
+                                _joinFilterTab == _ClubJoinFilterTab.joined,
+                            onTap: () => setState(
+                              () => _joinFilterTab = _ClubJoinFilterTab.joined,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _JoinFilterChip(
+                            label: 'Discover',
+                            selected:
+                                _joinFilterTab == _ClubJoinFilterTab.discover,
+                            onTap: () => setState(
+                              () =>
+                                  _joinFilterTab = _ClubJoinFilterTab.discover,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _JoinFilterChip(
+                            label: 'DM',
+                            badgeCount: unread.dm,
+                            selected: _joinFilterTab == _ClubJoinFilterTab.dm,
+                            onTap: () => setState(
+                              () => _joinFilterTab = _ClubJoinFilterTab.dm,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ],
               ),
@@ -468,369 +563,460 @@ class _ClubsScreenState extends State<ClubsScreen> {
               child: _joinFilterTab == _ClubJoinFilterTab.dm
                   ? _buildDmList(searchLower)
                   : FutureBuilder<List<Club>>(
-                future: _clubsFuture,
-                builder: (context, snap) {
-                  if (snap.hasError) {
-                    return Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Could not load clubs.\n${snap.error}',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Colors.black.withValues(alpha: 0.65),
+                      future: _clubsFuture,
+                      builder: (context, snap) {
+                        if (snap.hasError) {
+                          return Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    'Could not load clubs.\n${snap.error}',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.65,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  FilledButton(
+                                    onPressed: _refreshClubs,
+                                    child: const Text('Retry'),
+                                  ),
+                                ],
                               ),
-                            ),
-                            const SizedBox(height: 16),
-                            FilledButton(
-                              onPressed: _refreshClubs,
-                              child: const Text('Retry'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }
-
-                  if (snap.connectionState != ConnectionState.done) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-
-                  final clubs = snap.data ?? const <Club>[];
-                  final sportFiltered = clubs.where((c) {
-                    final sportOk =
-                        _selectedSport == 'All' ||
-                        c.sports.contains(_selectedSport);
-                    if (!sportOk) {
-                      return false;
-                    }
-                    return true;
-                  }).toList();
-
-                  return FutureBuilder<List<ClubMember>>(
-                    future: _membershipsFuture,
-                    builder: (context, memberSnap) {
-                      final me = currentUserId.trim();
-                      final joinedClubIds = <String>{
-                        for (final m in (memberSnap.data ?? const <ClubMember>[]))
-                          m.clubId.trim(),
-                      }..removeWhere((id) => id.isEmpty);
-                      for (final c in clubs) {
-                        final creatorId = (c.creatorId ?? '').trim();
-                        if (creatorId.isNotEmpty && creatorId == me) {
-                          joinedClubIds.add(c.id);
-                        }
-                      }
-                      final joinFiltered = sportFiltered.where((c) {
-                        final isJoined = joinedClubIds.contains(c.id);
-                        if (_joinFilterTab == _ClubJoinFilterTab.joined) {
-                          return isJoined;
-                        }
-                        return !isJoined;
-                      }).toList();
-                      if (joinFiltered.isEmpty) {
-                        final emptyText = clubs.isEmpty
-                            ? 'No clubs yet. Create one from Home.'
-                            : _joinFilterTab == _ClubJoinFilterTab.joined
-                            ? 'You have not joined any clubs yet.'
-                            : 'No more clubs available for this filter.';
-                        return Center(
-                          child: Text(emptyText, textAlign: TextAlign.center),
-                        );
-                      }
-                      if (_joinFilterTab == _ClubJoinFilterTab.discover) {
-                        final filtered = joinFiltered.where(
-                          (c) => _clubMatchesSearch(c, searchLower),
-                        ).toList()..sort((a, b) => a.name.compareTo(b.name));
-                        if (filtered.isEmpty) {
-                          return const Center(
-                            child: Text(
-                              'No clubs match your filters.',
-                              textAlign: TextAlign.center,
                             ),
                           );
                         }
-                        return ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-                          itemCount: filtered.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 10),
-                          itemBuilder: (context, idx) {
-                            final c = filtered[idx];
-                            final subtitle = _clubSubtitle(c);
-                            return InkWell(
-                              borderRadius: BorderRadius.circular(16),
-                              onTap: () {
-                                Navigator.of(context).pushNamed(
-                                  ClubChatScreen.routeName,
-                                  arguments: c,
-                                );
-                              },
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF8FFFC),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(color: const Color(0xFFCCE9DF)),
+
+                        if (snap.connectionState != ConnectionState.done) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+
+                        final clubs = snap.data ?? const <Club>[];
+                        final sportFiltered = clubs.where((c) {
+                          final sportOk =
+                              _selectedSport == 'All' ||
+                              c.sports.contains(_selectedSport);
+                          if (!sportOk) {
+                            return false;
+                          }
+                          return true;
+                        }).toList();
+
+                        return FutureBuilder<List<ClubMember>>(
+                          future: _membershipsFuture,
+                          builder: (context, memberSnap) {
+                            final me = currentUserId.trim();
+                            final joinedClubIds = <String>{
+                              for (final m
+                                  in (memberSnap.data ?? const <ClubMember>[]))
+                                m.clubId.trim(),
+                            }..removeWhere((id) => id.isEmpty);
+                            for (final c in clubs) {
+                              final creatorId = (c.creatorId ?? '').trim();
+                              if (creatorId.isNotEmpty && creatorId == me) {
+                                joinedClubIds.add(c.id);
+                              }
+                            }
+                            final joinFiltered = sportFiltered.where((c) {
+                              final isJoined = joinedClubIds.contains(c.id);
+                              if (_joinFilterTab == _ClubJoinFilterTab.joined) {
+                                return isJoined;
+                              }
+                              return !isJoined;
+                            }).toList();
+                            if (joinFiltered.isEmpty) {
+                              final emptyText = clubs.isEmpty
+                                  ? 'No clubs yet. Create one from Home.'
+                                  : _joinFilterTab == _ClubJoinFilterTab.joined
+                                  ? 'You have not joined any clubs yet.'
+                                  : 'No more clubs available for this filter.';
+                              return Center(
+                                child: Text(
+                                  emptyText,
+                                  textAlign: TextAlign.center,
                                 ),
-                                child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 44,
-                                        height: 44,
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFDDF3F0),
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        child: ClipRRect(
-                                          borderRadius: BorderRadius.circular(12),
-                                          clipBehavior: Clip.antiAlias,
-                                          child:
-                                              c.thumbnailFileId != null &&
-                                                  c.thumbnailFileId!.isNotEmpty
-                                              ? FutureBuilder(
-                                                  future: AppwriteService.getFileViewBytes(
-                                                    bucketId: AppwriteConfig
-                                                        .storageBucketId,
-                                                    fileId: c.thumbnailFileId!,
-                                                  ),
-                                                  builder: (context, snap) {
-                                                    if (snap.hasData) {
-                                                      return Image.memory(
-                                                        snap.data!,
-                                                        fit: BoxFit.cover,
-                                                      );
-                                                    }
-                                                    return const Icon(
-                                                      Icons.groups,
-                                                      size: 20,
-                                                    );
-                                                  },
-                                                )
-                                              : const Icon(Icons.groups, size: 20),
+                              );
+                            }
+                            if (_joinFilterTab == _ClubJoinFilterTab.discover) {
+                              final filtered =
+                                  joinFiltered
+                                      .where(
+                                        (c) =>
+                                            _clubMatchesSearch(c, searchLower),
+                                      )
+                                      .toList()
+                                    ..sort((a, b) => a.name.compareTo(b.name));
+                              if (filtered.isEmpty) {
+                                return const Center(
+                                  child: Text(
+                                    'No clubs match your filters.',
+                                    textAlign: TextAlign.center,
+                                  ),
+                                );
+                              }
+                              return ListView.separated(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  0,
+                                  16,
+                                  18,
+                                ),
+                                itemCount: filtered.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 10),
+                                itemBuilder: (context, idx) {
+                                  final c = filtered[idx];
+                                  final subtitle = _clubSubtitle(c);
+                                  return InkWell(
+                                    borderRadius: BorderRadius.circular(16),
+                                    onTap: () {
+                                      Navigator.of(context).pushNamed(
+                                        ClubChatScreen.routeName,
+                                        arguments: c,
+                                      );
+                                    },
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF8FFFC),
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color: const Color(0xFFCCE9DF),
                                         ),
                                       ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                                      child: Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          12,
+                                          12,
+                                          12,
+                                          12,
+                                        ),
+                                        child: Row(
                                           children: [
-                                            Text(
-                                              c.name,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w900,
-                                                fontSize: 14.5,
+                                            Container(
+                                              width: 44,
+                                              height: 44,
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFDDF3F0),
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                              child: ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                                clipBehavior: Clip.antiAlias,
+                                                child:
+                                                    c.thumbnailFileId != null &&
+                                                        c
+                                                            .thumbnailFileId!
+                                                            .isNotEmpty
+                                                    ? FutureBuilder(
+                                                        future: AppwriteService.getFileViewBytes(
+                                                          bucketId: AppwriteConfig
+                                                              .storageBucketId,
+                                                          fileId: c
+                                                              .thumbnailFileId!,
+                                                        ),
+                                                        builder: (context, snap) {
+                                                          if (snap.hasData) {
+                                                            return Image.memory(
+                                                              snap.data!,
+                                                              fit: BoxFit.cover,
+                                                            );
+                                                          }
+                                                          return const Icon(
+                                                            Icons.groups,
+                                                            size: 20,
+                                                          );
+                                                        },
+                                                      )
+                                                    : const Icon(
+                                                        Icons.groups,
+                                                        size: 20,
+                                                      ),
                                               ),
                                             ),
-                                            if (subtitle.isNotEmpty) ...[
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                subtitle,
-                                                style: TextStyle(
-                                                  color: Colors.black.withValues(
-                                                    alpha: 0.55,
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    c.name,
+                                                    style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w900,
+                                                      fontSize: 14.5,
+                                                    ),
                                                   ),
-                                                  fontSize: 12.5,
-                                                ),
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ],
-                                            const SizedBox(height: 6),
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(
-                                                horizontal: 8,
-                                                vertical: 3,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: const Color(0xFF12B7AA).withValues(
-                                                  alpha: 0.12,
-                                                ),
-                                                borderRadius: BorderRadius.circular(999),
-                                              ),
-                                              child: const Text(
-                                                'Tap to view and join',
-                                                style: TextStyle(
-                                                  fontSize: 10.5,
-                                                  fontWeight: FontWeight.w800,
-                                                  color: Color(0xFF0F7F73),
-                                                ),
+                                                  if (subtitle.isNotEmpty) ...[
+                                                    const SizedBox(height: 2),
+                                                    Text(
+                                                      subtitle,
+                                                      style: TextStyle(
+                                                        color: Colors.black
+                                                            .withValues(
+                                                              alpha: 0.55,
+                                                            ),
+                                                        fontSize: 12.5,
+                                                      ),
+                                                      maxLines: 2,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  ],
+                                                  const SizedBox(height: 6),
+                                                  Container(
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 8,
+                                                          vertical: 3,
+                                                        ),
+                                                    decoration: BoxDecoration(
+                                                      color: const Color(
+                                                        0xFF12B7AA,
+                                                      ).withValues(alpha: 0.12),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            999,
+                                                          ),
+                                                    ),
+                                                    child: const Text(
+                                                      'Tap to view and join',
+                                                      style: TextStyle(
+                                                        fontSize: 10.5,
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                        color: Color(
+                                                          0xFF0F7F73,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
                                             ),
                                           ],
                                         ),
                                       ),
-                                    ],
-                                  ),
-                                ),
+                                    ),
+                                  );
+                                },
+                              );
+                            }
+                            return FutureBuilder<Map<String, _ClubChatMeta>>(
+                              key: ValueKey(
+                                '${joinFiltered.map((c) => c.id).join("|")}#$_chatMetaRefreshToken#${_joinFilterTab.name}',
                               ),
+                              future: _loadChatMeta(joinFiltered),
+                              builder: (context, metaSnap) {
+                                final metaByClub =
+                                    metaSnap.data ??
+                                    const <String, _ClubChatMeta>{};
+                                final filtered =
+                                    joinFiltered.where((c) {
+                                      final meta =
+                                          metaByClub[c.id] ??
+                                          const _ClubChatMeta.empty();
+                                      return _clubMatchesSearchWithMeta(
+                                        c,
+                                        searchLower,
+                                        meta,
+                                      );
+                                    }).toList()..sort(
+                                      (a, b) => a.name.compareTo(b.name),
+                                    );
+                                if (filtered.isEmpty) {
+                                  return const Center(
+                                    child: Text(
+                                      'No clubs match your filters.',
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  );
+                                }
+                                return ListView.separated(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    0,
+                                    16,
+                                    18,
+                                  ),
+                                  itemCount: filtered.length,
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(height: 10),
+                                  itemBuilder: (context, idx) {
+                                    final c = filtered[idx];
+                                    final fallbackSubtitle = _clubSubtitle(c);
+                                    final meta =
+                                        metaByClub[c.id] ??
+                                        const _ClubChatMeta.empty();
+                                    final sender = meta.latestSender.trim();
+                                    final latestText = meta.latestText.trim();
+                                    final subtitle = latestText.isNotEmpty
+                                        ? (sender.isNotEmpty
+                                              ? '$sender: $latestText'
+                                              : latestText)
+                                        : fallbackSubtitle;
+
+                                    return InkWell(
+                                      borderRadius: BorderRadius.circular(16),
+                                      onTap: () {
+                                        WidgetsBinding.instance
+                                            .addPostFrameCallback((_) {
+                                              WidgetsBinding.instance
+                                                  .addPostFrameCallback((_) {
+                                                    if (!context.mounted) {
+                                                      return;
+                                                    }
+                                                    () async {
+                                                      await _markClubChatRead(
+                                                        c.id,
+                                                      );
+                                                      if (!context.mounted) {
+                                                        return;
+                                                      }
+                                                      _refreshClubs();
+                                                      Navigator.of(context)
+                                                          .pushNamed(
+                                                            ClubChatScreen
+                                                                .routeName,
+                                                            arguments: c,
+                                                          )
+                                                          .then((_) async {
+                                                            if (!context
+                                                                .mounted) {
+                                                              return;
+                                                            }
+                                                            await _markClubChatRead(
+                                                              c.id,
+                                                            );
+                                                            _refreshClubs();
+                                                          });
+                                                    }();
+                                                  });
+                                            });
+                                      },
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
+                                          border: Border.all(
+                                            color: const Color(0xFFDDE8E5),
+                                          ),
+                                        ),
+                                        child: Padding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                            12,
+                                            12,
+                                            12,
+                                            12,
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Container(
+                                                width: 44,
+                                                height: 44,
+                                                decoration: BoxDecoration(
+                                                  color: const Color(
+                                                    0xFFDDF3F0,
+                                                  ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                ),
+                                                child: ClipRRect(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                  clipBehavior: Clip.antiAlias,
+                                                  child:
+                                                      c.thumbnailFileId !=
+                                                              null &&
+                                                          c
+                                                              .thumbnailFileId!
+                                                              .isNotEmpty
+                                                      ? FutureBuilder(
+                                                          future: AppwriteService.getFileViewBytes(
+                                                            bucketId: AppwriteConfig
+                                                                .storageBucketId,
+                                                            fileId: c
+                                                                .thumbnailFileId!,
+                                                          ),
+                                                          builder: (context, snap) {
+                                                            if (snap.hasData) {
+                                                              return Image.memory(
+                                                                snap.data!,
+                                                                fit: BoxFit
+                                                                    .cover,
+                                                              );
+                                                            }
+                                                            return const Icon(
+                                                              Icons.groups,
+                                                              size: 20,
+                                                            );
+                                                          },
+                                                        )
+                                                      : const Icon(
+                                                          Icons.groups,
+                                                          size: 20,
+                                                        ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      c.name,
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w900,
+                                                        fontSize: 14.5,
+                                                      ),
+                                                    ),
+                                                    if (subtitle
+                                                        .isNotEmpty) ...[
+                                                      const SizedBox(height: 2),
+                                                      Text(
+                                                        subtitle,
+                                                        style: TextStyle(
+                                                          color: Colors.black
+                                                              .withValues(
+                                                                alpha: 0.55,
+                                                              ),
+                                                          fontSize: 12.5,
+                                                        ),
+                                                        maxLines: 2,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                    ],
+                                                  ],
+                                                ),
+                                              ),
+                                              _rightMetaPill(meta),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                );
+                              },
                             );
                           },
                         );
-                      }
-                      return FutureBuilder<Map<String, _ClubChatMeta>>(
-                        key: ValueKey(
-                          '${joinFiltered.map((c) => c.id).join("|")}#$_chatMetaRefreshToken#${_joinFilterTab.name}',
-                        ),
-                        future: _loadChatMeta(joinFiltered),
-                        builder: (context, metaSnap) {
-                          final metaByClub =
-                              metaSnap.data ?? const <String, _ClubChatMeta>{};
-                          final filtered = joinFiltered.where((c) {
-                            final meta =
-                                metaByClub[c.id] ?? const _ClubChatMeta.empty();
-                            return _clubMatchesSearchWithMeta(
-                              c,
-                              searchLower,
-                              meta,
-                            );
-                          }).toList()..sort((a, b) => a.name.compareTo(b.name));
-                          if (filtered.isEmpty) {
-                            return const Center(
-                              child: Text(
-                                'No clubs match your filters.',
-                                textAlign: TextAlign.center,
-                              ),
-                            );
-                          }
-                          return ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-                        itemCount: filtered.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
-                        itemBuilder: (context, idx) {
-                          final c = filtered[idx];
-                          final fallbackSubtitle = _clubSubtitle(c);
-                          final meta = metaByClub[c.id] ?? const _ClubChatMeta.empty();
-                          final sender = meta.latestSender.trim();
-                          final latestText = meta.latestText.trim();
-                          final subtitle = latestText.isNotEmpty
-                              ? (sender.isNotEmpty ? '$sender: $latestText' : latestText)
-                              : fallbackSubtitle;
-
-                          return InkWell(
-                            borderRadius: BorderRadius.circular(16),
-                            onTap: () {
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                WidgetsBinding.instance.addPostFrameCallback((_) {
-                                  if (!context.mounted) {
-                                    return;
-                                  }
-                                  () async {
-                                    await _markClubChatRead(c.id);
-                                    if (!context.mounted) {
-                                      return;
-                                    }
-                                    _refreshClubs();
-                                    Navigator.of(context)
-                                        .pushNamed(
-                                          ClubChatScreen.routeName,
-                                          arguments: c,
-                                        )
-                                        .then((_) async {
-                                          if (!context.mounted) {
-                                            return;
-                                          }
-                                          await _markClubChatRead(c.id);
-                                          _refreshClubs();
-                                        });
-                                  }();
-                                });
-                              });
-                            },
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: const Color(0xFFDDE8E5)),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 44,
-                                      height: 44,
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFDDF3F0),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        clipBehavior: Clip.antiAlias,
-                                        child:
-                                            c.thumbnailFileId != null &&
-                                                c.thumbnailFileId!.isNotEmpty
-                                            ? FutureBuilder(
-                                                future:
-                                                    AppwriteService.getFileViewBytes(
-                                                      bucketId: AppwriteConfig
-                                                          .storageBucketId,
-                                                      fileId: c.thumbnailFileId!,
-                                                    ),
-                                                builder: (context, snap) {
-                                                  if (snap.hasData) {
-                                                    return Image.memory(
-                                                      snap.data!,
-                                                      fit: BoxFit.cover,
-                                                    );
-                                                  }
-                                                  return const Icon(
-                                                    Icons.groups,
-                                                    size: 20,
-                                                  );
-                                                },
-                                              )
-                                            : const Icon(Icons.groups, size: 20),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            c.name,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w900,
-                                              fontSize: 14.5,
-                                            ),
-                                          ),
-                                          if (subtitle.isNotEmpty) ...[
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              subtitle,
-                                              style: TextStyle(
-                                                color: Colors.black.withValues(
-                                                  alpha: 0.55,
-                                                ),
-                                                fontSize: 12.5,
-                                              ),
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                    _rightMetaPill(meta),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                          );
-                        },
-                      );
-                    },
-                  );
-                },
-              ),
+                      },
+                    ),
             ),
           ],
         ),
@@ -895,7 +1081,9 @@ class _ClubsScreenState extends State<ClubsScreen> {
                   Text(
                     'Could not load direct messages.\n${threadSnap.error}',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.black.withValues(alpha: 0.65)),
+                    style: TextStyle(
+                      color: Colors.black.withValues(alpha: 0.65),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   FilledButton(
@@ -932,9 +1120,9 @@ class _ClubsScreenState extends State<ClubsScreen> {
               if (searchLower.isEmpty) {
                 return true;
               }
-              return name.contains(searchLower) || preview.contains(searchLower);
-            }).toList()
-              ..sort((a, b) => b.latestAt.compareTo(a.latestAt));
+              return name.contains(searchLower) ||
+                  preview.contains(searchLower);
+            }).toList()..sort((a, b) => b.latestAt.compareTo(a.latestAt));
             if (filtered.isEmpty) {
               return const Center(
                 child: Text(
@@ -1006,7 +1194,9 @@ class _ClubsScreenState extends State<ClubsScreen> {
                                     Text(
                                       preview,
                                       style: TextStyle(
-                                        color: Colors.black.withValues(alpha: 0.55),
+                                        color: Colors.black.withValues(
+                                          alpha: 0.55,
+                                        ),
                                         fontSize: 12.5,
                                       ),
                                       maxLines: 2,
@@ -1029,7 +1219,9 @@ class _ClubsScreenState extends State<ClubsScreen> {
                                   if (unread > 0) ...[
                                     const SizedBox(height: 6),
                                     Container(
-                                      constraints: const BoxConstraints(minWidth: 18),
+                                      constraints: const BoxConstraints(
+                                        minWidth: 18,
+                                      ),
                                       height: 18,
                                       alignment: Alignment.center,
                                       padding: const EdgeInsets.symmetric(
@@ -1037,7 +1229,9 @@ class _ClubsScreenState extends State<ClubsScreen> {
                                       ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFF12B7AA),
-                                        borderRadius: BorderRadius.circular(999),
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
                                       ),
                                       child: Text(
                                         unread > 99 ? '99+' : unread.toString(),
@@ -1090,11 +1284,13 @@ class _ClubsScreenState extends State<ClubsScreen> {
 
 class _JoinFilterChip extends StatelessWidget {
   final String label;
+  final int badgeCount;
   final bool selected;
   final VoidCallback onTap;
 
   const _JoinFilterChip({
     required this.label,
+    this.badgeCount = 0,
     required this.selected,
     required this.onTap,
   });
@@ -1112,22 +1308,53 @@ class _JoinFilterChip extends StatelessWidget {
               : Colors.white.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
-            color: selected
-                ? const Color(0xFFBDE7E3)
-                : const Color(0xFF6CD8D0),
+            color: selected ? const Color(0xFFBDE7E3) : const Color(0xFF6CD8D0),
           ),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: selected ? 0.98 : 0.9),
-            fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
-            fontSize: 12,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: selected ? 0.98 : 0.9),
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+            if (badgeCount > 0) ...[
+              const SizedBox(width: 6),
+              Container(
+                constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF4D4F),
+                  borderRadius: BorderRadius.circular(99),
+                  border: Border.all(color: Colors.white, width: 1),
+                ),
+                child: Text(
+                  badgeCount > 99 ? '99+' : badgeCount.toString(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
   }
+}
+
+class _CircleTabUnreadCounts {
+  final int joined;
+  final int dm;
+
+  const _CircleTabUnreadCounts({required this.joined, required this.dm});
 }
 
 class _ClubChatMeta {

@@ -12,6 +12,7 @@ import '../../../models/club.dart';
 import '../../../models/event.dart';
 import '../../../models/user_profile.dart';
 import '../profile/user_profile_view_screen.dart';
+import 'direct_message_screen.dart';
 import 'create_club_screen.dart';
 import 'clubs_screen.dart';
 import 'event_detail_screen.dart';
@@ -611,6 +612,30 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                   );
                 },
               ),
+              ListTile(
+                leading: Icon(
+                  Icons.chat_bubble_outline,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                title: const Text(
+                  'Direct message',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  Navigator.of(context).pushNamed(
+                    DirectMessageScreen.routeName,
+                    arguments: DirectMessageArgs(
+                      otherUserId: member.profile.userId,
+                      initialName: member.profile.realName.trim().isNotEmpty
+                          ? member.profile.realName.trim()
+                          : (member.profile.username.trim().isNotEmpty
+                                ? member.profile.username.trim()
+                                : 'User'),
+                    ),
+                  );
+                },
+              ),
               if (payload.isCurrentUserCreator &&
                   member.profile.userId != currentUserId)
                 ListTile(
@@ -890,6 +915,191 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Future<void> _openAllMembersSheet(_ClubInfoPayload payload) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        var query = '';
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final lower = query.trim().toLowerCase();
+            final filtered = payload.members.where((member) {
+              if (lower.isEmpty) {
+                return true;
+              }
+              final username = member.profile.username.trim().toLowerCase();
+              final realName = member.profile.realName.trim().toLowerCase();
+              final userId = member.profile.userId.trim().toLowerCase();
+              return username.contains(lower) ||
+                  realName.contains(lower) ||
+                  userId.contains(lower);
+            }).toList();
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.78,
+              minChildSize: 0.5,
+              maxChildSize: 0.95,
+              builder: (context, scrollController) => Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'All members',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.of(sheetCtx).pop(),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      onChanged: (value) => setSheetState(() => query = value),
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search),
+                        hintText: 'Search member',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: filtered.isEmpty
+                          ? const Center(child: Text('No members found.'))
+                          : ListView.separated(
+                              controller: scrollController,
+                              itemCount: filtered.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 8),
+                              itemBuilder: (context, index) {
+                                final member = filtered[index];
+                                final isMe =
+                                    member.profile.userId == currentUserId;
+                                return Container(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    10,
+                                    8,
+                                    10,
+                                    8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8FFFC),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: const Color(0xFFCCE9DF),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onTap: () {
+                                            Navigator.of(sheetCtx).pop();
+                                            Navigator.of(context).pushNamed(
+                                              UserProfileViewScreen.routeName,
+                                              arguments: UserProfileViewArgs(
+                                                userId: member.profile.userId,
+                                              ),
+                                            );
+                                          },
+                                          child: _MemberProfileTile(
+                                            profile: member.profile,
+                                            primary: const Color(0xFF1FB8AD),
+                                            isAdmin: member.isAdmin,
+                                            isCreator: member.isCreator,
+                                            isCoCreator: member.isCoCreator,
+                                          ),
+                                        ),
+                                      ),
+                                      if (!isMe)
+                                        IconButton(
+                                          tooltip: 'Direct message',
+                                          onPressed: () {
+                                            Navigator.of(sheetCtx).pop();
+                                            final realName = member
+                                                .profile
+                                                .realName
+                                                .trim();
+                                            final username = member
+                                                .profile
+                                                .username
+                                                .trim();
+                                            Navigator.of(context).pushNamed(
+                                              DirectMessageScreen.routeName,
+                                              arguments: DirectMessageArgs(
+                                                otherUserId:
+                                                    member.profile.userId,
+                                                initialName: realName.isNotEmpty
+                                                    ? realName
+                                                    : (username.isNotEmpty
+                                                          ? username
+                                                          : 'User'),
+                                              ),
+                                            );
+                                          },
+                                          icon: const Icon(
+                                            Icons.chat_bubble_outline,
+                                          ),
+                                        ),
+                                      if (payload.isCurrentUserAdmin && !isMe)
+                                        IconButton(
+                                          tooltip: 'Member actions',
+                                          onPressed: () {
+                                            Navigator.of(sheetCtx).pop();
+                                            _openMemberActions(
+                                              payload: payload,
+                                              member: member,
+                                            );
+                                          },
+                                          icon: const Icon(
+                                            Icons.admin_panel_settings,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -1477,7 +1687,7 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                   ),
                                 ),
                                 TextButton(
-                                  onPressed: () {},
+                                  onPressed: () => _openAllMembersSheet(p),
                                   child: const Text(
                                     'See all',
                                     style: TextStyle(

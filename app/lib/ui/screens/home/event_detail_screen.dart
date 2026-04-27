@@ -144,11 +144,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       }
     }
 
-    if (_chatPollTimer == null) {
-      _chatPollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+    _chatPollTimer ??= Timer.periodic(const Duration(seconds: 20), (_) {
         _loadChatMessages(silent: true);
       });
-    }
     _ensureChatRealtimeSubscription();
     _loadChatMessages(silent: _chatMessages.isNotEmpty);
   }

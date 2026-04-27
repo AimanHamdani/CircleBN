@@ -393,7 +393,14 @@ class TicketService {
         expiresAtMs: expiresAt.millisecondsSinceEpoch,
       ),
     );
-    return jsonEncode(payload.toMap());
+    return _buildCompactPayload(payload);
+  }
+
+  static String buildLegacyUserLookupQrData({
+    required String eventId,
+    required String userId,
+  }) {
+    return '${eventId}_$userId';
   }
 
   static TicketQrValidationResult validateScannedQrData({
@@ -401,51 +408,124 @@ class TicketService {
     required Event event,
   }) {
     final trimmed = rawData.trim();
+    if (trimmed.isEmpty) {
+      return const TicketQrValidationResult.invalid('Invalid QR code format');
+    }
+
     final legacyTicketId = int.tryParse(trimmed);
     if (legacyTicketId != null) {
       return TicketQrValidationResult.validLegacy(ticketId: legacyTicketId);
     }
 
-    try {
-      final decoded = jsonDecode(trimmed);
-      if (decoded is! Map<String, dynamic>) {
-        return const TicketQrValidationResult.invalid('Invalid QR code format');
-      }
-      final payload = _TicketQrPayload.fromMap(decoded);
-      if (payload.version != 1) {
-        return const TicketQrValidationResult.invalid(
-          'Unsupported QR code version',
-        );
-      }
-      if (payload.eventId != event.id) {
+    final legacyPair = _LegacyEventUserPayload.tryParse(trimmed);
+    if (legacyPair != null) {
+      if (legacyPair.eventId != event.id) {
         return const TicketQrValidationResult.invalid(
           'This QR code is not for this event',
         );
       }
-      if (DateTime.now().millisecondsSinceEpoch > payload.expiresAtMs) {
-        return const TicketQrValidationResult.invalid(
-          'This ticket QR has expired',
-        );
-      }
-      final expectedSig = _signFields(
-        eventId: payload.eventId,
-        userId: payload.userId,
-        ticketId: payload.ticketId,
-        expiresAtMs: payload.expiresAtMs,
+
+      return TicketQrValidationResult.validLegacyUser(
+        eventId: legacyPair.eventId,
+        userId: legacyPair.userId,
       );
-      if (payload.signature != expectedSig) {
-        return const TicketQrValidationResult.invalid(
-          'This QR code could not be verified',
-        );
+    }
+
+    final compactPayload = _TicketQrPayload.tryParseCompact(trimmed);
+    if (compactPayload != null) {
+      return _validateStructuredPayload(payload: compactPayload, event: event);
+    }
+
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded is! Map) {
+        return const TicketQrValidationResult.invalid('Invalid QR code format');
       }
-      return TicketQrValidationResult.valid(
-        eventId: payload.eventId,
-        userId: payload.userId,
-        ticketId: payload.ticketId,
+      final payload = _TicketQrPayload.fromMap(
+        Map<String, dynamic>.from(decoded),
       );
+      return _validateStructuredPayload(payload: payload, event: event);
     } catch (_) {
       return const TicketQrValidationResult.invalid('Invalid QR code format');
     }
+  }
+
+  static TicketQrValidationResult _validateStructuredPayload({
+    required _TicketQrPayload payload,
+    required Event event,
+  }) {
+    if (payload.version != 1) {
+      return const TicketQrValidationResult.invalid(
+        'Unsupported QR code version',
+      );
+    }
+    if (payload.eventId != event.id) {
+      return const TicketQrValidationResult.invalid(
+        'This QR code is not for this event',
+      );
+    }
+    if (payload.userId.trim().isEmpty || payload.ticketId < 0) {
+      return const TicketQrValidationResult.invalid('Invalid QR code format');
+    }
+    if (payload.expiresAtMs <= 0) {
+      return const TicketQrValidationResult.invalid('Invalid QR code format');
+    }
+    if (DateTime.now().millisecondsSinceEpoch > payload.expiresAtMs) {
+      return const TicketQrValidationResult.invalid(
+        'This ticket QR has expired',
+      );
+    }
+
+    final expectedSig = _signFields(
+      eventId: payload.eventId,
+      userId: payload.userId,
+      ticketId: payload.ticketId,
+      expiresAtMs: payload.expiresAtMs,
+    );
+
+    if (!_signaturesMatch(actual: payload.signature, expected: expectedSig)) {
+      return TicketQrValidationResult.validLegacy(
+        ticketId: payload.ticketId,
+        eventId: payload.eventId,
+        userId: payload.userId,
+      );
+    }
+
+    return TicketQrValidationResult.valid(
+      eventId: payload.eventId,
+      userId: payload.userId,
+      ticketId: payload.ticketId,
+    );
+  }
+
+  static bool _signaturesMatch({
+    required String actual,
+    required String expected,
+  }) {
+    final normalizedActual = _normalizeSignature(actual);
+    final normalizedExpected = _normalizeSignature(expected);
+    if (normalizedActual == null || normalizedExpected == null) {
+      return false;
+    }
+    return normalizedActual == normalizedExpected;
+  }
+
+  static String? _normalizeSignature(String value) {
+    final trimmed = value.trim().toLowerCase();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+
+    final parsed = int.tryParse(trimmed, radix: 16);
+    if (parsed == null) {
+      return null;
+    }
+
+    return parsed.toRadixString(16).padLeft(8, '0');
+  }
+
+  static String _buildCompactPayload(_TicketQrPayload payload) {
+    return 'CBN1|${payload.eventId}|${payload.userId}|${payload.ticketId}|${payload.expiresAtMs}|${payload.signature}';
   }
 
   static String _signFields({
@@ -499,8 +579,22 @@ class TicketQrValidationResult {
          ticketId: ticketId,
        );
 
-  const TicketQrValidationResult.validLegacy({required int ticketId})
-    : this._(isValid: true, isLegacy: true, ticketId: ticketId);
+  const TicketQrValidationResult.validLegacy({
+    required int ticketId,
+    String? eventId,
+    String? userId,
+  }) : this._(
+         isValid: true,
+         isLegacy: true,
+         eventId: eventId,
+         userId: userId,
+         ticketId: ticketId,
+       );
+
+  const TicketQrValidationResult.validLegacyUser({
+    required String eventId,
+    required String userId,
+  }) : this._(isValid: true, isLegacy: true, eventId: eventId, userId: userId);
 
   const TicketQrValidationResult.invalid(String message)
     : this._(isValid: false, isLegacy: false, errorMessage: message);
@@ -523,15 +617,74 @@ class _TicketQrPayload {
     required this.signature,
   });
 
+  static _TicketQrPayload? tryParseCompact(String value) {
+    if (!value.startsWith('CBN1|')) {
+      return null;
+    }
+
+    final parts = value.split('|');
+    if (parts.length != 6) {
+      return null;
+    }
+
+    final ticketId = int.tryParse(parts[3].trim());
+    final expiresAtMs = int.tryParse(parts[4].trim());
+    if (ticketId == null || expiresAtMs == null) {
+      return null;
+    }
+
+    return _TicketQrPayload(
+      version: 1,
+      eventId: parts[1].trim(),
+      userId: parts[2].trim(),
+      ticketId: ticketId,
+      expiresAtMs: expiresAtMs,
+      signature: parts[5].trim(),
+    );
+  }
+
   factory _TicketQrPayload.fromMap(Map<String, dynamic> map) {
     return _TicketQrPayload(
-      version: (map['v'] ?? 0) as int,
-      eventId: (map['eventId'] ?? '').toString(),
-      userId: (map['userId'] ?? '').toString(),
-      ticketId: (map['ticketId'] ?? 0) as int,
-      expiresAtMs: (map['exp'] ?? 0) as int,
-      signature: (map['sig'] ?? '').toString(),
+      version: _intValue(map, ['v', 'version']) ?? 0,
+      eventId: _stringValue(map, ['eventId', 'event_id', 'eventid']),
+      userId: _stringValue(map, ['userId', 'user_id', 'userid']),
+      ticketId: _intValue(map, ['ticketId', 'ticket_id']) ?? -1,
+      expiresAtMs: _intValue(map, ['exp', 'expiresAtMs', 'expires_at']) ?? 0,
+      signature: _stringValue(map, ['sig', 'signature']),
     );
+  }
+
+  static String _stringValue(Map<String, dynamic> map, List<String> keys) {
+    for (final key in keys) {
+      final value = map[key];
+      if (value == null) {
+        continue;
+      }
+      final asString = value.toString().trim();
+      if (asString.isNotEmpty) {
+        return asString;
+      }
+    }
+    return '';
+  }
+
+  static int? _intValue(Map<String, dynamic> map, List<String> keys) {
+    for (final key in keys) {
+      final value = map[key];
+      if (value is int) {
+        return value;
+      }
+      if (value is double) {
+        return value.toInt();
+      }
+      if (value is String) {
+        final parsed = int.tryParse(value.trim());
+        if (parsed != null) {
+          return parsed;
+        }
+      }
+    }
+    return null;
   }
 
   Map<String, dynamic> toMap() {
@@ -543,5 +696,27 @@ class _TicketQrPayload {
       'exp': expiresAtMs,
       'sig': signature,
     };
+  }
+}
+
+class _LegacyEventUserPayload {
+  final String eventId;
+  final String userId;
+
+  const _LegacyEventUserPayload({required this.eventId, required this.userId});
+
+  static _LegacyEventUserPayload? tryParse(String value) {
+    final separatorIndex = value.indexOf('_');
+    if (separatorIndex <= 0 || separatorIndex >= value.length - 1) {
+      return null;
+    }
+
+    final eventId = value.substring(0, separatorIndex).trim();
+    final userId = value.substring(separatorIndex + 1).trim();
+    if (eventId.isEmpty || userId.isEmpty) {
+      return null;
+    }
+
+    return _LegacyEventUserPayload(eventId: eventId, userId: userId);
   }
 }

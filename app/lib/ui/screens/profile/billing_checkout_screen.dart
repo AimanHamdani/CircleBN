@@ -233,7 +233,7 @@ class _BillingCheckoutScreenState extends State<BillingCheckoutScreen> {
               _SectionCard(
                 title: 'Payment Type',
                 child: DropdownButtonFormField<String>(
-                  value: _paymentType,
+                  initialValue: _paymentType,
                   items: const [
                     DropdownMenuItem(
                       value: 'Credit Card',

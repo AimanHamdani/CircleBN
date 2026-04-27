@@ -1319,7 +1319,7 @@ class _PinnedEventCard extends StatelessWidget {
     final hour12 = ((h + 11) % 12) + 1;
     final ampm = h >= 12 ? 'pm' : 'am';
     final min = two(startAt.minute);
-    final when = '$month/$day ${hour12}:$min$ampm';
+    final when = '$month/$day $hour12:$min$ampm';
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(

@@ -45,7 +45,31 @@ class EventRegistrationRepository {
       () => _queryByEventId(eventId),
       (data) => _eventIdFromData(data) == eventId,
     );
-    return scoped.map(_userIdFromData).where((id) => id.isNotEmpty).toSet().toList();
+
+    final sorted = List<Map<String, dynamic>>.from(scoped)
+      ..sort((a, b) {
+        final aRegisteredAt = _registeredAtMs(a);
+        final bRegisteredAt = _registeredAtMs(b);
+        if (aRegisteredAt != bRegisteredAt) {
+          return aRegisteredAt.compareTo(bRegisteredAt);
+        }
+
+        final aUserId = _userIdFromData(a);
+        final bUserId = _userIdFromData(b);
+        return aUserId.compareTo(bUserId);
+      });
+
+    final seen = <String>{};
+    final orderedUserIds = <String>[];
+    for (final data in sorted) {
+      final userId = _userIdFromData(data).trim();
+      if (userId.isEmpty || !seen.add(userId)) {
+        continue;
+      }
+      orderedUserIds.add(userId);
+    }
+
+    return orderedUserIds;
   }
 
   Future<int> getJoinedCount(String eventId) async {
@@ -69,7 +93,11 @@ class EventRegistrationRepository {
       return true;
     } catch (_) {
       final all = await _safeAllData();
-      return all.any((data) => _eventIdFromData(data) == eventId && _userIdFromData(data) == userId);
+      return all.any(
+        (data) =>
+            _eventIdFromData(data) == eventId &&
+            _userIdFromData(data) == userId,
+      );
     }
   }
 
@@ -82,20 +110,27 @@ class EventRegistrationRepository {
     }
     final id = _docId(eventId, userId);
     try {
-      await _createRegistrationDoc(id: id, eventId: eventId, userId: userId, lowercaseKeys: false);
+      await _createRegistrationDoc(
+        id: id,
+        eventId: eventId,
+        userId: userId,
+        lowercaseKeys: false,
+      );
     } on AppwriteException catch (e) {
       if (e.code == 409) {
         return;
       }
       // Retry with lowercase keys in case collection attributes were created that way.
-      await _createRegistrationDoc(id: id, eventId: eventId, userId: userId, lowercaseKeys: true);
+      await _createRegistrationDoc(
+        id: id,
+        eventId: eventId,
+        userId: userId,
+        lowercaseKeys: true,
+      );
     }
   }
 
-  Future<void> cancel({
-    required String eventId,
-    required String userId,
-  }) async {
+  Future<void> cancel({required String eventId, required String userId}) async {
     if (!_isConfigured || eventId.trim().isEmpty || userId.trim().isEmpty) {
       return;
     }
@@ -169,9 +204,7 @@ class EventRegistrationRepository {
   Future<List<dynamic>> _listAllRegistrationDocs() async {
     final docs = await AppwriteService.listDocuments(
       collectionId: AppwriteConfig.eventRegistrationsCollectionId,
-      queries: [
-        Query.limit(5000),
-      ],
+      queries: [Query.limit(5000)],
     );
     return docs.documents;
   }
@@ -180,19 +213,13 @@ class EventRegistrationRepository {
     try {
       final docs = await AppwriteService.listDocuments(
         collectionId: AppwriteConfig.eventRegistrationsCollectionId,
-        queries: [
-          Query.equal('eventId', eventId),
-          Query.limit(5000),
-        ],
+        queries: [Query.equal('eventId', eventId), Query.limit(5000)],
       );
       return docs.documents;
     } on AppwriteException catch (_) {
       final docs = await AppwriteService.listDocuments(
         collectionId: AppwriteConfig.eventRegistrationsCollectionId,
-        queries: [
-          Query.equal('eventid', eventId),
-          Query.limit(5000),
-        ],
+        queries: [Query.equal('eventid', eventId), Query.limit(5000)],
       );
       return docs.documents;
     }
@@ -202,19 +229,13 @@ class EventRegistrationRepository {
     try {
       final docs = await AppwriteService.listDocuments(
         collectionId: AppwriteConfig.eventRegistrationsCollectionId,
-        queries: [
-          Query.equal('userId', userId),
-          Query.limit(5000),
-        ],
+        queries: [Query.equal('userId', userId), Query.limit(5000)],
       );
       return docs.documents;
     } on AppwriteException catch (_) {
       final docs = await AppwriteService.listDocuments(
         collectionId: AppwriteConfig.eventRegistrationsCollectionId,
-        queries: [
-          Query.equal('userid', userId),
-          Query.limit(5000),
-        ],
+        queries: [Query.equal('userid', userId), Query.limit(5000)],
       );
       return docs.documents;
     }
@@ -227,6 +248,22 @@ class EventRegistrationRepository {
   String _userIdFromData(Map<String, dynamic> data) {
     return data['userId']?.toString() ?? data['userid']?.toString() ?? '';
   }
+
+  int _registeredAtMs(Map<String, dynamic> data) {
+    final registeredAtRaw =
+        data['registeredAt']?.toString() ?? data['registeredat']?.toString();
+    if (registeredAtRaw == null || registeredAtRaw.trim().isEmpty) {
+      return 0;
+    }
+
+    final parsed = DateTime.tryParse(registeredAtRaw.trim());
+    if (parsed == null) {
+      return 0;
+    }
+
+    return parsed.millisecondsSinceEpoch;
+  }
 }
 
-EventRegistrationRepository eventRegistrationRepository() => EventRegistrationRepository();
+EventRegistrationRepository eventRegistrationRepository() =>
+    EventRegistrationRepository();

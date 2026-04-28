@@ -2,8 +2,11 @@ import 'package:appwrite/appwrite.dart';
 
 import '../appwrite/appwrite_config.dart';
 import '../appwrite/appwrite_service.dart';
+import '../models/app_notification.dart';
 import '../models/club.dart';
 import 'club_member_repository.dart';
+import 'notification_repository.dart';
+import 'profile_repository.dart';
 import 'club_repository.dart';
 
 class ClubJoinRequestRepository {
@@ -22,6 +25,58 @@ class ClubJoinRequestRepository {
 
   bool _isPrivateWithApproval(Club club) {
     return club.privacy.trim().toLowerCase() == 'private';
+  }
+
+  Future<void> _notifyAdminsForJoinRequest({
+    required Club club,
+    required String requesterUserId,
+  }) async {
+    final recipients = <String>{};
+    final creatorId = (club.creatorId ?? '').trim();
+    if (creatorId.isNotEmpty) {
+      recipients.add(creatorId);
+    }
+    try {
+      final members = await clubMemberRepository().listMembers(clubId: club.id);
+      for (final member in members) {
+        if (member.role == ClubMemberRole.admin) {
+          recipients.add(member.userId.trim());
+        }
+      }
+    } catch (_) {
+      // Best effort.
+    }
+    recipients.removeWhere((id) => id.isEmpty || id == requesterUserId);
+    if (recipients.isEmpty) {
+      return;
+    }
+
+    var requesterLabel = requesterUserId;
+    try {
+      final profile = await profileRepository().getProfileById(requesterUserId);
+      final realName = profile.realName.trim();
+      final username = profile.username.trim();
+      if (realName.isNotEmpty && realName.toLowerCase() != 'name') {
+        requesterLabel = realName;
+      } else if (username.isNotEmpty && username.toLowerCase() != 'username') {
+        requesterLabel = username;
+      }
+    } catch (_) {
+      // Best effort.
+    }
+
+    final createdAt = DateTime.now();
+    for (final recipientId in recipients) {
+      final notification = AppNotification(
+        id: 'club_join_request_${club.id}_$recipientId_${createdAt.microsecondsSinceEpoch}',
+        userId: recipientId,
+        type: AppNotificationType.eventJoinRequest,
+        title: 'New club join request',
+        message: '$requesterLabel requested to join ${club.name}.',
+        createdAt: createdAt,
+      );
+      await notificationRepository().upsertMany(recipientId, [notification]);
+    }
   }
 
   Future<void> requestToJoin({
@@ -61,6 +116,10 @@ class ClubJoinRequestRepository {
       collectionId: AppwriteConfig.clubsCollectionId,
       documentId: trimmedClubId,
       data: {'pendingJoinRequestUserIds': next},
+    );
+    await _notifyAdminsForJoinRequest(
+      club: club,
+      requesterUserId: trimmedUserId,
     );
   }
 

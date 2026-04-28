@@ -1,10 +1,12 @@
 import '../appwrite/appwrite_config.dart';
 import '../appwrite/appwrite_service.dart';
 import '../auth/current_user.dart';
+import '../models/app_notification.dart';
 import '../models/event.dart';
 import '../models/event_privacy.dart';
 import 'club_member_repository.dart';
 import 'event_registration_repository.dart';
+import 'notification_repository.dart';
 
 class EventInviteRepository {
   Future<List<String>> buildClubInviteeIds({
@@ -84,7 +86,8 @@ class EventInviteRepository {
       documentId: eventId,
     );
     final data = Map<String, dynamic>.from(doc.data);
-    final raw = data['pendingJoinRequestUserIds'] ??
+    final raw =
+        data['pendingJoinRequestUserIds'] ??
         data['pending_join_request_user_ids'];
     final existing = _parseIdList(raw);
     if (existing.contains(uid)) {
@@ -123,6 +126,18 @@ class EventInviteRepository {
       documentId: eventId,
       data: {'pendingJoinRequestUserIds': next},
     );
+    final createdAt = DateTime.now();
+    await notificationRepository().upsertMany(uid, [
+      AppNotification(
+        id: 'event_join_request_rejected_${eventId}_${uid}_${createdAt.microsecondsSinceEpoch}',
+        userId: uid,
+        type: AppNotificationType.eventJoinRequest,
+        title: 'Join request declined',
+        message: 'Your request to join this event was declined.',
+        createdAt: createdAt,
+        targetEventId: eventId,
+      ),
+    ]);
   }
 
   Future<void> approveJoinRequest({
@@ -133,10 +148,7 @@ class EventInviteRepository {
     if (uid.isEmpty) {
       return;
     }
-    await eventRegistrationRepository().register(
-      eventId: eventId,
-      userId: uid,
-    );
+    await eventRegistrationRepository().register(eventId: eventId, userId: uid);
     final joined = await eventRegistrationRepository().getJoinedCount(eventId);
     final doc = await AppwriteService.getDocument(
       collectionId: AppwriteConfig.eventsCollectionId,
@@ -151,16 +163,29 @@ class EventInviteRepository {
     await AppwriteService.updateDocument(
       collectionId: AppwriteConfig.eventsCollectionId,
       documentId: eventId,
-      data: {
-        'pendingJoinRequestUserIds': next,
-        'joined': joined,
-      },
+      data: {'pendingJoinRequestUserIds': next, 'joined': joined},
     );
+    final createdAt = DateTime.now();
+    await notificationRepository().upsertMany(uid, [
+      AppNotification(
+        id: 'event_join_request_approved_${eventId}_${uid}_${createdAt.microsecondsSinceEpoch}',
+        userId: uid,
+        type: AppNotificationType.eventJoinRequest,
+        title: 'Join request approved',
+        message:
+            'Your request was approved. You are now registered for this event.',
+        createdAt: createdAt,
+        targetEventId: eventId,
+      ),
+    ]);
   }
 
   List<String> _parseIdList(Object? v) {
     if (v is List) {
-      return v.map((e) => e.toString()).where((e) => e.trim().isNotEmpty).toList();
+      return v
+          .map((e) => e.toString())
+          .where((e) => e.trim().isNotEmpty)
+          .toList();
     }
     if (v is String) {
       return v

@@ -1889,19 +1889,20 @@ class _SportRadarCardState extends State<_SportRadarCard> {
     if (key.contains('football')) {
       return [
         _RadarAxisDefinition(
-          key: 'finishing',
-          label: 'Finishing',
+          key: 'shooting',
+          label: 'Shooting',
           valueBuilder: (a) => v(a, 'goals'),
         ),
         _RadarAxisDefinition(
-          key: 'creation',
-          label: 'Creation',
+          key: 'passing',
+          label: 'Passing',
           valueBuilder: (a) => v(a, 'assists'),
         ),
         _RadarAxisDefinition(
-          key: 'distribution',
-          label: 'Distribution',
-          valueBuilder: (a) => v(a, 'passes') / 8,
+          key: 'dribbling',
+          label: 'Dribbling',
+          valueBuilder: (a) =>
+              v(a, 'goals') * 0.6 + v(a, 'assists') * 0.4,
         ),
         _RadarAxisDefinition(
           key: 'defending',
@@ -1909,26 +1910,20 @@ class _SportRadarCardState extends State<_SportRadarCard> {
           valueBuilder: (a) => v(a, 'tackles'),
         ),
         _RadarAxisDefinition(
-          key: 'goalkeeping',
-          label: 'Goalkeeping',
-          valueBuilder: (a) => v(a, 'saves'),
+          key: 'pace',
+          label: 'Pace',
+          valueBuilder: (a) => v(a, 'passes') / 8,
         ),
         _RadarAxisDefinition(
-          key: 'impact',
-          label: 'Impact',
+          key: 'physical',
+          label: 'Physical',
           valueBuilder: (a) =>
-              v(a, 'goals') + v(a, 'assists') + v(a, 'tackles') * 0.5,
+              v(a, 'tackles') * 0.8 + v(a, 'saves') * 0.6,
         ),
       ];
     }
 
-    if (key.contains('badminton') ||
-        (key.contains('tennis') &&
-            !key.contains('table tennis') &&
-            !key.contains('ping pong')) ||
-        key.contains('pickle') ||
-        key.contains('table tennis') ||
-        key.contains('ping pong')) {
+    if (key.contains('badminton')) {
       return [
         _RadarAxisDefinition(
           key: 'attack',
@@ -1936,31 +1931,241 @@ class _SportRadarCardState extends State<_SportRadarCard> {
           valueBuilder: (a) => v(a, 'pointsWon'),
         ),
         _RadarAxisDefinition(
+          key: 'defense',
+          label: 'Defense',
+          valueBuilder: (a) => v(a, 'gamesWon') * 0.7 + v(a, 'aces') * 0.3,
+        ),
+        _RadarAxisDefinition(
+          key: 'footwork',
+          label: 'Footwork',
+          valueBuilder: (a) => v(a, 'gamesWon') * 0.8,
+        ),
+        _RadarAxisDefinition(
+          key: 'shot_control',
+          label: 'Shot Control',
+          valueBuilder: (a) => v(a, 'pointsWon') * 0.65 + v(a, 'aces') * 0.35,
+        ),
+        _RadarAxisDefinition(
           key: 'serve',
           label: 'Serve',
           valueBuilder: (a) => v(a, 'aces'),
         ),
         _RadarAxisDefinition(
-          key: 'control',
-          label: 'Control',
-          valueBuilder: (a) => v(a, 'gamesWon'),
+          key: 'endurance',
+          label: 'Endurance',
+          valueBuilder: (a) => v(a, 'pointsWon') * 0.25 + v(a, 'gamesWon') * 0.75,
+        ),
+      ];
+    }
+
+    if (key.contains('running') || key.contains('jogging')) {
+      return [
+        _RadarAxisDefinition(
+          key: 'speed',
+          label: 'Speed',
+          valueBuilder: (a) => v(a, 'points'),
+        ),
+        _RadarAxisDefinition(
+          key: 'endurance',
+          label: 'Endurance',
+          valueBuilder: (a) => v(a, 'assists') > 0 ? v(a, 'assists') : v(a, 'points') * 0.8,
+        ),
+        _RadarAxisDefinition(
+          key: 'pace_control',
+          label: 'Pace Control',
+          valueBuilder: (a) => v(a, 'points') * 0.85,
+        ),
+        _RadarAxisDefinition(
+          key: 'acceleration',
+          label: 'Acceleration',
+          valueBuilder: (a) => v(a, 'points') * 0.65,
+        ),
+        _RadarAxisDefinition(
+          key: 'recovery',
+          label: 'Recovery',
+          valueBuilder: (a) => v(a, 'assists') * 0.6 + v(a, 'points') * 0.3,
         ),
         _RadarAxisDefinition(
           key: 'consistency',
           label: 'Consistency',
-          valueBuilder: (a) =>
-              v(a, 'gamesWon') * 0.8 + v(a, 'pointsWon') * 0.15,
+          valueBuilder: (a) => v(a, 'points') * 0.7 + v(a, 'assists') * 0.3,
+        ),
+      ];
+    }
+
+    if (key.contains('cycling')) {
+      return [
+        _RadarAxisDefinition(
+          key: 'speed',
+          label: 'Speed',
+          valueBuilder: (a) => v(a, 'points'),
         ),
         _RadarAxisDefinition(
-          key: 'composure',
-          label: 'Composure',
-          valueBuilder: (a) => v(a, 'gamesWon') * 0.7 + v(a, 'aces') * 0.4,
+          key: 'endurance',
+          label: 'Endurance',
+          valueBuilder: (a) => v(a, 'assists') > 0 ? v(a, 'assists') : v(a, 'points') * 0.75,
         ),
         _RadarAxisDefinition(
-          key: 'stamina',
-          label: 'Stamina',
-          valueBuilder: (a) =>
-              v(a, 'pointsWon') * 0.25 + v(a, 'gamesWon') * 0.75,
+          key: 'climbing',
+          label: 'Climbing',
+          valueBuilder: (a) => v(a, 'points') * 0.7 + v(a, 'assists') * 0.2,
+        ),
+        _RadarAxisDefinition(
+          key: 'sprint_power',
+          label: 'Sprint Power',
+          valueBuilder: (a) => v(a, 'points') * 0.9,
+        ),
+        _RadarAxisDefinition(
+          key: 'bike_control',
+          label: 'Bike Control',
+          valueBuilder: (a) => v(a, 'assists') * 0.5 + v(a, 'points') * 0.35,
+        ),
+        _RadarAxisDefinition(
+          key: 'consistency',
+          label: 'Consistency',
+          valueBuilder: (a) => v(a, 'points') * 0.65 + v(a, 'assists') * 0.35,
+        ),
+      ];
+    }
+
+    if (key.contains('pickle')) {
+      return [
+        _RadarAxisDefinition(
+          key: 'serve',
+          label: 'Serve',
+          valueBuilder: (a) => v(a, 'aces'),
+        ),
+        _RadarAxisDefinition(
+          key: 'return',
+          label: 'Return',
+          valueBuilder: (a) => v(a, 'pointsWon') * 0.75,
+        ),
+        _RadarAxisDefinition(
+          key: 'volley',
+          label: 'Volley',
+          valueBuilder: (a) => v(a, 'gamesWon') * 0.7 + v(a, 'pointsWon') * 0.2,
+        ),
+        _RadarAxisDefinition(
+          key: 'dink_control',
+          label: 'Dink Control',
+          valueBuilder: (a) => v(a, 'gamesWon') * 0.8 + v(a, 'aces') * 0.2,
+        ),
+        _RadarAxisDefinition(
+          key: 'positioning',
+          label: 'Positioning',
+          valueBuilder: (a) => v(a, 'gamesWon') * 0.65 + v(a, 'pointsWon') * 0.25,
+        ),
+        _RadarAxisDefinition(
+          key: 'communication',
+          label: 'Communication',
+          valueBuilder: (a) => v(a, 'gamesWon') * 0.55 + v(a, 'pointsWon') * 0.25,
+        ),
+      ];
+    }
+
+    if (key.contains('swimming')) {
+      return [
+        _RadarAxisDefinition(
+          key: 'sprint_speed',
+          label: 'Sprint Speed',
+          valueBuilder: (a) => v(a, 'points'),
+        ),
+        _RadarAxisDefinition(
+          key: 'endurance',
+          label: 'Endurance',
+          valueBuilder: (a) => v(a, 'assists') > 0 ? v(a, 'assists') : v(a, 'points') * 0.8,
+        ),
+        _RadarAxisDefinition(
+          key: 'stroke_technique',
+          label: 'Stroke Technique',
+          valueBuilder: (a) => v(a, 'points') * 0.7 + v(a, 'assists') * 0.3,
+        ),
+        _RadarAxisDefinition(
+          key: 'breath_control',
+          label: 'Breath Control',
+          valueBuilder: (a) => v(a, 'assists') * 0.55 + v(a, 'points') * 0.25,
+        ),
+        _RadarAxisDefinition(
+          key: 'start_turn',
+          label: 'Start/Turn',
+          valueBuilder: (a) => v(a, 'points') * 0.75,
+        ),
+        _RadarAxisDefinition(
+          key: 'consistency',
+          label: 'Consistency',
+          valueBuilder: (a) => v(a, 'points') * 0.6 + v(a, 'assists') * 0.4,
+        ),
+      ];
+    }
+
+    if (key.contains('table tennis') || key.contains('ping pong')) {
+      return [
+        _RadarAxisDefinition(
+          key: 'serve',
+          label: 'Serve',
+          valueBuilder: (a) => v(a, 'aces'),
+        ),
+        _RadarAxisDefinition(
+          key: 'spin_control',
+          label: 'Spin Control',
+          valueBuilder: (a) => v(a, 'pointsWon') * 0.55 + v(a, 'aces') * 0.45,
+        ),
+        _RadarAxisDefinition(
+          key: 'forehand',
+          label: 'Forehand',
+          valueBuilder: (a) => v(a, 'pointsWon') * 0.75,
+        ),
+        _RadarAxisDefinition(
+          key: 'backhand',
+          label: 'Backhand',
+          valueBuilder: (a) => v(a, 'gamesWon') * 0.7 + v(a, 'pointsWon') * 0.15,
+        ),
+        _RadarAxisDefinition(
+          key: 'reaction',
+          label: 'Reaction',
+          valueBuilder: (a) => v(a, 'aces') * 0.8 + v(a, 'gamesWon') * 0.2,
+        ),
+        _RadarAxisDefinition(
+          key: 'placement',
+          label: 'Placement',
+          valueBuilder: (a) => v(a, 'gamesWon') * 0.8 + v(a, 'pointsWon') * 0.1,
+        ),
+      ];
+    }
+
+    if (key.contains('tennis') &&
+        !key.contains('table tennis') &&
+        !key.contains('ping pong')) {
+      return [
+        _RadarAxisDefinition(
+          key: 'serve',
+          label: 'Serve',
+          valueBuilder: (a) => v(a, 'aces'),
+        ),
+        _RadarAxisDefinition(
+          key: 'forehand',
+          label: 'Forehand',
+          valueBuilder: (a) => v(a, 'gamesWon') * 0.65 + v(a, 'aces') * 0.2,
+        ),
+        _RadarAxisDefinition(
+          key: 'backhand',
+          label: 'Backhand',
+          valueBuilder: (a) => v(a, 'gamesWon') * 0.55 + v(a, 'setsWon') * 0.45,
+        ),
+        _RadarAxisDefinition(
+          key: 'volley',
+          label: 'Volley',
+          valueBuilder: (a) => v(a, 'gamesWon') * 0.7,
+        ),
+        _RadarAxisDefinition(
+          key: 'footwork',
+          label: 'Footwork',
+          valueBuilder: (a) => v(a, 'setsWon') * 0.7 + v(a, 'gamesWon') * 0.2,
+        ),
+        _RadarAxisDefinition(
+          key: 'consistency',
+          label: 'Consistency',
+          valueBuilder: (a) => v(a, 'setsWon') * 0.8 + v(a, 'gamesWon') * 0.25,
         ),
       ];
     }

@@ -120,9 +120,9 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
     _locationCtrl.text = club.location;
     _privacy = club.privacy.isNotEmpty ? club.privacy : 'Public';
     _memberLimit = club.memberLimit;
-    _approvalRequired = club.approvalRequired;
-    _whoCanSendMessages = club.whoCanSendMessages.isNotEmpty
-        ? club.whoCanSendMessages
+    _approvalRequired = _privacy == 'Private' ? true : club.approvalRequired;
+    _whoCanSendMessages = club.whoCanSendMessages == 'Admins only'
+        ? 'Admins only'
         : 'Everyone';
     _selectedSports = {...club.sports};
     _thumbnailFileId = club.thumbnailFileId;
@@ -359,7 +359,12 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                               context,
                               'Privacy',
                               const ['Public', 'Private'],
-                              (v) => setState(() => _privacy = v),
+                              (v) => setState(() {
+                                _privacy = v;
+                                if (_privacy == 'Private') {
+                                  _approvalRequired = true;
+                                }
+                              }),
                             ),
                     ),
                     const SizedBox(height: 14),
@@ -374,9 +379,15 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                       value: _approvalRequired,
                       onChanged: (!_canEdit || _isSubmitting)
                           ? null
+                          : (_privacy == 'Private')
+                          ? null
                           : (v) => setState(() => _approvalRequired = v),
                       title: const Text('Approval required'),
-                      subtitle: const Text('Members must be approved to join'),
+                      subtitle: Text(
+                        _privacy == 'Private'
+                            ? 'Always required for private clubs'
+                            : 'Members must be approved to join',
+                      ),
                     ),
                     const SizedBox(height: 4),
                     _PickerRow(
@@ -387,11 +398,7 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                           : () => _showOptionPicker<String>(
                               context,
                               'Who can send messages',
-                              const [
-                                'Everyone',
-                                'Admins only',
-                                'Admins & moderators',
-                              ],
+                              const ['Everyone', 'Admins only'],
                               (v) => setState(() => _whoCanSendMessages = v),
                             ),
                     ),
@@ -413,7 +420,8 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
                 onPressed:
                     (!_canEdit ||
                         _isSubmitting ||
-                        (!_isEditMode && (!_canCreateClub || _checkingMembership)))
+                        (!_isEditMode &&
+                            (!_canCreateClub || _checkingMembership)))
                     ? null
                     : _onCreateClub,
                 child: _isSubmitting
@@ -674,9 +682,7 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
           return;
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Only premium users can create clubs.'),
-          ),
+          const SnackBar(content: Text('Only premium users can create clubs.')),
         );
         return;
       }
@@ -710,7 +716,7 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
         'sports': _selectedSports.toList(),
         'privacy': _privacy,
         'memberLimit': _memberLimit,
-        'approvalRequired': _approvalRequired,
+        'approvalRequired': _privacy == 'Private' ? true : _approvalRequired,
         'whoCanSendMessages': _whoCanSendMessages,
         'location': _locationCtrl.text.trim(),
         'creatorId': _isEditMode

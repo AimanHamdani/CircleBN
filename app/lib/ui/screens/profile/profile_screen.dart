@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:math' as math;
 
 import 'package:appwrite/appwrite.dart';
 import 'package:flutter/material.dart';
@@ -295,9 +296,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Type DEACTIVATE to confirm this action.',
-              ),
+              const Text('Type DEACTIVATE to confirm this action.'),
               const SizedBox(height: 10),
               TextField(
                 controller: typedController,
@@ -316,7 +315,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: typedController.text.trim().toUpperCase() == 'DEACTIVATE'
+              onPressed:
+                  typedController.text.trim().toUpperCase() == 'DEACTIVATE'
                   ? () => Navigator.of(ctx).pop(true)
                   : null,
               style: FilledButton.styleFrom(
@@ -338,9 +338,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Step 3 of 3'),
-        content: const Text(
-          'Final confirmation: deactivate this account now?',
-        ),
+        content: const Text('Final confirmation: deactivate this account now?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -558,26 +556,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         children: [
                           if (_activeTab == _ProfileContentTab.profile)
                             _CardSection(
-                            title: 'PERSONAL INFO',
-                            child: Column(
-                              children: [
-                                _InfoRow(label: 'Name', value: realName),
-                                _InfoRow(label: 'Height', value: height),
-                                _InfoRow(label: 'Age', value: age),
-                                _InfoRow(label: 'Gender', value: gender),
-                                _InfoRow(
-                                  label: 'Skill Level',
-                                  value: skillLevel,
-                                ),
-                                _InfoRow(
-                                  label: 'Email',
-                                  value: email,
-                                  valueColor: const Color(0xFF138E6F),
-                                ),
-                                _InfoRow(label: 'Emergency', value: emergency),
-                              ],
+                              title: 'PERSONAL INFO',
+                              child: Column(
+                                children: [
+                                  _InfoRow(label: 'Name', value: realName),
+                                  _InfoRow(label: 'Height', value: height),
+                                  _InfoRow(label: 'Age', value: age),
+                                  _InfoRow(label: 'Gender', value: gender),
+                                  _InfoRow(
+                                    label: 'Skill Level',
+                                    value: skillLevel,
+                                  ),
+                                  _InfoRow(
+                                    label: 'Email',
+                                    value: email,
+                                    valueColor: const Color(0xFF138E6F),
+                                  ),
+                                  _InfoRow(
+                                    label: 'Emergency',
+                                    value: emergency,
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
                           if (_activeTab == _ProfileContentTab.profile) ...[
                             const SizedBox(height: 14),
                             Builder(
@@ -628,447 +629,468 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ],
                           if (_activeTab == _ProfileContentTab.sports) ...[
                             _CardSection(
-                            title: 'SKILL LEVEL',
-                            titleAction: IconButton(
-                              onPressed: _showSkillLevelHelpDialog,
-                              tooltip: 'About skill levels & ranks',
-                              icon: Icon(
-                                Icons.help_outline,
-                                color: Colors.black.withValues(alpha: 0.45),
-                                size: 22,
-                              ),
-                              visualDensity: VisualDensity.compact,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(
-                                minWidth: 36,
-                                minHeight: 36,
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        _showAllSportsSkills
-                                            ? 'All Sports'
-                                            : 'Played Sports',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                    ),
-                                    TextButton(
-                                      onPressed: () {
-                                        setState(() {
-                                          _showAllSportsSkills =
-                                              !_showAllSportsSkills;
-                                        });
-                                      },
-                                      child: Text(
-                                        _showAllSportsSkills
-                                            ? 'Show played only'
-                                            : 'Show all sports',
-                                      ),
-                                    ),
-                                  ],
+                              title: 'SKILL LEVEL',
+                              titleAction: IconButton(
+                                onPressed: _showSkillLevelHelpDialog,
+                                tooltip: 'About skill levels & ranks',
+                                icon: Icon(
+                                  Icons.help_outline,
+                                  color: Colors.black.withValues(alpha: 0.45),
+                                  size: 22,
                                 ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _showAllSportsSkills
-                                      ? 'Showing all sports. Sports without scored matches show unlock guidance below.'
-                                      : 'Showing sports with activity only.',
-                                  style: TextStyle(
-                                    color: Colors.black.withValues(alpha: 0.55),
-                                  ),
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 36,
+                                  minHeight: 36,
                                 ),
-                                const SizedBox(height: 10),
-                                ...(() {
-                                  final allSports = SampleData.sports;
-                                  final playedSports = profile
-                                      .sportSkills
-                                      .entries
-                                      .where((entry) {
-                                        final sportName = entry.key.trim();
-                                        final sportSkill = entry.value;
-                                        if (sportName.isEmpty) {
-                                          return false;
-                                        }
-                                        return sportSkill.matchesPlayed > 0;
-                                      })
-                                      .map((entry) => entry.key.trim())
-                                      .toSet();
-                                  final visibleSports = _showAllSportsSkills
-                                      ? allSports
-                                      : allSports
-                                            .where(playedSports.contains)
-                                            .toList();
-                                  if (visibleSports.isEmpty) {
-                                    return <Widget>[
-                                      Text(
-                                        'No sports played yet.',
-                                        style: TextStyle(
-                                          color: Colors.black.withValues(
-                                            alpha: 0.55,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          _showAllSportsSkills
+                                              ? 'All Sports'
+                                              : 'Played Sports',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 14,
                                           ),
                                         ),
                                       ),
-                                    ];
-                                  }
-                                  return [
-                                    for (
-                                      int i = 0;
-                                      i < visibleSports.length;
-                                      i++
-                                    ) ...[
-                                      () {
-                                        final sportName = visibleSports[i];
-                                        final sportSkill =
-                                            profile.sportSkills[sportName] ??
-                                            const SportSkillProgress();
-                                        final hasPlayed =
-                                            sportSkill.matchesPlayed > 0;
-                                        final pointsNeeded =
-                                            _pointsNeededForTier(
-                                              sportSkill.tierLevel,
-                                            );
-                                        final progress = pointsNeeded <= 0
-                                            ? 0.0
-                                            : (sportSkill.tierProgress /
-                                                      pointsNeeded)
-                                                  .clamp(0.0, 1.0);
-                                        return _SportSkillRow(
-                                          sport: sportName,
-                                          hasPlayed: hasPlayed,
-                                          levelLabel:
-                                              'Lvl ${sportSkill.tierLevel}',
-                                          pointsLabel:
-                                              '${sportSkill.tierProgress}/$pointsNeeded pts',
-                                          progress: progress,
-                                        );
-                                      }(),
-                                      if (i != visibleSports.length - 1)
-                                        const SizedBox(height: 12),
+                                      TextButton(
+                                        onPressed: () {
+                                          setState(() {
+                                            _showAllSportsSkills =
+                                                !_showAllSportsSkills;
+                                          });
+                                        },
+                                        child: Text(
+                                          _showAllSportsSkills
+                                              ? 'Show played only'
+                                              : 'Show all sports',
+                                        ),
+                                      ),
                                     ],
-                                  ];
-                                })(),
-                              ],
-                            ),
-                          ),
-                            const SizedBox(height: 14),
-                            _CardSection(
-                            title: 'SPORTS RECOMMENDATION',
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (profile.preferredSports.isEmpty)
+                                  ),
+                                  const SizedBox(height: 4),
                                   Text(
-                                    'No sports selected yet.',
+                                    _showAllSportsSkills
+                                        ? 'Showing all sports. Sports without scored matches show unlock guidance below.'
+                                        : 'Showing sports with activity only.',
                                     style: TextStyle(
                                       color: Colors.black.withValues(
                                         alpha: 0.55,
                                       ),
                                     ),
-                                  )
-                                else
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: [
-                                      for (final sport
-                                          in profile.preferredSports)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 6,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: cs.primary.withValues(
-                                              alpha: 0.12,
-                                            ),
-                                            borderRadius: BorderRadius.circular(
-                                              999,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            sport,
-                                            style: TextStyle(
-                                              color: cs.primary,
-                                              fontWeight: FontWeight.w700,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  ...(() {
+                                    final allSports = SampleData.sports;
+                                    final playedSports = profile
+                                        .sportSkills
+                                        .entries
+                                        .where((entry) {
+                                          final sportName = entry.key.trim();
+                                          final sportSkill = entry.value;
+                                          if (sportName.isEmpty) {
+                                            return false;
+                                          }
+                                          return sportSkill.matchesPlayed > 0;
+                                        })
+                                        .map((entry) => entry.key.trim())
+                                        .toSet();
+                                    final visibleSports = _showAllSportsSkills
+                                        ? allSports
+                                        : allSports
+                                              .where(playedSports.contains)
+                                              .toList();
+                                    if (visibleSports.isEmpty) {
+                                      return <Widget>[
+                                        Text(
+                                          'No sports played yet.',
+                                          style: TextStyle(
+                                            color: Colors.black.withValues(
+                                              alpha: 0.55,
                                             ),
                                           ),
                                         ),
-                                    ],
-                                  ),
-                                const SizedBox(height: 12),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: TextButton(
-                                    onPressed: () =>
-                                        _editPreferredSports(profile),
-                                    child: const Text('Add / Remove Sports'),
-                                  ),
-                                ),
-                              ],
+                                      ];
+                                    }
+                                    return [
+                                      for (
+                                        int i = 0;
+                                        i < visibleSports.length;
+                                        i++
+                                      ) ...[
+                                        () {
+                                          final sportName = visibleSports[i];
+                                          final sportSkill =
+                                              profile.sportSkills[sportName] ??
+                                              const SportSkillProgress();
+                                          final hasPlayed =
+                                              sportSkill.matchesPlayed > 0;
+                                          final pointsNeeded =
+                                              _pointsNeededForTier(
+                                                sportSkill.tierLevel,
+                                              );
+                                          final progress = pointsNeeded <= 0
+                                              ? 0.0
+                                              : (sportSkill.tierProgress /
+                                                        pointsNeeded)
+                                                    .clamp(0.0, 1.0);
+                                          return _SportSkillRow(
+                                            sport: sportName,
+                                            hasPlayed: hasPlayed,
+                                            levelLabel:
+                                                'Lvl ${sportSkill.tierLevel}',
+                                            pointsLabel:
+                                                '${sportSkill.tierProgress}/$pointsNeeded pts',
+                                            progress: progress,
+                                          );
+                                        }(),
+                                        if (i != visibleSports.length - 1)
+                                          const SizedBox(height: 12),
+                                      ],
+                                    ];
+                                  })(),
+                                ],
+                              ),
                             ),
-                          ),
-                          ],
-                          if (_activeTab == _ProfileContentTab.settings) ...[
+                            const SizedBox(height: 14),
+                            _SportRadarCard(profile: profile),
+                            const SizedBox(height: 14),
                             _CardSection(
-                            title: 'SETTINGS',
-                            child: Column(
-                              children: [
-                                const _SettingsGroupLabel('General'),
-                                _MenuRow(
-                                  label: 'Stats',
-                                  onTap: () {
-                                    if (membership.isPremium) {
-                                      Navigator.of(context).pushNamed(
-                                        ProStatsHubScreen.routeName,
-                                      );
-                                    } else {
-                                      Navigator.of(context).pushNamed(
-                                        FreeStatsScreen.routeName,
-                                      );
-                                    }
-                                  },
-                                ),
-                                const SizedBox(height: 2),
-                                _ToggleMenuRow(
-                                  label: 'Notifications',
-                                  value: notificationsEnabled,
-                                  activeColor: cs.primary,
-                                  onChanged: (v) async {
-                                    await profileRepository().saveMyProfile(
-                                      profile.copyWith(notificationsEnabled: v),
-                                    );
-                                    if (mounted) {
-                                      _reload();
-                                    }
-                                  },
-                                ),
-                                _ToggleMenuRow(
-                                  label: 'Height display',
-                                  subtitle: useImperialHeight
-                                      ? 'Feet & inches'
-                                      : 'Centimeters (cm)',
-                                  value: useImperialHeight,
-                                  activeColor: cs.primary,
-                                  onChanged: (v) async {
-                                    await heightDisplayRepository().setUseImperial(v);
-                                    if (mounted) {
-                                      _reload();
-                                    }
-                                  },
-                                ),
-                                const SizedBox(height: 4),
-                                const _SettingsGroupLabel('Account'),
-                                _MenuRow(
-                                  label: 'Membership',
-                                  trailing: membership.isPremium
-                                      ? Padding(
-                                          padding: const EdgeInsets.only(
-                                            right: 6,
-                                          ),
-                                          child: Container(
+                              title: 'SPORTS RECOMMENDATION',
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (profile.preferredSports.isEmpty)
+                                    Text(
+                                      'No sports selected yet.',
+                                      style: TextStyle(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.55,
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        for (final sport
+                                            in profile.preferredSports)
+                                          Container(
                                             padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 4,
+                                              horizontal: 10,
+                                              vertical: 6,
                                             ),
                                             decoration: BoxDecoration(
                                               color: cs.primary.withValues(
                                                 alpha: 0.12,
                                               ),
                                               borderRadius:
-                                                  BorderRadius.circular(8),
+                                                  BorderRadius.circular(999),
                                             ),
                                             child: Text(
-                                              'Pro',
+                                              sport,
                                               style: TextStyle(
                                                 color: cs.primary,
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 12,
+                                                fontWeight: FontWeight.w700,
                                               ),
                                             ),
                                           ),
-                                        )
-                                      : null,
-                                  onTap: () async {
-                                    await Navigator.of(context).pushNamed(
-                                      MembershipScreen.routeName,
-                                    );
-                                    if (mounted) {
-                                      _reload();
-                                    }
-                                  },
-                                ),
-                                _MenuRow(
-                                  label: 'Edit Profile',
-                                  onTap: () async {
-                                    await Navigator.of(context).pushNamed(
-                                      EditProfileScreen.routeName,
-                                      arguments: profile,
-                                    );
-                                    if (mounted) {
-                                      _reload();
-                                    }
-                                  },
-                                ),
-                                const SizedBox(height: 4),
-                                const _SettingsGroupLabel('Security'),
-                                _MenuRow(
-                                  label: 'Change Password',
-                                  onTap: () {
-                                    Navigator.of(
-                                      context,
-                                    ).pushNamed(ChangePasswordScreen.routeName);
-                                  },
-                                ),
-                                _MenuRow(
-                                  label: 'Log Out',
-                                  onTap: () async {
-                                    final shouldLogout =
-                                        await showDialog<bool>(
-                                          context: context,
-                                          builder: (dialogContext) => AlertDialog(
-                                            title: const Text('Confirm Logout'),
-                                            content: const Text(
-                                              'log out from this account?',
-                                            ),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () =>
-                                                    Navigator.of(
-                                                      dialogContext,
-                                                    ).pop(false),
-                                                child: const Text('Cancel'),
-                                              ),
-                                              TextButton(
-                                                onPressed: () =>
-                                                    Navigator.of(
-                                                      dialogContext,
-                                                    ).pop(true),
-                                                child: const Text('Log Out'),
-                                              ),
-                                            ],
-                                          ),
-                                        ) ??
-                                        false;
-                                    if (!shouldLogout) {
-                                      return;
-                                    }
-                                    final navigator = Navigator.of(context);
-                                    final messenger = ScaffoldMessenger.of(
-                                      context,
-                                    );
-                                    try {
-                                      // Use deleteSessions() to also remove client-side cookies/session storage.
-                                      // This prevents the "log out then can't log back in" issue.
-                                      await AppwriteService.account
-                                          .deleteSessions();
-                                    } on AppwriteException catch (e) {
-                                      if (!mounted) return;
-                                      messenger.showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            e.message ?? 'Failed to log out.',
-                                          ),
-                                        ),
-                                      );
-                                    } catch (_) {
-                                      if (!mounted) return;
-                                      messenger.showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Failed to log out.'),
-                                        ),
-                                      );
-                                    } finally {
-                                      await SessionPersistence.clear();
-                                      CurrentUser.reset();
-                                    }
-                                    if (!mounted) return;
-                                    navigator.pushNamedAndRemoveUntil(
-                                      LoginScreen.routeName,
-                                      (_) => false,
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                            const SizedBox(height: 14),
-                            _CardSection(
-                            title: 'ACTIVITY TOOLS',
-                            child: Column(
-                              children: [
-                                _MenuRow(
-                                  label: 'Daily Streak',
-                                  onTap: () {
-                                    Navigator.of(
-                                      context,
-                                    ).pushNamed(StreakScreen.routeName);
-                                  },
-                                ),
-                                const Divider(height: 1),
-                                _MenuRow(
-                                  label: 'Achievements',
-                                  onTap: () async {
-                                    await Navigator.of(
-                                      context,
-                                    ).pushNamed(AchievementsScreen.routeName);
-                                    if (mounted) {
-                                      _reload();
-                                    }
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                            const SizedBox(height: 14),
-                            _CardSection(
-                            title: 'DANGER ZONE',
-                            child: Container(
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFF1F0),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: const Color(0xFFFECACA)),
-                              ),
-                              padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Permanent actions',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.red.shade700,
-                                      letterSpacing: 0.3,
+                                      ],
                                     ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Deactivation blocks login and requires manual reactivation.',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.red.shade400,
+                                  const SizedBox(height: 12),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton(
+                                      onPressed: () =>
+                                          _editPreferredSports(profile),
+                                      child: const Text('Add / Remove Sports'),
                                     ),
-                                  ),
-                                  const Divider(height: 14),
-                                  _MenuRow(
-                                    label: 'Deactivate Account',
-                                    isDanger: true,
-                                    showChevron: false,
-                                    onTap: _onDeactivateAccount,
                                   ),
                                 ],
                               ),
                             ),
-                          ),
+                          ],
+                          if (_activeTab == _ProfileContentTab.settings) ...[
+                            _CardSection(
+                              title: 'SETTINGS',
+                              child: Column(
+                                children: [
+                                  const _SettingsGroupLabel('General'),
+                                  _MenuRow(
+                                    label: 'Stats',
+                                    onTap: () {
+                                      if (membership.isPremium) {
+                                        Navigator.of(context).pushNamed(
+                                          ProStatsHubScreen.routeName,
+                                        );
+                                      } else {
+                                        Navigator.of(
+                                          context,
+                                        ).pushNamed(FreeStatsScreen.routeName);
+                                      }
+                                    },
+                                  ),
+                                  const SizedBox(height: 2),
+                                  _ToggleMenuRow(
+                                    label: 'Notifications',
+                                    value: notificationsEnabled,
+                                    activeColor: cs.primary,
+                                    onChanged: (v) async {
+                                      await profileRepository().saveMyProfile(
+                                        profile.copyWith(
+                                          notificationsEnabled: v,
+                                        ),
+                                      );
+                                      if (mounted) {
+                                        _reload();
+                                      }
+                                    },
+                                  ),
+                                  _ToggleMenuRow(
+                                    label: 'Height display',
+                                    subtitle: useImperialHeight
+                                        ? 'Feet & inches'
+                                        : 'Centimeters (cm)',
+                                    value: useImperialHeight,
+                                    activeColor: cs.primary,
+                                    onChanged: (v) async {
+                                      await heightDisplayRepository()
+                                          .setUseImperial(v);
+                                      if (mounted) {
+                                        _reload();
+                                      }
+                                    },
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const _SettingsGroupLabel('Account'),
+                                  _MenuRow(
+                                    label: 'Membership',
+                                    trailing: membership.isPremium
+                                        ? Padding(
+                                            padding: const EdgeInsets.only(
+                                              right: 6,
+                                            ),
+                                            child: Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 4,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: cs.primary.withValues(
+                                                  alpha: 0.12,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                              ),
+                                              child: Text(
+                                                'Pro',
+                                                style: TextStyle(
+                                                  color: cs.primary,
+                                                  fontWeight: FontWeight.w800,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                        : null,
+                                    onTap: () async {
+                                      await Navigator.of(
+                                        context,
+                                      ).pushNamed(MembershipScreen.routeName);
+                                      if (mounted) {
+                                        _reload();
+                                      }
+                                    },
+                                  ),
+                                  _MenuRow(
+                                    label: 'Edit Profile',
+                                    onTap: () async {
+                                      await Navigator.of(context).pushNamed(
+                                        EditProfileScreen.routeName,
+                                        arguments: profile,
+                                      );
+                                      if (mounted) {
+                                        _reload();
+                                      }
+                                    },
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const _SettingsGroupLabel('Security'),
+                                  _MenuRow(
+                                    label: 'Change Password',
+                                    onTap: () {
+                                      Navigator.of(context).pushNamed(
+                                        ChangePasswordScreen.routeName,
+                                      );
+                                    },
+                                  ),
+                                  _MenuRow(
+                                    label: 'Log Out',
+                                    onTap: () async {
+                                      final shouldLogout =
+                                          await showDialog<bool>(
+                                            context: context,
+                                            builder: (dialogContext) =>
+                                                AlertDialog(
+                                                  title: const Text(
+                                                    'Confirm Logout',
+                                                  ),
+                                                  content: const Text(
+                                                    'log out from this account?',
+                                                  ),
+                                                  actions: [
+                                                    TextButton(
+                                                      onPressed: () =>
+                                                          Navigator.of(
+                                                            dialogContext,
+                                                          ).pop(false),
+                                                      child: const Text(
+                                                        'Cancel',
+                                                      ),
+                                                    ),
+                                                    TextButton(
+                                                      onPressed: () =>
+                                                          Navigator.of(
+                                                            dialogContext,
+                                                          ).pop(true),
+                                                      child: const Text(
+                                                        'Log Out',
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                          ) ??
+                                          false;
+                                      if (!shouldLogout) {
+                                        return;
+                                      }
+                                      final navigator = Navigator.of(context);
+                                      final messenger = ScaffoldMessenger.of(
+                                        context,
+                                      );
+                                      try {
+                                        // Use deleteSessions() to also remove client-side cookies/session storage.
+                                        // This prevents the "log out then can't log back in" issue.
+                                        await AppwriteService.account
+                                            .deleteSessions();
+                                      } on AppwriteException catch (e) {
+                                        if (!mounted) return;
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              e.message ?? 'Failed to log out.',
+                                            ),
+                                          ),
+                                        );
+                                      } catch (_) {
+                                        if (!mounted) return;
+                                        messenger.showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Failed to log out.'),
+                                          ),
+                                        );
+                                      } finally {
+                                        await SessionPersistence.clear();
+                                        CurrentUser.reset();
+                                      }
+                                      if (!mounted) return;
+                                      navigator.pushNamedAndRemoveUntil(
+                                        LoginScreen.routeName,
+                                        (_) => false,
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            _CardSection(
+                              title: 'ACTIVITY TOOLS',
+                              child: Column(
+                                children: [
+                                  _MenuRow(
+                                    label: 'Daily Streak',
+                                    onTap: () {
+                                      Navigator.of(
+                                        context,
+                                      ).pushNamed(StreakScreen.routeName);
+                                    },
+                                  ),
+                                  const Divider(height: 1),
+                                  _MenuRow(
+                                    label: 'Achievements',
+                                    onTap: () async {
+                                      await Navigator.of(
+                                        context,
+                                      ).pushNamed(AchievementsScreen.routeName);
+                                      if (mounted) {
+                                        _reload();
+                                      }
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            _CardSection(
+                              title: 'DANGER ZONE',
+                              child: Container(
+                                width: double.infinity,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF1F0),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: const Color(0xFFFECACA),
+                                  ),
+                                ),
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  10,
+                                  12,
+                                  8,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Permanent actions',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.red.shade700,
+                                        letterSpacing: 0.3,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Deactivation blocks login and requires manual reactivation.',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.red.shade400,
+                                      ),
+                                    ),
+                                    const Divider(height: 14),
+                                    _MenuRow(
+                                      label: 'Deactivate Account',
+                                      isDanger: true,
+                                      showChevron: false,
+                                      onTap: _onDeactivateAccount,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ],
                         ],
                       ),
@@ -1452,6 +1474,310 @@ class _SportSkillRow extends StatelessWidget {
       return const Color(0xFF6E7E8E);
     }
     return const Color(0xFF2E976F);
+  }
+}
+
+class _SportRadarMetric {
+  final String label;
+  final double value;
+
+  const _SportRadarMetric({required this.label, required this.value});
+}
+
+class _SportRadarCard extends StatelessWidget {
+  final UserProfile profile;
+
+  const _SportRadarCard({required this.profile});
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedSport = _resolveSelectedSport(profile);
+    if (selectedSport == null) {
+      return _CardSection(
+        title: 'SPORT RADAR',
+        child: Text(
+          'Select a sport in Sports Recommendation and log matches to unlock your radar chart.',
+          style: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
+        ),
+      );
+    }
+
+    final metrics = _buildMetricsForSport(profile, selectedSport);
+    if (metrics.isEmpty) {
+      return _CardSection(
+        title: 'SPORT RADAR',
+        child: Text(
+          'No detailed stat entries for $selectedSport yet. Record scores to build your radar.',
+          style: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
+        ),
+      );
+    }
+
+    return _CardSection(
+      title: 'SPORT RADAR',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            selectedSport,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Average per match stats in your selected sport.',
+            style: TextStyle(
+              color: Colors.black.withValues(alpha: 0.55),
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(height: 220, child: _SportRadarChart(metrics: metrics)),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final metric in metrics)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEDF3FF),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '${metric.label}: ${metric.value.toStringAsFixed(1)}',
+                    style: const TextStyle(
+                      color: Color(0xFF244B9A),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? _resolveSelectedSport(UserProfile profile) {
+    if (profile.preferredSports.isNotEmpty) {
+      final ordered = profile.preferredSports.toList()..sort();
+      return ordered.first;
+    }
+    final played =
+        profile.sportSkills.entries
+            .where(
+              (entry) =>
+                  entry.value.matchesPlayed > 0 && entry.key.trim().isNotEmpty,
+            )
+            .toList()
+          ..sort(
+            (a, b) => b.value.matchesPlayed.compareTo(a.value.matchesPlayed),
+          );
+    if (played.isNotEmpty) {
+      return played.first.key;
+    }
+    return null;
+  }
+
+  List<_SportRadarMetric> _buildMetricsForSport(
+    UserProfile profile,
+    String sport,
+  ) {
+    final key = sport.trim().toLowerCase();
+    final rows = profile.matchHistory
+        .where((row) => row.sport.trim().toLowerCase() == key)
+        .toList();
+    if (rows.isEmpty) {
+      return const [];
+    }
+
+    final statTotals = <String, double>{};
+    for (final row in rows) {
+      row.statValues.forEach((statKey, statValue) {
+        statTotals[statKey] = (statTotals[statKey] ?? 0) + statValue.toDouble();
+      });
+    }
+    if (statTotals.isEmpty) {
+      return const [];
+    }
+
+    final sortedEntries = statTotals.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final topEntries = sortedEntries.take(5);
+
+    return topEntries
+        .map(
+          (entry) => _SportRadarMetric(
+            label: _prettyMetricLabel(entry.key),
+            value: entry.value / rows.length,
+          ),
+        )
+        .toList();
+  }
+
+  String _prettyMetricLabel(String key) {
+    const labels = <String, String>{
+      'goals': 'Goals',
+      'assists': 'Assists',
+      'passes': 'Passes',
+      'tackles': 'Tackles',
+      'saves': 'Saves',
+      'points': 'Points',
+      'rebounds': 'Rebounds',
+      'steals': 'Steals',
+      'blocks': 'Blocks',
+      'turnovers': 'Turnovers',
+      'digs': 'Digs',
+      'gamesWon': 'Games Won',
+      'pointsWon': 'Points Won',
+      'aces': 'Aces',
+      'setsWon': 'Sets Won',
+    };
+    return labels[key] ?? key;
+  }
+}
+
+class _SportRadarChart extends StatelessWidget {
+  final List<_SportRadarMetric> metrics;
+
+  const _SportRadarChart({required this.metrics});
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue = metrics
+        .map((metric) => metric.value)
+        .fold<double>(0, (max, value) => value > max ? value : max);
+    final safeMax = maxValue <= 0 ? 1.0 : maxValue;
+    final normalized = metrics
+        .map((metric) => (metric.value / safeMax).clamp(0.0, 1.0))
+        .toList();
+
+    return CustomPaint(
+      painter: _RadarChartPainter(
+        labels: metrics.map((metric) => metric.label).toList(),
+        values: normalized,
+      ),
+      child: const SizedBox.expand(),
+    );
+  }
+}
+
+class _RadarChartPainter extends CustomPainter {
+  final List<String> labels;
+  final List<double> values;
+
+  _RadarChartPainter({required this.labels, required this.values});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (labels.length < 3 || values.length != labels.length) {
+      return;
+    }
+
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) * 0.33;
+    final angleStep = (2 * math.pi) / labels.length;
+
+    final gridPaint = Paint()
+      ..color = const Color(0xFFD8E0EA)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    final axisPaint = Paint()
+      ..color = const Color(0xFFBCC8D6)
+      ..strokeWidth = 1;
+    final dataFillPaint = Paint()
+      ..color = const Color(0xFF4A7BFF).withValues(alpha: 0.22)
+      ..style = PaintingStyle.fill;
+    final dataStrokePaint = Paint()
+      ..color = const Color(0xFF3C68D8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+
+    for (int ring = 1; ring <= 4; ring++) {
+      final ringRadius = radius * (ring / 4);
+      final ringPath = Path();
+      for (int i = 0; i < labels.length; i++) {
+        final angle = -math.pi / 2 + i * angleStep;
+        final point = Offset(
+          center.dx + ringRadius * math.cos(angle),
+          center.dy + ringRadius * math.sin(angle),
+        );
+        if (i == 0) {
+          ringPath.moveTo(point.dx, point.dy);
+        } else {
+          ringPath.lineTo(point.dx, point.dy);
+        }
+      }
+      ringPath.close();
+      canvas.drawPath(ringPath, gridPaint);
+    }
+
+    for (int i = 0; i < labels.length; i++) {
+      final angle = -math.pi / 2 + i * angleStep;
+      final axisEnd = Offset(
+        center.dx + radius * math.cos(angle),
+        center.dy + radius * math.sin(angle),
+      );
+      canvas.drawLine(center, axisEnd, axisPaint);
+
+      final labelOffset = Offset(
+        center.dx + (radius + 20) * math.cos(angle),
+        center.dy + (radius + 20) * math.sin(angle),
+      );
+      final tp = TextPainter(
+        text: TextSpan(
+          text: labels[i],
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF556070),
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: 70);
+      tp.paint(
+        canvas,
+        Offset(
+          labelOffset.dx - (tp.width / 2),
+          labelOffset.dy - (tp.height / 2),
+        ),
+      );
+    }
+
+    final dataPath = Path();
+    for (int i = 0; i < labels.length; i++) {
+      final angle = -math.pi / 2 + i * angleStep;
+      final valueRadius = radius * values[i];
+      final point = Offset(
+        center.dx + valueRadius * math.cos(angle),
+        center.dy + valueRadius * math.sin(angle),
+      );
+      if (i == 0) {
+        dataPath.moveTo(point.dx, point.dy);
+      } else {
+        dataPath.lineTo(point.dx, point.dy);
+      }
+      canvas.drawCircle(
+        point,
+        3.5,
+        dataStrokePaint..style = PaintingStyle.fill,
+      );
+      dataStrokePaint.style = PaintingStyle.stroke;
+    }
+    dataPath.close();
+    canvas.drawPath(dataPath, dataFillPaint);
+    canvas.drawPath(dataPath, dataStrokePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RadarChartPainter oldDelegate) {
+    return oldDelegate.labels != labels || oldDelegate.values != values;
   }
 }
 

@@ -1530,15 +1530,6 @@ class _SportRadarCardState extends State<_SportRadarCard> {
     }
 
     final metrics = _buildMetricsForSport(profile, selectedSport);
-    if (metrics.isEmpty) {
-      return _CardSection(
-        title: 'SPORT RADAR',
-        child: Text(
-          'No detailed stat entries for $selectedSport yet. Record scores to build your radar.',
-          style: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
-        ),
-      );
-    }
 
     final visibleMetrics = metrics
         .map(
@@ -1616,36 +1607,43 @@ class _SportRadarCardState extends State<_SportRadarCard> {
             ),
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            height: 220,
-            child: _SportRadarChart(metrics: visibleMetrics),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final metric in visibleMetrics)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEDF3FF),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    '${metric.label}: ${metric.value.toStringAsFixed(1)}',
-                    style: const TextStyle(
-                      color: Color(0xFF244B9A),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12,
+          if (visibleMetrics.isEmpty)
+            Text(
+              'No detailed stat entries for $selectedSport yet. Record scores to build your radar.',
+              style: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
+            )
+          else ...[
+            SizedBox(
+              height: 220,
+              child: _SportRadarChart(metrics: visibleMetrics),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final metric in visibleMetrics)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEDF3FF),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${metric.label}: ${metric.value.toStringAsFixed(1)}',
+                      style: const TextStyle(
+                        color: Color(0xFF244B9A),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
-                ),
-            ],
-          ),
+              ],
+            ),
+          ],
           if (_testingMode) ...[
             const SizedBox(height: 12),
             const Divider(height: 1),

@@ -1660,9 +1660,24 @@ class _SportRadarCardState extends State<_SportRadarCard> {
             const SizedBox(height: 12),
             const Divider(height: 1),
             const SizedBox(height: 10),
-            const Text(
-              'Testing Controls',
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Testing Controls',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _metricOverrides.clear();
+                    });
+                  },
+                  icon: const Icon(Icons.restart_alt, size: 16),
+                  label: const Text('Reset'),
+                ),
+              ],
             ),
             const SizedBox(height: 6),
             for (final metric in metrics) ...[
@@ -1746,27 +1761,21 @@ class _SportRadarCardState extends State<_SportRadarCard> {
     final rows = profile.matchHistory
         .where((row) => row.sport.trim().toLowerCase() == key)
         .toList();
-    if (rows.isEmpty) {
-      return const [];
-    }
-
+    final axisDefinitions = _axisDefinitionsForSport(sport);
     final statTotals = <String, double>{};
     for (final row in rows) {
       row.statValues.forEach((statKey, statValue) {
         statTotals[statKey] = (statTotals[statKey] ?? 0) + statValue.toDouble();
       });
     }
-    if (statTotals.isEmpty) {
-      return const [];
-    }
 
-    final statAverages = <String, double>{};
-    statTotals.forEach((key, total) {
-      statAverages[key] = total / rows.length;
-    });
-
-    final axisDefinitions = _axisDefinitionsForSport(sport);
     if (axisDefinitions.isNotEmpty) {
+      final statAverages = <String, double>{};
+      if (rows.isNotEmpty) {
+        statTotals.forEach((key, total) {
+          statAverages[key] = total / rows.length;
+        });
+      }
       return axisDefinitions
           .map(
             (axis) => _SportRadarMetric(
@@ -1776,6 +1785,10 @@ class _SportRadarCardState extends State<_SportRadarCard> {
             ),
           )
           .toList();
+    }
+
+    if (rows.isEmpty || statTotals.isEmpty) {
+      return const [];
     }
 
     final sortedEntries = statTotals.entries.toList()

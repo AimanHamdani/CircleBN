@@ -1489,6 +1489,18 @@ class _SportRadarMetric {
   });
 }
 
+class _RadarAxisDefinition {
+  final String key;
+  final String label;
+  final double Function(Map<String, double> averages) valueBuilder;
+
+  const _RadarAxisDefinition({
+    required this.key,
+    required this.label,
+    required this.valueBuilder,
+  });
+}
+
 class _SportRadarCard extends StatefulWidget {
   final UserProfile profile;
 
@@ -1748,9 +1760,27 @@ class _SportRadarCardState extends State<_SportRadarCard> {
       return const [];
     }
 
+    final statAverages = <String, double>{};
+    statTotals.forEach((key, total) {
+      statAverages[key] = total / rows.length;
+    });
+
+    final axisDefinitions = _axisDefinitionsForSport(sport);
+    if (axisDefinitions.isNotEmpty) {
+      return axisDefinitions
+          .map(
+            (axis) => _SportRadarMetric(
+              key: axis.key,
+              label: axis.label,
+              value: axis.valueBuilder(statAverages).clamp(0.0, 999.0),
+            ),
+          )
+          .toList();
+    }
+
     final sortedEntries = statTotals.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    final topEntries = sortedEntries.take(5);
+    final topEntries = sortedEntries.take(6);
 
     return topEntries
         .map(
@@ -1761,6 +1791,168 @@ class _SportRadarCardState extends State<_SportRadarCard> {
           ),
         )
         .toList();
+  }
+
+  List<_RadarAxisDefinition> _axisDefinitionsForSport(String sport) {
+    final key = sport.trim().toLowerCase();
+    double v(Map<String, double> a, String stat) => a[stat] ?? 0;
+
+    if (key.contains('volleyball')) {
+      return [
+        _RadarAxisDefinition(
+          key: 'dig',
+          label: 'Dig',
+          valueBuilder: (a) => v(a, 'digs'),
+        ),
+        _RadarAxisDefinition(
+          key: 'spike',
+          label: 'Spike',
+          valueBuilder: (a) => v(a, 'points'),
+        ),
+        _RadarAxisDefinition(
+          key: 'block',
+          label: 'Block',
+          valueBuilder: (a) => v(a, 'blocks'),
+        ),
+        _RadarAxisDefinition(
+          key: 'receive',
+          label: 'Receive',
+          valueBuilder: (a) => v(a, 'digs') * 0.8 + v(a, 'blocks') * 0.2,
+        ),
+        _RadarAxisDefinition(
+          key: 'serve',
+          label: 'Serve',
+          valueBuilder: (a) =>
+              v(a, 'aces') > 0 ? v(a, 'aces') : v(a, 'points') * 0.35,
+        ),
+        _RadarAxisDefinition(
+          key: 'set',
+          label: 'Set',
+          valueBuilder: (a) => v(a, 'assists'),
+        ),
+      ];
+    }
+
+    if (key.contains('basketball')) {
+      return [
+        _RadarAxisDefinition(
+          key: 'scoring',
+          label: 'Scoring',
+          valueBuilder: (a) => v(a, 'points'),
+        ),
+        _RadarAxisDefinition(
+          key: 'playmaking',
+          label: 'Playmaking',
+          valueBuilder: (a) => v(a, 'assists'),
+        ),
+        _RadarAxisDefinition(
+          key: 'ballhandling',
+          label: 'Ballhandling',
+          valueBuilder: (a) =>
+              (v(a, 'assists') + v(a, 'points') * 0.4) -
+              v(a, 'turnovers') * 0.8,
+        ),
+        _RadarAxisDefinition(
+          key: 'defence',
+          label: 'Defence',
+          valueBuilder: (a) => v(a, 'steals') + v(a, 'blocks') * 0.8,
+        ),
+        _RadarAxisDefinition(
+          key: 'rebounding',
+          label: 'Rebounding',
+          valueBuilder: (a) => v(a, 'rebounds'),
+        ),
+        _RadarAxisDefinition(
+          key: 'athleticism',
+          label: 'Athleticism',
+          valueBuilder: (a) =>
+              v(a, 'rebounds') * 0.6 +
+              v(a, 'steals') * 1.2 +
+              v(a, 'blocks') * 1.1,
+        ),
+      ];
+    }
+
+    if (key.contains('football')) {
+      return [
+        _RadarAxisDefinition(
+          key: 'finishing',
+          label: 'Finishing',
+          valueBuilder: (a) => v(a, 'goals'),
+        ),
+        _RadarAxisDefinition(
+          key: 'creation',
+          label: 'Creation',
+          valueBuilder: (a) => v(a, 'assists'),
+        ),
+        _RadarAxisDefinition(
+          key: 'distribution',
+          label: 'Distribution',
+          valueBuilder: (a) => v(a, 'passes') / 8,
+        ),
+        _RadarAxisDefinition(
+          key: 'defending',
+          label: 'Defending',
+          valueBuilder: (a) => v(a, 'tackles'),
+        ),
+        _RadarAxisDefinition(
+          key: 'goalkeeping',
+          label: 'Goalkeeping',
+          valueBuilder: (a) => v(a, 'saves'),
+        ),
+        _RadarAxisDefinition(
+          key: 'impact',
+          label: 'Impact',
+          valueBuilder: (a) =>
+              v(a, 'goals') + v(a, 'assists') + v(a, 'tackles') * 0.5,
+        ),
+      ];
+    }
+
+    if (key.contains('badminton') ||
+        (key.contains('tennis') &&
+            !key.contains('table tennis') &&
+            !key.contains('ping pong')) ||
+        key.contains('pickle') ||
+        key.contains('table tennis') ||
+        key.contains('ping pong')) {
+      return [
+        _RadarAxisDefinition(
+          key: 'attack',
+          label: 'Attack',
+          valueBuilder: (a) => v(a, 'pointsWon'),
+        ),
+        _RadarAxisDefinition(
+          key: 'serve',
+          label: 'Serve',
+          valueBuilder: (a) => v(a, 'aces'),
+        ),
+        _RadarAxisDefinition(
+          key: 'control',
+          label: 'Control',
+          valueBuilder: (a) => v(a, 'gamesWon'),
+        ),
+        _RadarAxisDefinition(
+          key: 'consistency',
+          label: 'Consistency',
+          valueBuilder: (a) =>
+              v(a, 'gamesWon') * 0.8 + v(a, 'pointsWon') * 0.15,
+        ),
+        _RadarAxisDefinition(
+          key: 'composure',
+          label: 'Composure',
+          valueBuilder: (a) => v(a, 'gamesWon') * 0.7 + v(a, 'aces') * 0.4,
+        ),
+        _RadarAxisDefinition(
+          key: 'stamina',
+          label: 'Stamina',
+          valueBuilder: (a) =>
+              v(a, 'pointsWon') * 0.25 + v(a, 'gamesWon') * 0.75,
+        ),
+      ];
+    }
+
+    return const [];
   }
 
   String _prettyMetricLabel(String key) {

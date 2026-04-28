@@ -221,6 +221,25 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         clubId: club.id,
         userId: me,
       );
+      if (!isMember) {
+        if (!mounted) {
+          return;
+        }
+        setState(() => _canSendMessages = false);
+        return;
+      }
+      final rule = club.whoCanSendMessages.trim();
+      if (rule == 'Admins only') {
+        final isAdmin = await clubMemberRepository().isAdmin(
+          clubId: club.id,
+          userId: me,
+        );
+        if (!mounted) {
+          return;
+        }
+        setState(() => _canSendMessages = isAdmin);
+        return;
+      }
       if (!mounted) {
         return;
       }

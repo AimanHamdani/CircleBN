@@ -26,7 +26,6 @@ class EventScoringScreen extends StatefulWidget {
 class _EventScoringScreenState extends State<EventScoringScreen> {
   bool _isLoading = true;
   bool _isSubmitting = false;
-  bool _forceEnableEditing = false;
   bool _isFinalized = false;
   String? _error;
   List<UserProfile> _players = const [];
@@ -383,8 +382,7 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
     final event = args.event;
     final sportRules = _rulesForSport(event.sport);
     final sportKey = event.sport.trim().toLowerCase();
-    final canEditScores =
-        !_isFinalized && (_forceEnableEditing || _canEditForEventTiming(event));
+    final canEditScores = !_isFinalized;
     final isAdvancedTheme =
         sportRules.isFootballAdvanced ||
         sportRules.isBasketballAdvanced ||
@@ -462,7 +460,7 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
                           themedPrimary: isAdvancedTheme ? themedPrimary : null,
                           helper: canEditScores
                               ? 'Customize match setup, teams, players, points, and assists.'
-                              : 'Match has not started yet. Score editing will unlock at event start time.',
+                              : 'All scores are finalized for this session.',
                         ),
                         if (isAdvancedTheme) ...[
                           const SizedBox(height: 10),
@@ -479,52 +477,6 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
                                   ? event.sport
                                   : event.sport,
                               color: themedPrimary,
-                            ),
-                          ),
-                        ],
-                        if (!_canEditForEventTiming(event)) ...[
-                          const SizedBox(height: 10),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                            decoration: BoxDecoration(
-                              color: _forceEnableEditing
-                                  ? const Color(0xFFEFFCF4)
-                                  : const Color(0xFFFFF7ED),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: _forceEnableEditing
-                                    ? const Color(0xFF86EFAC)
-                                    : const Color(0xFFFCD34D),
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    _forceEnableEditing
-                                        ? 'Testing mode enabled: you can edit scores before start time.'
-                                        : 'Match has not started yet.',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                TextButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      _forceEnableEditing =
-                                          !_forceEnableEditing;
-                                    });
-                                  },
-                                  child: Text(
-                                    _forceEnableEditing
-                                        ? 'Disable test mode'
-                                        : 'Enable test mode',
-                                  ),
-                                ),
-                              ],
                             ),
                           ),
                         ],
@@ -723,11 +675,6 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
               ),
       ),
     );
-  }
-
-  bool _canEditForEventTiming(Event event) {
-    final now = DateTime.now();
-    return !now.isBefore(event.startAt);
   }
 
   bool _isHostAndPlay(Event event) {
@@ -1011,7 +958,6 @@ class _EventScoringScreenState extends State<EventScoringScreen> {
     if (failedUsers.isEmpty) {
       setState(() {
         _isFinalized = true;
-        _forceEnableEditing = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

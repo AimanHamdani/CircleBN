@@ -7,8 +7,7 @@ class Club {
   final String privacy; // 'Public' | 'Private'
   final int memberLimit;
   final bool approvalRequired;
-  final String
-  whoCanSendMessages; // 'Everyone' | 'Admins only' | 'Admins & moderators'
+  final String whoCanSendMessages; // 'Everyone' | 'Admins only'
 
   final String location; // optional but stored as empty string when unset
 
@@ -28,6 +27,7 @@ class Club {
 
   /// Custom founded date from attributes, or filled from document `$createdAt` in repository.
   final DateTime? foundedAt;
+  final List<String> pendingJoinRequestUserIds;
 
   const Club({
     required this.id,
@@ -46,6 +46,7 @@ class Club {
     this.membersCount,
     this.adminsCount,
     this.foundedAt,
+    this.pendingJoinRequestUserIds = const <String>[],
   });
 
   factory Club.fromMap(
@@ -107,6 +108,23 @@ class Club {
       return null;
     }
 
+    List<String> parseStringList(Object? v) {
+      if (v is List) {
+        return v
+            .map((item) => item.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toList();
+      }
+      if (v is String) {
+        return v
+            .split(',')
+            .map((item) => item.trim())
+            .where((item) => item.isNotEmpty)
+            .toList();
+      }
+      return const <String>[];
+    }
+
     final foundedFromData = parseOptionalDate(
       data['foundedAt'] ??
           data['founded_at'] ??
@@ -128,11 +146,18 @@ class Club {
         data['approvalRequired'] ?? data['approval_required'],
         defaultValue: false,
       ),
-      whoCanSendMessages:
-          (data['whoCanSendMessages'] ??
-                  data['who_can_send_messages'] ??
-                  'Everyone')
-              .toString(),
+      whoCanSendMessages: (() {
+        final raw =
+            (data['whoCanSendMessages'] ??
+                    data['who_can_send_messages'] ??
+                    'Everyone')
+                .toString()
+                .trim();
+        if (raw == 'Admins only') {
+          return 'Admins only';
+        }
+        return 'Everyone';
+      })(),
       location: (data['location'] ?? '').toString(),
       thumbnailFileId:
           data['thumbnailFileId']?.toString() ??
@@ -165,6 +190,10 @@ class Club {
             data['admin_count'],
       ),
       foundedAt: foundedFromData ?? documentCreatedAt,
+      pendingJoinRequestUserIds: parseStringList(
+        data['pendingJoinRequestUserIds'] ??
+            data['pending_join_request_user_ids'],
+      ),
     );
   }
 
@@ -185,6 +214,7 @@ class Club {
       if (membersCount != null) 'membersCount': membersCount,
       if (adminsCount != null) 'adminsCount': adminsCount,
       if (foundedAt != null) 'foundedAt': foundedAt!.toIso8601String(),
+      'pendingJoinRequestUserIds': pendingJoinRequestUserIds,
     };
   }
 }

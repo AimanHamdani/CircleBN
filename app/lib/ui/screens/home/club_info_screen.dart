@@ -4,6 +4,7 @@ import 'package:appwrite/appwrite.dart';
 import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
+import '../../../data/club_join_request_repository.dart';
 import '../../../data/club_member_repository.dart';
 import '../../../data/club_repository.dart';
 import '../../../data/event_repository.dart';
@@ -62,6 +63,8 @@ class _ClubInfoPayload {
   final bool isCurrentUserMember;
   final bool isCurrentUserAdmin;
   final bool isCurrentUserCreator;
+  final bool hasPendingJoinRequest;
+  final List<String> pendingJoinRequestUserIds;
   final String? coCreatorId;
   final String? creatorLabel;
 
@@ -75,6 +78,8 @@ class _ClubInfoPayload {
     required this.isCurrentUserMember,
     required this.isCurrentUserAdmin,
     required this.isCurrentUserCreator,
+    required this.hasPendingJoinRequest,
+    required this.pendingJoinRequestUserIds,
     required this.coCreatorId,
     required this.creatorLabel,
   });
@@ -98,6 +103,10 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
   Future<_ClubInfoPayload>? _payloadFuture;
   Club? _cachedClub;
   bool _isPromoting = false;
+
+  bool _requiresJoinApproval(Club club) {
+    return club.privacy.trim().toLowerCase() == 'private';
+  }
 
   Club _clubFromRoute(BuildContext context) {
     final args = ModalRoute.of(context)?.settings.arguments;
@@ -185,6 +194,9 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
     );
     final isCurrentUserCreator =
         creatorId != null && creatorId.isNotEmpty && creatorId == currentUserId;
+    final hasPendingJoinRequest = fresh.pendingJoinRequestUserIds
+        .map((id) => id.trim())
+        .contains(currentUserId.trim());
 
     return _ClubInfoPayload(
       club: fresh,
@@ -196,6 +208,8 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
       isCurrentUserMember: isCurrentUserMember,
       isCurrentUserAdmin: isCurrentUserAdmin,
       isCurrentUserCreator: isCurrentUserCreator,
+      hasPendingJoinRequest: hasPendingJoinRequest,
+      pendingJoinRequestUserIds: fresh.pendingJoinRequestUserIds,
       coCreatorId: coCreatorId,
       creatorLabel: creatorLabel,
     );
@@ -211,6 +225,190 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
       return real;
     }
     return profile.userId;
+  }
+
+  Future<void> _joinClub(Club club) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      if (_requiresJoinApproval(club)) {
+        await clubJoinRequestRepository().requestToJoin(
+          clubId: club.id,
+          userId: currentUserId,
+        );
+      } else {
+        await clubMemberRepository().joinAsMember(
+          clubId: club.id,
+          userId: currentUserId,
+          role: ClubMemberRole.member,
+        );
+      }
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Failed to join club.')),
+      );
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _payloadFuture = _load(refreshClub: true);
+    });
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          _requiresJoinApproval(club)
+              ? 'Join request sent for approval.'
+              : 'Joined club.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openJoinRequestsSheet(_ClubInfoPayload payload) async {
+    final uniqueIds =
+        payload.pendingJoinRequestUserIds
+            .map((id) => id.trim())
+            .where((id) => id.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    final profiles = await profileRepository().getProfilesByIds(uniqueIds);
+    final profileById = {
+      for (final profile in profiles) profile.userId: profile,
+    };
+
+    if (!mounted) {
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetCtx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Join requests',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  Text('${uniqueIds.length} pending'),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Flexible(
+                child: uniqueIds.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20),
+                        child: Text('No pending requests.'),
+                      )
+                    : ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: uniqueIds.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final userId = uniqueIds[index];
+                          final profile = profileById[userId];
+                          final name = profile == null
+                              ? userId
+                              : (profile.realName.trim().isNotEmpty
+                                    ? profile.realName.trim()
+                                    : (profile.username.trim().isNotEmpty
+                                          ? profile.username.trim()
+                                          : userId));
+                          return Container(
+                            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FFFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: const Color(0xFFCCE9DF),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: () async {
+                                    await clubJoinRequestRepository()
+                                        .rejectJoinRequest(
+                                          clubId: payload.club.id,
+                                          userId: userId,
+                                        );
+                                    if (!mounted) {
+                                      return;
+                                    }
+                                    Navigator.of(sheetCtx).pop();
+                                    setState(() {
+                                      _payloadFuture = _load(refreshClub: true);
+                                    });
+                                  },
+                                  child: const Text('Reject'),
+                                ),
+                                FilledButton(
+                                  onPressed: () async {
+                                    await clubJoinRequestRepository()
+                                        .approveJoinRequest(
+                                          clubId: payload.club.id,
+                                          userId: userId,
+                                        );
+                                    if (!mounted) {
+                                      return;
+                                    }
+                                    Navigator.of(sheetCtx).pop();
+                                    setState(() {
+                                      _payloadFuture = _load(refreshClub: true);
+                                    });
+                                  },
+                                  child: const Text('Approve'),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -1364,9 +1562,44 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                                               Icons
                                                                   .group_add_rounded,
                                                             ),
-                                                            title: const Text(
-                                                              'Join club',
-                                                              style: TextStyle(
+                                                            title: Text(
+                                                              p.hasPendingJoinRequest
+                                                                  ? 'Request pending'
+                                                                  : (_requiresJoinApproval(
+                                                                          club,
+                                                                        )
+                                                                        ? 'Request to join'
+                                                                        : 'Join club'),
+                                                              style: const TextStyle(
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w800,
+                                                              ),
+                                                            ),
+                                                            onTap:
+                                                                p.hasPendingJoinRequest
+                                                                ? null
+                                                                : () async {
+                                                                    Navigator.pop(
+                                                                      sheetCtx,
+                                                                    );
+                                                                    await _joinClub(
+                                                                      club,
+                                                                    );
+                                                                  },
+                                                          ),
+                                                        if (p.isCurrentUserAdmin &&
+                                                            p
+                                                                .pendingJoinRequestUserIds
+                                                                .isNotEmpty)
+                                                          ListTile(
+                                                            leading: const Icon(
+                                                              Icons
+                                                                  .how_to_reg_outlined,
+                                                            ),
+                                                            title: Text(
+                                                              'Join requests (${p.pendingJoinRequestUserIds.length})',
+                                                              style: const TextStyle(
                                                                 fontWeight:
                                                                     FontWeight
                                                                         .w800,
@@ -1376,50 +1609,8 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                                               Navigator.pop(
                                                                 sheetCtx,
                                                               );
-
-                                                              final messenger =
-                                                                  ScaffoldMessenger.of(
-                                                                    context,
-                                                                  );
-                                                              try {
-                                                                await clubMemberRepository().joinAsMember(
-                                                                  clubId:
-                                                                      club.id,
-                                                                  userId:
-                                                                      currentUserId,
-                                                                  role: ClubMemberRole
-                                                                      .member,
-                                                                );
-                                                              } catch (_) {
-                                                                if (!mounted) {
-                                                                  return;
-                                                                }
-                                                                messenger.showSnackBar(
-                                                                  const SnackBar(
-                                                                    content: Text(
-                                                                      'Failed to join club.',
-                                                                    ),
-                                                                  ),
-                                                                );
-                                                                return;
-                                                              }
-
-                                                              if (!mounted) {
-                                                                return;
-                                                              }
-                                                              setState(() {
-                                                                _payloadFuture =
-                                                                    _load(
-                                                                      refreshClub:
-                                                                          false,
-                                                                    );
-                                                              });
-                                                              messenger.showSnackBar(
-                                                                const SnackBar(
-                                                                  content: Text(
-                                                                    'Joined club.',
-                                                                  ),
-                                                                ),
+                                                              await _openJoinRequestsSheet(
+                                                                p,
                                                               );
                                                             },
                                                           ),
@@ -1563,40 +1754,11 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                     child: Align(
                                       alignment: Alignment.centerRight,
                                       child: FilledButton(
-                                        onPressed: () async {
-                                          final messenger =
-                                              ScaffoldMessenger.of(context);
-                                          try {
-                                            await clubMemberRepository()
-                                                .joinAsMember(
-                                                  clubId: club.id,
-                                                  userId: currentUserId,
-                                                  role: ClubMemberRole.member,
-                                                );
-                                          } catch (_) {
-                                            if (!mounted) return;
-                                            messenger.showSnackBar(
-                                              const SnackBar(
-                                                content: Text(
-                                                  'Failed to join club.',
-                                                ),
-                                              ),
-                                            );
-                                            return;
-                                          }
-
-                                          if (!mounted) return;
-                                          setState(() {
-                                            _payloadFuture = _load(
-                                              refreshClub: false,
-                                            );
-                                          });
-                                          messenger.showSnackBar(
-                                            const SnackBar(
-                                              content: Text('Joined club.'),
-                                            ),
-                                          );
-                                        },
+                                        onPressed: p.hasPendingJoinRequest
+                                            ? null
+                                            : () async {
+                                                await _joinClub(club);
+                                              },
                                         style: FilledButton.styleFrom(
                                           backgroundColor: teal,
                                           padding: const EdgeInsets.symmetric(
@@ -1612,9 +1774,13 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                           tapTargetSize:
                                               MaterialTapTargetSize.shrinkWrap,
                                         ),
-                                        child: const Text(
-                                          'Join',
-                                          style: TextStyle(
+                                        child: Text(
+                                          p.hasPendingJoinRequest
+                                              ? 'Pending'
+                                              : (_requiresJoinApproval(club)
+                                                    ? 'Request to Join'
+                                                    : 'Join'),
+                                          style: const TextStyle(
                                             fontWeight: FontWeight.w800,
                                           ),
                                         ),

@@ -1478,20 +1478,47 @@ class _SportSkillRow extends StatelessWidget {
 }
 
 class _SportRadarMetric {
+  final String key;
   final String label;
   final double value;
 
-  const _SportRadarMetric({required this.label, required this.value});
+  const _SportRadarMetric({
+    required this.key,
+    required this.label,
+    required this.value,
+  });
 }
 
-class _SportRadarCard extends StatelessWidget {
+class _SportRadarCard extends StatefulWidget {
   final UserProfile profile;
 
   const _SportRadarCard({required this.profile});
 
   @override
+  State<_SportRadarCard> createState() => _SportRadarCardState();
+}
+
+class _SportRadarCardState extends State<_SportRadarCard> {
+  String? _selectedSport;
+  bool _testingMode = false;
+  final Map<String, double> _metricOverrides = <String, double>{};
+
+  @override
+  void didUpdateWidget(covariant _SportRadarCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final sports = _availableSports(widget.profile);
+    if (_selectedSport != null && !sports.contains(_selectedSport)) {
+      _selectedSport = null;
+      _metricOverrides.clear();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final selectedSport = _resolveSelectedSport(profile);
+    final profile = widget.profile;
+    final sports = _availableSports(profile);
+    final selectedSport =
+        _selectedSport ?? _resolveSelectedSport(profile, sports);
     if (selectedSport == null) {
       return _CardSection(
         title: 'SPORT RADAR',
@@ -1513,16 +1540,73 @@ class _SportRadarCard extends StatelessWidget {
       );
     }
 
+    final visibleMetrics = metrics
+        .map(
+          (metric) => _SportRadarMetric(
+            key: metric.key,
+            label: metric.label,
+            value: _metricOverrides[metric.key] ?? metric.value,
+          ),
+        )
+        .toList();
+
     return _CardSection(
       title: 'SPORT RADAR',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            selectedSport,
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: selectedSport,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Sport',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    for (final sport in sports)
+                      DropdownMenuItem<String>(
+                        value: sport,
+                        child: Text(sport),
+                      ),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) {
+                      return;
+                    }
+                    setState(() {
+                      _selectedSport = value;
+                      _metricOverrides.clear();
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                children: [
+                  Switch(
+                    value: _testingMode,
+                    onChanged: (value) {
+                      setState(() {
+                        _testingMode = value;
+                        if (!value) {
+                          _metricOverrides.clear();
+                        }
+                      });
+                    },
+                  ),
+                  const Text(
+                    'Test',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           Text(
             'Average per match stats in your selected sport.',
             style: TextStyle(
@@ -1532,13 +1616,16 @@ class _SportRadarCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          SizedBox(height: 220, child: _SportRadarChart(metrics: metrics)),
+          SizedBox(
+            height: 220,
+            child: _SportRadarChart(metrics: visibleMetrics),
+          ),
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              for (final metric in metrics)
+              for (final metric in visibleMetrics)
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
@@ -1559,15 +1646,51 @@ class _SportRadarCard extends StatelessWidget {
                 ),
             ],
           ),
+          if (_testingMode) ...[
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 10),
+            const Text(
+              'Testing Controls',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+            ),
+            const SizedBox(height: 6),
+            for (final metric in metrics) ...[
+              _MetricEditRow(
+                metric: metric,
+                value: _metricOverrides[metric.key] ?? metric.value,
+                onChanged: (nextValue) {
+                  setState(() {
+                    _metricOverrides[metric.key] = nextValue;
+                  });
+                },
+              ),
+              const SizedBox(height: 4),
+            ],
+          ],
         ],
       ),
     );
   }
 
-  String? _resolveSelectedSport(UserProfile profile) {
-    if (profile.preferredSports.isNotEmpty) {
-      final ordered = profile.preferredSports.toList()..sort();
-      return ordered.first;
+  List<String> _availableSports(UserProfile profile) {
+    final out = <String>[];
+    final seen = <String>{};
+    void addSport(String raw) {
+      final sport = raw.trim();
+      if (sport.isEmpty) {
+        return;
+      }
+      final key = sport.toLowerCase();
+      if (!seen.add(key)) {
+        return;
+      }
+      out.add(sport);
+    }
+
+    final preferred = profile.preferredSports.toList()..sort();
+    for (final sport in preferred) {
+      addSport(sport);
     }
     final played =
         profile.sportSkills.entries
@@ -1579,10 +1702,30 @@ class _SportRadarCard extends StatelessWidget {
           ..sort(
             (a, b) => b.value.matchesPlayed.compareTo(a.value.matchesPlayed),
           );
-    if (played.isNotEmpty) {
-      return played.first.key;
+    for (final entry in played) {
+      addSport(entry.key);
     }
-    return null;
+    for (final row in profile.matchHistory) {
+      addSport(row.sport);
+    }
+    return out;
+  }
+
+  String? _resolveSelectedSport(UserProfile profile, List<String> sports) {
+    if (_selectedSport != null) {
+      return _selectedSport;
+    }
+    if (sports.isEmpty) {
+      return null;
+    }
+    if (profile.preferredSports.isNotEmpty) {
+      final preferred = profile.preferredSports.toList()..sort();
+      final firstPreferred = preferred.first;
+      if (sports.contains(firstPreferred)) {
+        return firstPreferred;
+      }
+    }
+    return sports.first;
   }
 
   List<_SportRadarMetric> _buildMetricsForSport(
@@ -1614,6 +1757,7 @@ class _SportRadarCard extends StatelessWidget {
     return topEntries
         .map(
           (entry) => _SportRadarMetric(
+            key: entry.key,
             label: _prettyMetricLabel(entry.key),
             value: entry.value / rows.length,
           ),
@@ -1664,6 +1808,53 @@ class _SportRadarChart extends StatelessWidget {
         values: normalized,
       ),
       child: const SizedBox.expand(),
+    );
+  }
+}
+
+class _MetricEditRow extends StatelessWidget {
+  final _SportRadarMetric metric;
+  final double value;
+  final ValueChanged<double> onChanged;
+
+  const _MetricEditRow({
+    required this.metric,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue = math.max(metric.value * 2, 10).toDouble();
+    return Row(
+      children: [
+        Expanded(
+          flex: 3,
+          child: Text(
+            metric.label,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+          ),
+        ),
+        Expanded(
+          flex: 6,
+          child: Slider(
+            value: value.clamp(0.0, maxValue).toDouble(),
+            min: 0,
+            max: maxValue,
+            divisions: 40,
+            label: value.toStringAsFixed(1),
+            onChanged: onChanged,
+          ),
+        ),
+        SizedBox(
+          width: 34,
+          child: Text(
+            value.toStringAsFixed(1),
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -68,7 +68,7 @@ class ClubJoinRequestRepository {
     final createdAt = DateTime.now();
     for (final recipientId in recipients) {
       final notification = AppNotification(
-        id: 'club_join_request_${club.id}_$recipientId_${createdAt.microsecondsSinceEpoch}',
+        id: 'club_join_request_${club.id}_${recipientId}_${createdAt.microsecondsSinceEpoch}',
         userId: recipientId,
         type: AppNotificationType.eventJoinRequest,
         title: 'New club join request',

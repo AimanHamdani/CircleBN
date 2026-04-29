@@ -4,6 +4,7 @@ import '../../../data/event_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../data/sample_clubs.dart';
 import '../../../models/event.dart';
+import '../../../models/event_privacy.dart';
 import '../../../models/user_profile.dart';
 import 'event_detail_screen.dart';
 import 'notifications_screen.dart';
@@ -559,10 +560,15 @@ class _AllEventCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isFull = event.capacity > 0 && event.joined >= event.capacity;
+    final isRequestJoinPrivate = EventPrivacy.isRequestJoin(event.privacy);
     final Color badgeBg;
     final Color badgeFg;
     final String badgeLabel;
-    if (isFull) {
+    if (isRequestJoinPrivate) {
+      badgeBg = AppTheme.eventPurple.withValues(alpha: 0.14);
+      badgeFg = AppTheme.eventPurple;
+      badgeLabel = 'Approval';
+    } else if (isFull) {
       badgeBg = const Color(0xFFFFF7ED);
       badgeFg = const Color(0xFFEA580C);
       badgeLabel = 'Full';

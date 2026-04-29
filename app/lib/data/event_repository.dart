@@ -3,7 +3,6 @@ import '../appwrite/appwrite_service.dart';
 import '../auth/current_user.dart';
 import '../models/event.dart';
 import '../models/event_privacy.dart';
-import 'membership_repository.dart';
 import 'event_registration_repository.dart';
 import 'sample_events.dart';
 
@@ -23,13 +22,7 @@ class AppwriteEventRepository implements EventRepository {
     required Event event,
     required String currentUserId,
     required Set<String> myEventIds,
-    required bool isMembershipUser,
   }) {
-    if (EventPrivacy.isPrivateish(event.privacy) && !isMembershipUser) {
-      final isCreator = (event.creatorId ?? '').trim() == currentUserId;
-      final isInvited = event.invitedUserIds.contains(currentUserId);
-      return isCreator || isInvited || myEventIds.contains(event.id);
-    }
     if (!EventPrivacy.hidesFromPublicBrowse(event.privacy)) {
       return true;
     }
@@ -73,8 +66,6 @@ class AppwriteEventRepository implements EventRepository {
     }
     final myEventIds = await eventRegistrationRepository()
         .listMyRegisteredEventIds(myId);
-    final membership = await membershipRepository().getStatus();
-    final isMembershipUser = membership.isPremium;
     return events
         .map((e) => e.copyWith(joinedByMe: myEventIds.contains(e.id)))
         .where(
@@ -82,7 +73,6 @@ class AppwriteEventRepository implements EventRepository {
             event: e,
             currentUserId: myId,
             myEventIds: myEventIds,
-            isMembershipUser: isMembershipUser,
           ),
         )
         .toList();

@@ -383,6 +383,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
 
     return Column(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (showJoinRequestsStrip)
           _JoinRequestsCreatorStrip(
@@ -1778,95 +1779,171 @@ class _JoinRequestsCreatorStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0xFFFFF7ED),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Join requests (${event.pendingJoinRequestUserIds.length})',
-              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
-            ),
-            const SizedBox(height: 8),
-            FutureBuilder<List<UserProfile>>(
-              future: profileRepository().getProfilesByIds(
-                event.pendingJoinRequestUserIds,
+    return SizedBox(
+      width: MediaQuery.sizeOf(context).width,
+      child: Material(
+        color: const Color(0xFFFFF7ED),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Join requests (${event.pendingJoinRequestUserIds.length})',
+                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
               ),
-              builder: (context, snap) {
-                final profiles = snap.data ?? const <UserProfile>[];
-                if (snap.connectionState != ConnectionState.done &&
-                    profiles.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.all(8),
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                return Column(
-                  children: [
-                    for (final p in profiles)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                p.username.trim().isNotEmpty
-                                    ? p.username
-                                    : p.userId,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: () async {
-                                await eventInviteRepository().rejectJoinRequest(
-                                  eventId: event.id,
-                                  userId: p.userId,
-                                );
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Request declined.'),
-                                    ),
-                                  );
-                                  onChanged();
-                                }
-                              },
-                              child: const Text('Decline'),
-                            ),
-                            const SizedBox(width: 6),
-                            FilledButton(
-                              onPressed: () async {
-                                await eventInviteRepository()
-                                    .approveJoinRequest(
-                                      eventId: event.id,
-                                      userId: p.userId,
-                                    );
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Player approved and added.',
-                                      ),
-                                    ),
-                                  );
-                                  onChanged();
-                                }
-                              },
-                              child: const Text('Approve'),
-                            ),
-                          ],
+              const SizedBox(height: 8),
+              FutureBuilder<List<UserProfile>>(
+                future: profileRepository().getProfilesByIds(
+                  event.pendingJoinRequestUserIds,
+                ),
+                builder: (context, snap) {
+                  final profiles = snap.data ?? const <UserProfile>[];
+                  if (snap.connectionState != ConnectionState.done &&
+                      profiles.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  if (profiles.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 10),
+                      child: Text(
+                        'No pending requests right now.',
+                        style: TextStyle(
+                          color: Colors.black54,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                  ],
-                );
-              },
-            ),
-          ],
+                    );
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final p in profiles)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFE8E8E8)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 14,
+                                    backgroundColor: const Color(0xFFEDE9FE),
+                                    child: Text(
+                                      (p.username.trim().isNotEmpty
+                                              ? p.username
+                                              : p.userId)
+                                          .trim()
+                                          .substring(0, 1)
+                                          .toUpperCase(),
+                                      style: const TextStyle(
+                                        color: Color(0xFF6D28D9),
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          p.username.trim().isNotEmpty
+                                              ? p.username
+                                              : p.userId,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        Text(
+                                          p.userId,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: Colors.black.withValues(
+                                              alpha: 0.5,
+                                            ),
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton(
+                                      onPressed: () async {
+                                        await eventInviteRepository()
+                                            .rejectJoinRequest(
+                                              eventId: event.id,
+                                              userId: p.userId,
+                                            );
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Request declined.'),
+                                            ),
+                                          );
+                                          onChanged();
+                                        }
+                                      },
+                                      child: const Text('Decline'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: FilledButton(
+                                      onPressed: () async {
+                                        await eventInviteRepository()
+                                            .approveJoinRequest(
+                                              eventId: event.id,
+                                              userId: p.userId,
+                                            );
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'Player approved and added.',
+                                              ),
+                                            ),
+                                          );
+                                          onChanged();
+                                        }
+                                      },
+                                      child: const Text('Approve'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -707,6 +707,8 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
   late Future<UserProfile> _profileFuture;
   late Future<int> _unreadNotificationsFuture;
   late Future<MembershipStatus> _membershipFuture;
+  late Future<AchievementSnapshot> _achievementFuture;
+  late Future<List<Object?>> _homeEventsPayloadFuture;
 
   @override
   void initState() {
@@ -714,6 +716,8 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
     _profileFuture = appPreloadService().myProfile();
     _unreadNotificationsFuture = _loadUnreadNotificationsCount();
     _membershipFuture = appPreloadService().membershipStatus();
+    _achievementFuture = achievementRepository().getMySnapshot();
+    _homeEventsPayloadFuture = _loadHomeEventsPayload();
     AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
   }
 
@@ -740,6 +744,8 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
       _membershipFuture = appPreloadService().membershipStatus(
         forceRefresh: true,
       );
+      _achievementFuture = achievementRepository().getMySnapshot();
+      _homeEventsPayloadFuture = _loadHomeEventsPayload();
     });
   }
 
@@ -753,6 +759,34 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
       _membershipFuture = appPreloadService().membershipStatus(
         forceRefresh: true,
       );
+      _achievementFuture = achievementRepository().getMySnapshot();
+      _homeEventsPayloadFuture = _loadHomeEventsPayload();
+    });
+  }
+
+  Future<List<Object?>> _loadHomeEventsPayload() {
+    return Future.wait<Object?>([
+      eventRepository().listEvents(),
+      profileRepository().getMyProfile(),
+    ]);
+  }
+
+  Future<void> _openHomeEventDetail(
+    Event event, {
+    required bool showRegisterButton,
+  }) async {
+    await Navigator.of(context).pushNamed(
+      EventDetailScreen.routeName,
+      arguments: EventDetailArgs(
+        event: event,
+        showRegisterButton: showRegisterButton,
+      ),
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _homeEventsPayloadFuture = _loadHomeEventsPayload();
     });
   }
 
@@ -856,7 +890,7 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
                         ).pushNamed(StreakScreen.routeName),
                         borderRadius: BorderRadius.circular(14),
                         child: FutureBuilder<AchievementSnapshot>(
-                          future: achievementRepository().getMySnapshot(),
+                          future: _achievementFuture,
                           builder: (context, snapshot) {
                             final streak = snapshot.data?.currentStreak ?? 0;
                             return Container(
@@ -1029,7 +1063,16 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
                       ],
                     ),
                     const SizedBox(height: 10),
-                    SizedBox(height: 168, child: _ActivityList()),
+                    SizedBox(
+                      height: 168,
+                      child: _ActivityList(
+                        payloadFuture: _homeEventsPayloadFuture,
+                        onOpenEvent: (event) => _openHomeEventDetail(
+                          event,
+                          showRegisterButton: false,
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 18),
                     Row(
                       children: [
@@ -1059,7 +1102,13 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
                     const SizedBox(height: 8),
                     _PrivateInvitesSection(),
                     const SizedBox(height: 10),
-                    _HomeEventsSection(),
+                    _HomeEventsSection(
+                      payloadFuture: _homeEventsPayloadFuture,
+                      onOpenEvent: (event) => _openHomeEventDetail(
+                        event,
+                        showRegisterButton: true,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -1072,13 +1121,15 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
 }
 
 class _ActivityList extends StatelessWidget {
+  final Future<List<Object?>> payloadFuture;
+  final Future<void> Function(Event event) onOpenEvent;
+
+  const _ActivityList({required this.payloadFuture, required this.onOpenEvent});
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Object?>>(
-      future: Future.wait<Object?>([
-        eventRepository().listEvents(),
-        profileRepository().getMyProfile(),
-      ]),
+      future: payloadFuture,
       builder: (context, snap) {
         final events = (snap.data != null
             ? snap.data![0] as List<Event>
@@ -1119,13 +1170,7 @@ class _ActivityList extends StatelessWidget {
                       title: joinedEvents[i].title,
                       subtitle: _activitySubtitle(joinedEvents[i]),
                       icon: _sportIcon(joinedEvents[i].sport),
-                      onTap: () => Navigator.of(context).pushNamed(
-                        EventDetailScreen.routeName,
-                        arguments: EventDetailArgs(
-                          event: joinedEvents[i],
-                          showRegisterButton: false,
-                        ),
-                      ),
+                      onTap: () => onOpenEvent(joinedEvents[i]),
                     ),
                     if (i != joinedEvents.length - 1) const SizedBox(width: 12),
                   ],
@@ -1137,13 +1182,18 @@ class _ActivityList extends StatelessWidget {
 }
 
 class _HomeEventsSection extends StatelessWidget {
+  final Future<List<Object?>> payloadFuture;
+  final Future<void> Function(Event event) onOpenEvent;
+
+  const _HomeEventsSection({
+    required this.payloadFuture,
+    required this.onOpenEvent,
+  });
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Object?>>(
-      future: Future.wait<Object?>([
-        eventRepository().listEvents(),
-        profileRepository().getMyProfile(),
-      ]),
+      future: payloadFuture,
       builder: (context, snap) {
         final events = (snap.data != null
             ? snap.data![0] as List<Event>
@@ -1202,13 +1252,7 @@ class _HomeEventsSection extends StatelessWidget {
                   for (int i = 0; i < shownEvents.length; i++) ...[
                     _TodayEventCard(
                       event: shownEvents[i],
-                      onOpen: () => Navigator.of(context).pushNamed(
-                        EventDetailScreen.routeName,
-                        arguments: EventDetailArgs(
-                          event: shownEvents[i],
-                          showRegisterButton: true,
-                        ),
-                      ),
+                      onOpen: () => onOpenEvent(shownEvents[i]),
                     ),
                     if (i != shownEvents.length - 1) const SizedBox(height: 12),
                   ],

@@ -7,7 +7,7 @@ import '../../appwrite/appwrite_service.dart';
 import '../../models/event.dart';
 
 /// Large top thumbnail for event cards (matches All Events list style).
-class EventThumbnailHeader extends StatelessWidget {
+class EventThumbnailHeader extends StatefulWidget {
   final Event event;
   final double height;
 
@@ -18,12 +18,51 @@ class EventThumbnailHeader extends StatelessWidget {
   });
 
   @override
+  State<EventThumbnailHeader> createState() => _EventThumbnailHeaderState();
+}
+
+class _EventThumbnailHeaderState extends State<EventThumbnailHeader> {
+  static final Map<String, Future<Uint8List>> _imageFutureCache =
+      <String, Future<Uint8List>>{};
+
+  Future<Uint8List>? _imageFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _bindImageFuture();
+  }
+
+  @override
+  void didUpdateWidget(covariant EventThumbnailHeader oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if ((oldWidget.event.thumbnailFileId ?? '').trim() !=
+        (widget.event.thumbnailFileId ?? '').trim()) {
+      _bindImageFuture();
+    }
+  }
+
+  void _bindImageFuture() {
+    final fileId = (widget.event.thumbnailFileId ?? '').trim();
+    if (fileId.isEmpty) {
+      _imageFuture = null;
+      return;
+    }
+    _imageFuture = _imageFutureCache.putIfAbsent(fileId, () {
+      return AppwriteService.getFileViewBytes(
+        bucketId: AppwriteConfig.eventImagesBucketId,
+        fileId: fileId,
+      );
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
       child: SizedBox(
-        height: height,
+        height: widget.height,
         width: double.infinity,
         child: _buildContent(context, cs),
       ),
@@ -31,16 +70,12 @@ class EventThumbnailHeader extends StatelessWidget {
   }
 
   Widget _buildContent(BuildContext context, ColorScheme cs) {
-    final fileId = event.thumbnailFileId;
-    if (fileId == null || fileId.isEmpty) {
+    if (_imageFuture == null) {
       return _placeholder(cs);
     }
 
     return FutureBuilder<Uint8List>(
-      future: AppwriteService.getFileViewBytes(
-        bucketId: AppwriteConfig.eventImagesBucketId,
-        fileId: fileId,
-      ),
+      future: _imageFuture,
       builder: (context, snap) {
         if (snap.hasError) {
           return _placeholder(cs);
@@ -66,6 +101,7 @@ class EventThumbnailHeader extends StatelessWidget {
             fit: BoxFit.cover,
             width: double.infinity,
             height: double.infinity,
+            gaplessPlayback: true,
           );
         }
         return _placeholder(cs);

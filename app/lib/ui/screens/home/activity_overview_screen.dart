@@ -32,11 +32,26 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
   _ActivityTab _tab = _ActivityTab.ticket;
   final Set<String> _cancellingEventIds = <String>{};
   late Future<MembershipStatus> _membershipFuture;
+  late Future<List<Object?>> _activityPayloadFuture;
 
   @override
   void initState() {
     super.initState();
     _membershipFuture = membershipRepository().getStatus();
+    _activityPayloadFuture = _loadActivityPayload();
+  }
+
+  Future<List<Object?>> _loadActivityPayload() {
+    return Future.wait<Object?>([
+      eventRepository().listEvents(),
+      profileRepository().getMyProfile(),
+    ]);
+  }
+
+  void _refreshActivityPayload() {
+    setState(() {
+      _activityPayloadFuture = _loadActivityPayload();
+    });
   }
 
   String _headerTitleForTab(_ActivityTab tab) {
@@ -96,12 +111,16 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
             ),
           ),
           centerTitle: false,
+          actions: [
+            IconButton(
+              onPressed: _refreshActivityPayload,
+              tooltip: 'Refresh',
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
         ),
         body: FutureBuilder<List<Object?>>(
-          future: Future.wait<Object?>([
-            eventRepository().listEvents(),
-            profileRepository().getMyProfile(),
-          ]),
+          future: _activityPayloadFuture,
           builder: (context, snap) {
             if (snap.connectionState != ConnectionState.done) {
               return const Center(child: CircularProgressIndicator());
@@ -190,12 +209,13 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
                                 if (!mounted) {
                                   return;
                                 }
-                                setState(() {});
+                                _refreshActivityPayload();
                               });
                         },
                     onCancelTicket: _cancelTicket,
                     isCancellingEvent: (eventId) =>
                         _cancellingEventIds.contains(eventId),
+                    onRefresh: () async => _refreshActivityPayload(),
                   ),
                 ),
               ],
@@ -256,6 +276,7 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Ticket cancelled.')));
+      _refreshActivityPayload();
     } catch (_) {
       if (!mounted) {
         return;
@@ -360,6 +381,7 @@ class _ActivityTabBody extends StatelessWidget {
   onOpenEvent;
   final Future<void> Function(Event event) onCancelTicket;
   final bool Function(String eventId) isCancellingEvent;
+  final Future<void> Function() onRefresh;
 
   const _ActivityTabBody({
     required this.tab,
@@ -371,6 +393,7 @@ class _ActivityTabBody extends StatelessWidget {
     required this.onOpenEvent,
     required this.onCancelTicket,
     required this.isCancellingEvent,
+    required this.onRefresh,
   });
 
   String _fmtTime(DateTime dt) {
@@ -500,17 +523,29 @@ class _ActivityTabBody extends StatelessWidget {
           : tab == _ActivityTab.created
           ? 'No created events yet'
           : 'No history yet';
-      return Center(
-        child: Text(
-          label,
-          style: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
+      return RefreshIndicator(
+        onRefresh: onRefresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            const SizedBox(height: 140),
+            Center(
+              child: Text(
+                label,
+                style: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
+              ),
+            ),
+          ],
         ),
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
-      itemBuilder: (context, idx) {
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+        itemBuilder: (context, idx) {
         final e = list[idx];
         final endAt = e.startAt.add(e.duration);
         final dateTimeStr =
@@ -904,9 +939,10 @@ class _ActivityTabBody extends StatelessWidget {
         );
 
         return card;
-      },
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemCount: list.length,
+        },
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemCount: list.length,
+      ),
     );
   }
 }

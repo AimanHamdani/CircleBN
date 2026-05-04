@@ -437,6 +437,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             final sportsLabel = sportsPreview.isEmpty
                 ? 'Football · Badminton · Running'
                 : sportsPreview.take(3).join(' · ');
+            final bioTrimmed = profile.bio.trim();
 
             return SafeArea(
               child: Column(
@@ -554,6 +555,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
                       child: Column(
                         children: [
+                          if (_activeTab == _ProfileContentTab.profile)
+                            _CardSection(
+                              title: 'ABOUT',
+                              child: bioTrimmed.isNotEmpty
+                                  ? Text(
+                                      bioTrimmed,
+                                      style: TextStyle(
+                                        height: 1.45,
+                                        fontSize: 15,
+                                        color: Colors.black.withValues(
+                                          alpha: 0.72,
+                                        ),
+                                      ),
+                                    )
+                                  : Text(
+                                      'No bio yet. Edit your profile to add one.',
+                                      style: TextStyle(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.45,
+                                        ),
+                                        fontSize: 15,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    ),
+                            ),
+                          if (_activeTab == _ProfileContentTab.profile)
+                            const SizedBox(height: 14),
                           if (_activeTab == _ProfileContentTab.profile)
                             _CardSection(
                               title: 'PERSONAL INFO',

@@ -86,6 +86,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
               final subtitle = sports.isEmpty
                   ? 'Sports enthusiast'
                   : sports.take(3).join(' · ');
+              final bioTrimmed = profile.bio.trim();
 
               return SafeArea(
                 child: Column(
@@ -304,6 +305,8 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                                 ),
                                 const SizedBox(height: 14),
                                 if (_activeTab == _UserProfileTab.profile) ...[
+                                  _AboutProfileCard(bio: bioTrimmed),
+                                  const SizedBox(height: 14),
                                   FutureBuilder<bool>(
                                     future: heightDisplayRepository()
                                         .getUseImperial(),
@@ -506,6 +509,60 @@ class _HeaderStat extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _AboutProfileCard extends StatelessWidget {
+  final String bio;
+
+  const _AboutProfileCard({required this.bio});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFD8DEE7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 14, 16, 0),
+            child: Text(
+              'ABOUT',
+              style: TextStyle(
+                color: Color(0xFF8A95A4),
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.8,
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+            child: bio.trim().isNotEmpty
+                ? Text(
+                    bio.trim(),
+                    style: TextStyle(
+                      height: 1.45,
+                      fontSize: 15,
+                      color: Colors.black.withValues(alpha: 0.72),
+                    ),
+                  )
+                : Text(
+                    'No bio yet.',
+                    style: TextStyle(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      fontSize: 15,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }

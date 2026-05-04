@@ -4,6 +4,7 @@ enum AppNotificationType {
   eventInvite,
   eventUpdated,
   eventJoinRequest,
+  clubJoinRequest,
   chatMessage,
 }
 
@@ -19,6 +20,8 @@ AppNotificationType appNotificationTypeFromString(String raw) {
       return AppNotificationType.eventUpdated;
     case 'eventJoinRequest':
       return AppNotificationType.eventJoinRequest;
+    case 'clubJoinRequest':
+      return AppNotificationType.clubJoinRequest;
     case 'chatMessage':
       return AppNotificationType.chatMessage;
     default:
@@ -38,6 +41,8 @@ String appNotificationTypeToString(AppNotificationType type) {
       return 'eventUpdated';
     case AppNotificationType.eventJoinRequest:
       return 'eventJoinRequest';
+    case AppNotificationType.clubJoinRequest:
+      return 'clubJoinRequest';
     case AppNotificationType.chatMessage:
       return 'chatMessage';
   }
@@ -52,6 +57,7 @@ class AppNotification {
   final DateTime createdAt;
   final bool isRead;
   final String? targetEventId;
+  final String? targetClubId;
 
   const AppNotification({
     required this.id,
@@ -62,6 +68,7 @@ class AppNotification {
     required this.createdAt,
     this.isRead = false,
     this.targetEventId,
+    this.targetClubId,
   });
 
   Map<String, dynamic> toMap() {
@@ -74,6 +81,7 @@ class AppNotification {
       'createdAt': createdAt.toIso8601String(),
       'isRead': isRead,
       'targetEventId': targetEventId,
+      'targetClubId': targetClubId,
     };
   }
 
@@ -89,6 +97,7 @@ class AppNotification {
           DateTime.now(),
       isRead: map['isRead'] == true,
       targetEventId: map['targetEventId']?.toString(),
+      targetClubId: map['targetClubId']?.toString(),
     );
   }
 
@@ -101,6 +110,7 @@ class AppNotification {
     DateTime? createdAt,
     bool? isRead,
     String? targetEventId,
+    String? targetClubId,
   }) {
     return AppNotification(
       id: id ?? this.id,
@@ -111,6 +121,7 @@ class AppNotification {
       createdAt: createdAt ?? this.createdAt,
       isRead: isRead ?? this.isRead,
       targetEventId: targetEventId ?? this.targetEventId,
+      targetClubId: targetClubId ?? this.targetClubId,
     );
   }
 }

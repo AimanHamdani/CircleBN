@@ -39,6 +39,23 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
     super.initState();
     _membershipFuture = membershipRepository().getStatus();
     _activityPayloadFuture = _loadActivityPayload();
+    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
+  }
+
+  @override
+  void dispose() {
+    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
+    super.dispose();
+  }
+
+  void _handleGlobalDataChange() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _membershipFuture = membershipRepository().getStatus();
+      _activityPayloadFuture = _loadActivityPayload();
+    });
   }
 
   Future<List<Object?>> _loadActivityPayload() {

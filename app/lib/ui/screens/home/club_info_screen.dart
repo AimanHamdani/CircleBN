@@ -218,9 +218,8 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
   }
 
   Future<void> _openJoinRequestsSheet(_ClubInfoPayload payload) async {
-    final creatorId = (payload.club.creatorId ?? '').trim();
-    final canManageJoinRequests = payload.isCurrentUserCreator ||
-        (creatorId.isEmpty && payload.isCurrentUserAdmin);
+    final canManageJoinRequests =
+        payload.isCurrentUserAdmin || payload.isCurrentUserCreator;
     if (!canManageJoinRequests) {
       return;
     }
@@ -1311,6 +1310,8 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
           final desc = club.description.trim().isNotEmpty
               ? club.description.trim()
               : 'No description yet.';
+          final canManageJoinRequests =
+              p.isCurrentUserAdmin || p.isCurrentUserCreator;
 
           return LayoutBuilder(
             builder: (context, constraints) {
@@ -1512,11 +1513,7 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                                           ),
                                                         if (p.pendingJoinRequestUserIds
                                                                 .isNotEmpty &&
-                                                            (p.isCurrentUserCreator ||
-                                                                ((club.creatorId ?? '')
-                                                                        .trim()
-                                                                        .isEmpty &&
-                                                                    p.isCurrentUserAdmin)))
+                                                            canManageJoinRequests)
                                                           ListTile(
                                                             leading: const Icon(
                                                               Icons
@@ -1675,6 +1672,79 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                               ],
                             ),
                             const SizedBox(height: 18),
+                            if (canManageJoinRequests &&
+                                p.pendingJoinRequestUserIds.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 14),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(16),
+                                    onTap: () =>
+                                        _openJoinRequestsSheet(p),
+                                    child: Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 14,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: teal.withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color: teal.withValues(alpha: 0.45),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.how_to_reg_outlined,
+                                            color: teal,
+                                            size: 26,
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  '${p.pendingJoinRequestUserIds.length} join '
+                                                  '${p.pendingJoinRequestUserIds.length == 1 ? 'request' : 'requests'} pending',
+                                                  style: TextStyle(
+                                                    fontWeight:
+                                                        FontWeight.w800,
+                                                    color: green,
+                                                    fontSize: 15,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  'Tap to approve or decline',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight:
+                                                        FontWeight.w600,
+                                                    color: Colors.black
+                                                        .withValues(
+                                                          alpha: 0.54,
+                                                        ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          Icon(
+                                            Icons.chevron_right,
+                                            color:
+                                                green.withValues(alpha: 0.85),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             Container(
                               padding: const EdgeInsets.symmetric(vertical: 14),
                               decoration: BoxDecoration(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../appwrite/appwrite_service.dart';
 import '../../../data/event_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../data/sample_clubs.dart';
@@ -50,6 +51,20 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
   void initState() {
     super.initState();
     _refreshData();
+    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
+  }
+
+  @override
+  void dispose() {
+    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
+    super.dispose();
+  }
+
+  void _handleGlobalDataChange() {
+    if (!mounted) {
+      return;
+    }
+    setState(_refreshData);
   }
 
   void _refreshData() {
@@ -320,13 +335,48 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
                   ),
                 ),
                 Expanded(
-                  child:
-                      snap.connectionState != ConnectionState.done &&
-                          all.isEmpty
-                      ? const Center(child: CircularProgressIndicator())
-                      : events.isEmpty
-                      ? _EmptyDayState(selectedDate: selected)
-                      : ListView.separated(
+                  child: LayoutBuilder(
+                    builder: (context, innerConstraints) {
+                      Future<void> onPullRefresh() async {
+                        setState(_refreshData);
+                        await _screenDataFuture;
+                      }
+
+                      final minH = innerConstraints.maxHeight > 0
+                          ? innerConstraints.maxHeight
+                          : 400.0;
+
+                      if (snap.connectionState != ConnectionState.done &&
+                          all.isEmpty) {
+                        return RefreshIndicator(
+                          onRefresh: onPullRefresh,
+                          child: SingleChildScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            child: SizedBox(
+                              height: minH,
+                              child: const Center(
+                                child: CircularProgressIndicator(),
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                      if (events.isEmpty) {
+                        return RefreshIndicator(
+                          onRefresh: onPullRefresh,
+                          child: SingleChildScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(minHeight: minH),
+                              child: _EmptyDayState(selectedDate: selected),
+                            ),
+                          ),
+                        );
+                      }
+                      return RefreshIndicator(
+                        onRefresh: onPullRefresh,
+                        child: ListView.separated(
+                          physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
                           itemCount: events.length,
                           separatorBuilder: (_, __) =>
@@ -351,6 +401,9 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
                             );
                           },
                         ),
+                      );
+                    },
+                  ),
                 ),
               ],
             );

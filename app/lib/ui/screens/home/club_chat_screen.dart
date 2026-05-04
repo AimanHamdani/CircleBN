@@ -998,64 +998,12 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         titleSpacing: 0,
         // Web/AppBar: avoid LayoutBuilder + flex in the title slot (constraints can be
         // loose/unbounded briefly). Use MediaQuery for a finite width every frame.
-        actions: [
-          if (_showJoinClubInAppBar)
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: Center(
-                child: _hasPendingJoinRequest
-                    ? Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: Text(
-                          'Pending',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.92),
-                            fontWeight: FontWeight.w800,
-                            fontSize: 13,
-                          ),
-                        ),
-                      )
-                    : FilledButton(
-                        onPressed: _isJoiningClub ? null : _joinFromChatAppBar,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: const Color(0xFF0F766E),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                        ),
-                        child: _isJoiningClub
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Color(0xFF0F766E),
-                                ),
-                              )
-                            : Text(
-                                _joinRequiresApproval ? 'Request' : 'Join',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 13,
-                                ),
-                              ),
-                      ),
-              ),
-            ),
-        ],
+        // Join / request lives below the AppBar so the title row stays unchanged.
         title: Builder(
           builder: (context) {
             final screenW = MediaQuery.sizeOf(context).width;
-            final trailingReserve = _showJoinClubInAppBar ? 112.0 : 0.0;
             final titleW = screenW > 0
-                ? (screenW - 72 - trailingReserve).clamp(160.0, 1200.0)
+                ? (screenW - 72).clamp(160.0, 1200.0)
                 : 280.0;
             return GestureDetector(
               behavior: HitTestBehavior.opaque,
@@ -1256,6 +1204,81 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                     ],
                   ),
                 ),
+              ),
+            ),
+          if (_showJoinClubInAppBar)
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  _canSendMessages ? 0 : 8,
+                  16,
+                  10,
+                ),
+                child: _hasPendingJoinRequest
+                    ? DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: _teal.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: _teal.withValues(alpha: 0.38),
+                          ),
+                        ),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 15,
+                          ),
+                          child: Center(
+                            child: Text(
+                              'Join request pending',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15.5,
+                                color: Color(0xFF0F5549),
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                    : SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed:
+                              _isJoiningClub ? null : _joinFromChatAppBar,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _teal,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 28,
+                              vertical: 15,
+                            ),
+                            minimumSize: const Size.fromHeight(50),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            textStyle: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 16.5,
+                            ),
+                          ),
+                          child: _isJoiningClub
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text(
+                                  _joinRequiresApproval
+                                      ? 'Request to join'
+                                      : 'Join club',
+                                ),
+                        ),
+                      ),
               ),
             ),
         ],

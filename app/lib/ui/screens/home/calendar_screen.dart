@@ -85,7 +85,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
     if (!mounted) {
       return;
     }
-    _refreshPayload();
+    setState(() {
+      _membershipFuture = membershipRepository().getStatus();
+      _payloadFuture = _loadCalendarPayload();
+    });
   }
 
   static Set<String> _joinedOrCreatedClubIds({
@@ -404,18 +407,42 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         const SizedBox(height: 10),
                         Expanded(
                           flex: 4,
-                          child: eventsOnSelectedDay.isEmpty
-                              ? Center(
-                                  child: Text(
-                                    'No events on this day.',
-                                    style: TextStyle(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.55,
+                          child: LayoutBuilder(
+                            builder: (context, dayListConstraints) {
+                              Future<void> onPull() async {
+                                _refreshPayload();
+                                await _payloadFuture;
+                              }
+
+                              final minH = dayListConstraints.maxHeight > 0
+                                  ? dayListConstraints.maxHeight
+                                  : 200.0;
+
+                              if (eventsOnSelectedDay.isEmpty) {
+                                return RefreshIndicator(
+                                  onRefresh: onPull,
+                                  child: SingleChildScrollView(
+                                    physics: const AlwaysScrollableScrollPhysics(),
+                                    child: SizedBox(
+                                      height: minH,
+                                      child: Center(
+                                        child: Text(
+                                          'No events on this day.',
+                                          style: TextStyle(
+                                            color: Colors.black.withValues(
+                                              alpha: 0.55,
+                                            ),
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                )
-                              : ListView.separated(
+                                );
+                              }
+                              return RefreshIndicator(
+                                onRefresh: onPull,
+                                child: ListView.separated(
+                                  physics: const AlwaysScrollableScrollPhysics(),
                                   itemCount: eventsOnSelectedDay.length,
                                   separatorBuilder: (_, __) =>
                                       const SizedBox(height: 12),
@@ -434,6 +461,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     );
                                   },
                                 ),
+                              );
+                            },
+                          ),
                         ),
                       ],
                     );

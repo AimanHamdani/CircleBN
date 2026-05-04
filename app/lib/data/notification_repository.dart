@@ -169,6 +169,7 @@ class NotificationRepository {
           DateTime.now(),
       isRead: data['isRead'] == true,
       targetEventId: data['targetEventId']?.toString(),
+      targetClubId: data['targetClubId']?.toString(),
     );
   }
 
@@ -181,6 +182,8 @@ class NotificationRepository {
       'createdAt': item.createdAt.toIso8601String(),
       'isRead': item.isRead,
       'targetEventId': item.targetEventId,
+      if (item.targetClubId != null && item.targetClubId!.trim().isNotEmpty)
+        'targetClubId': item.targetClubId,
     };
   }
 

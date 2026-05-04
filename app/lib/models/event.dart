@@ -1,3 +1,5 @@
+import 'dart:convert' show jsonEncode;
+
 DateTime _parseEventStartAt(Object? v) {
   if (v is DateTime) {
     return v;
@@ -237,6 +239,26 @@ class Event {
           data['imageUrl']?.toString() ??
           data['image_url']?.toString(),
     );
+  }
+
+  /// Participant / invite lists are compared without order.
+  Map<String, dynamic> _normalizedSnapshotMap() {
+    List<String> sortIds(List<String> xs) => [...xs]..sort();
+    final m = Map<String, dynamic>.from(toMap());
+    m['participantIds'] = sortIds(participantIds);
+    m['invitedUserIds'] = sortIds(invitedUserIds);
+    m['rejectedInviteUserIds'] = sortIds(rejectedInviteUserIds);
+    m['pendingJoinRequestUserIds'] = sortIds(pendingJoinRequestUserIds);
+    return m;
+  }
+
+  /// True when [other] is the same event document for UI (excluding list order noise).
+  bool hasSameRemoteSnapshot(Event other) {
+    if (id != other.id) {
+      return false;
+    }
+    return jsonEncode(_normalizedSnapshotMap()) ==
+        jsonEncode(other._normalizedSnapshotMap());
   }
 
   Map<String, dynamic> toMap() {

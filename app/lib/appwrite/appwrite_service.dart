@@ -258,4 +258,12 @@ class AppwriteService {
   static void _bumpDataVersion() {
     dataVersion.value = dataVersion.value + 1;
   }
+
+  /// Notifies [dataVersion] listeners to reload database-backed UI.
+  ///
+  /// Used when data may have changed outside this process, for example after
+  /// an Appwrite Realtime event. Local writes already bump via [_bumpDataVersion].
+  static void notifyDataChanged() {
+    _bumpDataVersion();
+  }
 }

@@ -3,13 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
+import '../../../data/club_repository.dart';
 import '../../../data/event_invite_repository.dart';
 import '../../../data/event_registration_repository.dart';
 import '../../../data/event_repository.dart';
 import '../../../data/notification_repository.dart';
 import '../../../models/app_notification.dart';
 import '../../../models/event.dart';
+import 'club_info_screen.dart';
 import 'event_detail_screen.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -21,11 +24,14 @@ class NotificationsScreen extends StatefulWidget {
   State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
+enum _NotificationsFilter { all, clubs, events }
+
 class _NotificationsScreenState extends State<NotificationsScreen> {
   static const _knownEventIdsKeyPrefix = 'notifications_known_event_ids_v2_';
 
   late Future<_NotificationPayload> _notificationsFuture;
   Timer? _clockTimer;
+  _NotificationsFilter _filter = _NotificationsFilter.all;
 
   @override
   void initState() {
@@ -36,12 +42,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         setState(() {});
       }
     });
+    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
   }
 
   @override
   void dispose() {
     _clockTimer?.cancel();
+    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
     super.dispose();
+  }
+
+  void _handleGlobalDataChange() {
+    if (!mounted) {
+      return;
+    }
+    _reload();
   }
 
   String _knownKeyForUser(String userId) {
@@ -144,6 +159,22 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     });
   }
 
+  Future<void> _onPullRefresh() async {
+    await _reload();
+    await _notificationsFuture;
+  }
+
+  bool _matchesNotificationsFilter(AppNotification item) {
+    switch (_filter) {
+      case _NotificationsFilter.all:
+        return true;
+      case _NotificationsFilter.clubs:
+        return item.type == AppNotificationType.clubJoinRequest;
+      case _NotificationsFilter.events:
+        return item.type != AppNotificationType.clubJoinRequest;
+    }
+  }
+
   Future<void> _openNotification(
     AppNotification item,
     Map<String, Event> eventById,
@@ -155,6 +186,32 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (!mounted) {
       return;
     }
+
+    if (item.type == AppNotificationType.clubJoinRequest) {
+      final clubId = (item.targetClubId ?? '').trim();
+      if (clubId.isEmpty) {
+        await _reload();
+        return;
+      }
+      final loaded = await clubRepository().getClub(clubId);
+      if (!mounted) {
+        return;
+      }
+      if (loaded != null) {
+        await Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(
+            settings: RouteSettings(
+              name: ClubInfoScreen.routeName,
+              arguments: loaded,
+            ),
+            builder: (context) => const ClubInfoScreen(),
+          ),
+        );
+      }
+      await _reload();
+      return;
+    }
+
     final eventId = item.targetEventId?.trim();
     if (eventId == null || eventId.isEmpty) {
       await _reload();
@@ -219,36 +276,134 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 eventById: <String, Event>{},
               );
           final items = payload.items;
-          if (snap.connectionState != ConnectionState.done && items.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (items.isEmpty) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(20),
-                child: Text(
-                  'No notifications yet.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.black54,
-                    fontWeight: FontWeight.w600,
+          final filtered = items.where(_matchesNotificationsFilter).toList();
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Material(
+                color: pageBackground,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('All'),
+                        selected: _filter == _NotificationsFilter.all,
+                        onSelected: (_) {
+                          setState(() => _filter = _NotificationsFilter.all);
+                        },
+                      ),
+                      ChoiceChip(
+                        label: const Text('Clubs'),
+                        selected: _filter == _NotificationsFilter.clubs,
+                        onSelected: (_) {
+                          setState(() => _filter = _NotificationsFilter.clubs);
+                        },
+                      ),
+                      ChoiceChip(
+                        label: const Text('Events & other'),
+                        selected: _filter == _NotificationsFilter.events,
+                        onSelected: (_) {
+                          setState(() => _filter = _NotificationsFilter.events);
+                        },
+                      ),
+                    ],
                   ),
                 ),
               ),
-            );
-          }
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-            itemCount: items.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final item = items[index];
-              return _NotificationTile(
-                item: item,
-                unread: !item.isRead,
-                onTap: () => _openNotification(item, payload.eventById),
-              );
-            },
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    return RefreshIndicator(
+                      onRefresh: _onPullRefresh,
+                      child: Builder(
+                        builder: (context) {
+                          Widget scrollableFill(Widget child) {
+                            return SingleChildScrollView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  minHeight: constraints.maxHeight,
+                                ),
+                                child: child,
+                              ),
+                            );
+                          }
+
+                          if (snap.connectionState != ConnectionState.done &&
+                              items.isEmpty) {
+                            return scrollableFill(
+                              const Center(
+                                child: CircularProgressIndicator(),
+                              ),
+                            );
+                          }
+                          if (items.isEmpty) {
+                            return scrollableFill(
+                              const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(20),
+                                  child: Text(
+                                    'No notifications yet.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: Colors.black54,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
+                          if (filtered.isEmpty) {
+                            final msg = _filter == _NotificationsFilter.clubs
+                                ? 'No club notifications yet.'
+                                : _filter == _NotificationsFilter.events
+                                ? 'No event or other notifications.'
+                                : 'No notifications yet.';
+                            return scrollableFill(
+                              Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(20),
+                                  child: Text(
+                                    msg,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      color: Colors.black54,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
+                          return ListView.separated(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (context, index) {
+                              final item = filtered[index];
+                              return _NotificationTile(
+                                item: item,
+                                unread: !item.isRead,
+                                onTap: () => _openNotification(
+                                  item,
+                                  payload.eventById,
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
           );
         },
       ),
@@ -279,7 +434,10 @@ class _NotificationTile extends StatelessWidget {
     final isSoon = item.type == AppNotificationType.eventStartingSoon;
     final isInvite = item.type == AppNotificationType.eventInvite;
     final isUpdated = item.type == AppNotificationType.eventUpdated;
-    final isJoinRequest = item.type == AppNotificationType.eventJoinRequest;
+    final isEventJoinRequest =
+        item.type == AppNotificationType.eventJoinRequest;
+    final isClubJoinRequest =
+        item.type == AppNotificationType.clubJoinRequest;
     final isChat = item.type == AppNotificationType.chatMessage;
     final iconBackground = isSoon
         ? const Color(0xFFDFF0E7)
@@ -287,7 +445,9 @@ class _NotificationTile extends StatelessWidget {
         ? const Color(0xFFEAE8FF)
         : isUpdated
         ? const Color(0xFFE7F2FF)
-        : isJoinRequest
+        : isClubJoinRequest
+        ? const Color(0xFFD7F5EA)
+        : isEventJoinRequest
         ? const Color(0xFFFFF4E5)
         : isChat
         ? const Color(0xFFE0F7F4)
@@ -298,7 +458,9 @@ class _NotificationTile extends StatelessWidget {
         ? const Color(0xFF5E62E8)
         : isUpdated
         ? const Color(0xFF2A73C9)
-        : isJoinRequest
+        : isClubJoinRequest
+        ? const Color(0xFF0F766E)
+        : isEventJoinRequest
         ? const Color(0xFFB45309)
         : isChat
         ? const Color(0xFF0F766E)
@@ -335,7 +497,9 @@ class _NotificationTile extends StatelessWidget {
                     ? Icons.mail_outline
                     : isUpdated
                     ? Icons.edit_calendar_outlined
-                    : isJoinRequest
+                    : isClubJoinRequest
+                    ? Icons.groups_2_outlined
+                    : isEventJoinRequest
                     ? Icons.person_add_alt_1_outlined
                     : isChat
                     ? Icons.chat_bubble_outline

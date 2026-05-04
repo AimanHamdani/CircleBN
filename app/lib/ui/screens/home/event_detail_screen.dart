@@ -224,26 +224,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                     child:
                         e.thumbnailFileId != null &&
                             e.thumbnailFileId!.isNotEmpty
-                        ? FutureBuilder(
-                            future: AppwriteService.getFileViewBytes(
-                              bucketId: AppwriteConfig.eventImagesBucketId,
-                              fileId: e.thumbnailFileId!,
-                            ),
-                            builder: (context, snap) {
-                              if (snap.hasData) {
-                                return Image.memory(
-                                  snap.data!,
-                                  fit: BoxFit.cover,
-                                  width: double.infinity,
-                                  height: double.infinity,
-                                );
-                              }
-                              return Icon(
-                                Icons.image_outlined,
-                                color: Colors.black.withValues(alpha: 0.35),
-                                size: 56,
-                              );
-                            },
+                        ? _CachedEventHeroImage(
+                            bucketId: AppwriteConfig.eventImagesBucketId,
+                            fileId: e.thumbnailFileId!,
                           )
                         : Icon(
                             Icons.image_outlined,
@@ -1196,16 +1179,25 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           ? events.firstWhere((e) => e.id == eventId)
           : null;
       if (updated != null && mounted) {
-        setState(() {
-          _eventOverride = updated;
-          _activeEventId = updated.id;
-          _isRegisteredByMe = updated.joinedByMe;
-          _isAttendedByMe = false;
-          _joinedCount = updated.joined;
-          _participants = _participantsFromProfiles(
-            _buildParticipantProfilesFromEvent(updated),
-          );
-        });
+        final baseline = (_eventOverride != null &&
+                _eventOverride!.id == eventId)
+            ? _eventOverride!
+            : _argsFromRoute(context).event;
+        final baselineMatches =
+            baseline.id == updated.id &&
+            baseline.hasSameRemoteSnapshot(updated);
+        if (!baselineMatches) {
+          setState(() {
+            _eventOverride = updated;
+            _activeEventId = updated.id;
+            _isRegisteredByMe = updated.joinedByMe;
+            _isAttendedByMe = false;
+            _joinedCount = updated.joined;
+            _participants = _participantsFromProfiles(
+              _buildParticipantProfilesFromEvent(updated),
+            );
+          });
+        }
         _reloadRegistrationState(updated);
       }
     } catch (_) {
@@ -3026,6 +3018,68 @@ String _formatMessageTime(DateTime dt) {
   final minute = t.minute.toString().padLeft(2, '0');
   final ampm = t.hour >= 12 ? 'PM' : 'AM';
   return '$hour12:$minute $ampm';
+}
+
+/// Loads the event hero image once per [fileId]; avoids refetch on every
+/// parent rebuild (e.g. after registration refresh).
+class _CachedEventHeroImage extends StatefulWidget {
+  final String bucketId;
+  final String fileId;
+
+  const _CachedEventHeroImage({
+    required this.bucketId,
+    required this.fileId,
+  });
+
+  @override
+  State<_CachedEventHeroImage> createState() => _CachedEventHeroImageState();
+}
+
+class _CachedEventHeroImageState extends State<_CachedEventHeroImage> {
+  late Future<Uint8List> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = AppwriteService.getFileViewBytes(
+      bucketId: widget.bucketId,
+      fileId: widget.fileId,
+    );
+  }
+
+  @override
+  void didUpdateWidget(_CachedEventHeroImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.fileId != widget.fileId ||
+        oldWidget.bucketId != widget.bucketId) {
+      _future = AppwriteService.getFileViewBytes(
+        bucketId: widget.bucketId,
+        fileId: widget.fileId,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: _future,
+      builder: (context, snap) {
+        if (snap.hasData && snap.data!.isNotEmpty) {
+          return Image.memory(
+            snap.data!,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+          );
+        }
+        return Icon(
+          Icons.image_outlined,
+          color: Colors.black.withValues(alpha: 0.35),
+          size: 56,
+        );
+      },
+    );
+  }
 }
 
 class _EventChatImage extends StatelessWidget {

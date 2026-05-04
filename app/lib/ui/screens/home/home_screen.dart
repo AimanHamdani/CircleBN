@@ -1,9 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../appwrite/appwrite_global_realtime_sync.dart';
 import '../../../appwrite/appwrite_service.dart';
+import '../../../appwrite/circle_unread_realtime_sync.dart';
 import '../../../data/achievement_repository.dart';
 import '../../../data/club_chat_repository.dart';
 import '../../../data/club_member_repository.dart';
@@ -50,7 +50,6 @@ class _HomeScreenState extends State<HomeScreen> {
   int _tabIndex = 0;
   late Future<int> _circleUnreadFuture;
   late Future<MembershipStatus> _createClubMembershipFuture;
-  Timer? _circleUnreadTimer;
 
   @override
   void initState() {
@@ -59,16 +58,21 @@ class _HomeScreenState extends State<HomeScreen> {
     appPreloadService().warmCircleData();
     _circleUnreadFuture = _loadCircleUnreadCount();
     _createClubMembershipFuture = appPreloadService().membershipStatus();
-    _circleUnreadTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
+    AppwriteGlobalRealtimeSync.start();
+    CircleUnreadRealtimeSync.start(() {
+      if (!mounted) {
+        return;
+      }
       _refreshCircleUnread();
     });
-    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
   }
 
   @override
   void dispose() {
+    CircleUnreadRealtimeSync.stop();
+    AppwriteGlobalRealtimeSync.stop();
     AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
-    _circleUnreadTimer?.cancel();
     super.dispose();
   }
 

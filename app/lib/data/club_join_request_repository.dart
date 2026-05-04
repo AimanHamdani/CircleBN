@@ -72,10 +72,11 @@ class ClubJoinRequestRepository {
       final notification = AppNotification(
         id: 'club_join_request_${club.id}_${recipientId}_${createdAt.microsecondsSinceEpoch}',
         userId: recipientId,
-        type: AppNotificationType.eventJoinRequest,
+        type: AppNotificationType.clubJoinRequest,
         title: 'New club join request',
         message: '$requesterLabel requested to join ${club.name}.',
         createdAt: createdAt,
+        targetClubId: club.id,
       );
       await notificationRepository().upsertMany(recipientId, [notification]);
     }

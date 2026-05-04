@@ -11,7 +11,9 @@ import '../../../appwrite/appwrite_config.dart';
 import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
 import '../../../data/club_chat_repository.dart';
+import '../../../data/club_join_request_repository.dart';
 import '../../../data/club_member_repository.dart';
+import '../../../data/club_repository.dart';
 import '../../../data/notification_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../models/app_notification.dart';
@@ -51,6 +53,10 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
   _ChatListTab _activeTab = _ChatListTab.all;
   bool _canPinAnyMessage = false;
   bool _canSendMessages = false;
+  bool _showJoinClubInAppBar = false;
+  bool _hasPendingJoinRequest = false;
+  bool _joinRequiresApproval = false;
+  bool _isJoiningClub = false;
   final Set<String> _syncedPinnedEventIds = <String>{};
 
   String _chatReadKey(String clubId) {
@@ -205,14 +211,24 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     final me = currentUserId.trim();
     if (club.id.trim().isEmpty || me.isEmpty) {
       if (mounted) {
-        setState(() => _canSendMessages = false);
+        setState(() {
+          _canSendMessages = false;
+          _showJoinClubInAppBar = false;
+          _hasPendingJoinRequest = false;
+          _joinRequiresApproval = false;
+        });
       }
       return;
     }
     final isCreator = (club.creatorId ?? '').trim() == me;
     if (isCreator) {
       if (mounted) {
-        setState(() => _canSendMessages = true);
+        setState(() {
+          _canSendMessages = true;
+          _showJoinClubInAppBar = false;
+          _hasPendingJoinRequest = false;
+          _joinRequiresApproval = false;
+        });
       }
       return;
     }
@@ -222,12 +238,30 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         userId: me,
       );
       if (!isMember) {
+        final fresh = await clubRepository().getClub(club.id) ?? club;
+        final pending = fresh.pendingJoinRequestUserIds
+            .map((id) => id.trim())
+            .contains(me);
         if (!mounted) {
           return;
         }
-        setState(() => _canSendMessages = false);
+        setState(() {
+          _canSendMessages = false;
+          _showJoinClubInAppBar = true;
+          _hasPendingJoinRequest = pending;
+          _joinRequiresApproval =
+              fresh.privacy.trim().toLowerCase() == 'private';
+        });
         return;
       }
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _showJoinClubInAppBar = false;
+        _hasPendingJoinRequest = false;
+        _joinRequiresApproval = false;
+      });
       final rule = club.whoCanSendMessages.trim();
       if (rule == 'Admins only') {
         final isAdmin = await clubMemberRepository().isAdmin(
@@ -243,12 +277,61 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
       if (!mounted) {
         return;
       }
-      setState(() => _canSendMessages = isMember);
+      setState(() => _canSendMessages = true);
     } catch (_) {
       if (mounted) {
-        setState(() => _canSendMessages = false);
+        setState(() {
+          _canSendMessages = false;
+          _showJoinClubInAppBar = false;
+          _hasPendingJoinRequest = false;
+          _joinRequiresApproval = false;
+        });
       }
     }
+  }
+
+  Future<void> _joinFromChatAppBar() async {
+    if (_isJoiningClub || _hasPendingJoinRequest) {
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    final routed = _clubFromRoute(context);
+    setState(() => _isJoiningClub = true);
+    var usedApproval = false;
+    try {
+      final club = await clubRepository().getClub(routed.id) ?? routed;
+      usedApproval = club.privacy.trim().toLowerCase() == 'private';
+      await clubJoinRequestRepository().requestToJoin(
+        clubId: club.id,
+        userId: currentUserId,
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Failed to join club.')),
+      );
+      return;
+    } finally {
+      if (mounted) {
+        setState(() => _isJoiningClub = false);
+      }
+    }
+    if (!mounted) {
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          usedApproval
+              ? 'Join request sent. Awaiting approval from the club creator.'
+              : 'Joined club.',
+        ),
+      ),
+    );
+    await _resolveSendPermission();
+    await _loadMembersCount();
   }
 
   Future<String> _resolveDisplayName() async {
@@ -444,7 +527,8 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     if (_isSending) {
       return;
     }
-    final clubId = _clubFromRoute(context).id.trim();
+    final club = _clubFromRoute(context);
+    final clubId = club.id.trim();
     if (clubId.isEmpty) {
       return;
     }
@@ -461,6 +545,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         text: text,
       );
       await _notifyClubMembersForMessage(
+        club: club,
         clubId: clubId,
         senderName: senderName,
         messageText: text,
@@ -482,12 +567,11 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         context,
       ).showSnackBar(const SnackBar(content: Text('Failed to send message.')));
     } finally {
-      if (!mounted) {
-        return;
+      if (mounted) {
+        setState(() {
+          _isSending = false;
+        });
       }
-      setState(() {
-        _isSending = false;
-      });
     }
   }
 
@@ -656,7 +740,8 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     if (_isSending) {
       return;
     }
-    final clubId = _clubFromRoute(context).id.trim();
+    final club = _clubFromRoute(context);
+    final clubId = club.id.trim();
     if (clubId.isEmpty) {
       return;
     }
@@ -688,6 +773,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         imageFileId: uploaded.$id,
       );
       await _notifyClubMembersForMessage(
+        club: club,
         clubId: clubId,
         senderName: senderName,
         messageText: _composerCtrl.text.trim(),
@@ -703,16 +789,16 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         context,
       ).showSnackBar(const SnackBar(content: Text('Failed to send image.')));
     } finally {
-      if (!mounted) {
-        return;
+      if (mounted) {
+        setState(() {
+          _isSending = false;
+        });
       }
-      setState(() {
-        _isSending = false;
-      });
     }
   }
 
   Future<void> _notifyClubMembersForMessage({
+    required Club club,
     required String clubId,
     required String senderName,
     required String messageText,
@@ -727,7 +813,6 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
       if (recipientIds.isEmpty) {
         return;
       }
-      final club = _clubFromRoute(context);
       final trimmed = messageText.trim();
       final preview = trimmed.isEmpty
           ? (hasImage ? 'sent a photo' : 'sent a message')
@@ -913,11 +998,64 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         titleSpacing: 0,
         // Web/AppBar: avoid LayoutBuilder + flex in the title slot (constraints can be
         // loose/unbounded briefly). Use MediaQuery for a finite width every frame.
+        actions: [
+          if (_showJoinClubInAppBar)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Center(
+                child: _hasPendingJoinRequest
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Text(
+                          'Pending',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.92),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                          ),
+                        ),
+                      )
+                    : FilledButton(
+                        onPressed: _isJoiningClub ? null : _joinFromChatAppBar,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFF0F766E),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        child: _isJoiningClub
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Color(0xFF0F766E),
+                                ),
+                              )
+                            : Text(
+                                _joinRequiresApproval ? 'Request' : 'Join',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13,
+                                ),
+                              ),
+                      ),
+              ),
+            ),
+        ],
         title: Builder(
           builder: (context) {
             final screenW = MediaQuery.sizeOf(context).width;
+            final trailingReserve = _showJoinClubInAppBar ? 112.0 : 0.0;
             final titleW = screenW > 0
-                ? (screenW - 72).clamp(160.0, 1200.0)
+                ? (screenW - 72 - trailingReserve).clamp(160.0, 1200.0)
                 : 280.0;
             return GestureDetector(
               behavior: HitTestBehavior.opaque,

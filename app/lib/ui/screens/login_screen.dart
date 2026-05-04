@@ -95,9 +95,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 alignment: Alignment.center,
                 child: Column(
                   children: [
-                    const AuthBrandPlaceholder(size: 74),
-                    const SizedBox(height: 14),
-                    // Intentionally no app name here; user will add branding later.
+                    const AuthBrandPlaceholder(size: 120),
                   ],
                 ),
               ),

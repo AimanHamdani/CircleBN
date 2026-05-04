@@ -1,32 +1,27 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_theme.dart';
-
+/// Brand mark from `assets/branding/circlebn_logo.png` (no card; sits on scaffold).
 class AuthBrandPlaceholder extends StatelessWidget {
+  static const String assetPath = 'assets/branding/circlebn_logo.png';
+
   final double size;
 
   const AuthBrandPlaceholder({super.key, this.size = 78});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SizedBox(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: AppTheme.brandGreen.withValues(alpha: 0.25),
+      child: Padding(
+        padding: EdgeInsets.all(size * 0.06),
+        child: Image.asset(
+          assetPath,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          semanticLabel: 'CircleBN logo',
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 22,
-            offset: const Offset(0, 12),
-          ),
-        ],
       ),
     );
   }
 }
-

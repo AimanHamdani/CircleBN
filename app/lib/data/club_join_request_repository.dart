@@ -23,11 +23,12 @@ class ClubJoinRequestRepository {
     return club;
   }
 
-  bool _isPrivateWithApproval(Club club) {
+  /// Private clubs queue [Club.pendingJoinRequestUserIds]; public clubs join immediately.
+  bool _isPrivateClub(Club club) {
     return club.privacy.trim().toLowerCase() == 'private';
   }
 
-  Future<void> _notifyAdminsForJoinRequest({
+  Future<void> _notifyJoinRequestRecipients({
     required Club club,
     required String requesterUserId,
   }) async {
@@ -35,16 +36,17 @@ class ClubJoinRequestRepository {
     final creatorId = (club.creatorId ?? '').trim();
     if (creatorId.isNotEmpty) {
       recipients.add(creatorId);
-    }
-    try {
-      final members = await clubMemberRepository().listMembers(clubId: club.id);
-      for (final member in members) {
-        if (member.role == ClubMemberRole.admin) {
-          recipients.add(member.userId.trim());
+    } else {
+      try {
+        final members = await clubMemberRepository().listMembers(clubId: club.id);
+        for (final member in members) {
+          if (member.role == ClubMemberRole.admin) {
+            recipients.add(member.userId.trim());
+          }
         }
+      } catch (_) {
+        // Best effort.
       }
-    } catch (_) {
-      // Best effort.
     }
     recipients.removeWhere((id) => id.isEmpty || id == requesterUserId);
     if (recipients.isEmpty) {
@@ -90,7 +92,7 @@ class ClubJoinRequestRepository {
     }
 
     final club = await _requireClub(trimmedClubId);
-    if (!_isPrivateWithApproval(club)) {
+    if (!_isPrivateClub(club)) {
       await clubMemberRepository().joinAsMember(
         clubId: trimmedClubId,
         userId: trimmedUserId,
@@ -117,7 +119,7 @@ class ClubJoinRequestRepository {
       documentId: trimmedClubId,
       data: {'pendingJoinRequestUserIds': next},
     );
-    await _notifyAdminsForJoinRequest(
+    await _notifyJoinRequestRecipients(
       club: club,
       requesterUserId: trimmedUserId,
     );

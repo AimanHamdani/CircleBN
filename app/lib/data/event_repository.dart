@@ -47,8 +47,6 @@ class AppwriteEventRepository implements EventRepository {
       collectionId: AppwriteConfig.eventsCollectionId,
     );
 
-    await _migrateLegacyThumbnailField(docs.documents);
-
     final events =
         docs.documents
             .map(
@@ -61,8 +59,8 @@ class AppwriteEventRepository implements EventRepository {
     final myId = currentUserId;
     if (myId.trim().isEmpty) {
       return events
-        .where((e) => !EventPrivacy.hidesFromPublicBrowse(e.privacy))
-        .toList();
+          .where((e) => !EventPrivacy.hidesFromPublicBrowse(e.privacy))
+          .toList();
     }
     final myEventIds = await eventRegistrationRepository()
         .listMyRegisteredEventIds(myId);
@@ -76,31 +74,6 @@ class AppwriteEventRepository implements EventRepository {
           ),
         )
         .toList();
-  }
-
-  Future<void> _migrateLegacyThumbnailField(List<dynamic> documents) async {
-    final updates = <Future<void>>[];
-
-    for (final d in documents) {
-      final data = Map<String, dynamic>.from(d.data);
-      final legacy = data['imageUrl'] ?? data['image_url'];
-      final current = data['thumbnailFileId'] ?? data['thumbnail_file_id'];
-      if ((current == null || current.toString().isEmpty) &&
-          legacy != null &&
-          legacy.toString().isNotEmpty) {
-        updates.add(
-          AppwriteService.updateDocument(
-            collectionId: AppwriteConfig.eventsCollectionId,
-            documentId: d.$id,
-            data: {...data, 'thumbnailFileId': legacy.toString()},
-          ).then((_) {}),
-        );
-      }
-    }
-
-    if (updates.isNotEmpty) {
-      await Future.wait(updates);
-    }
   }
 }
 

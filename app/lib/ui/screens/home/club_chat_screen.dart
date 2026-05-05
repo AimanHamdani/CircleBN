@@ -46,8 +46,6 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
   bool _isLoading = true;
   bool _isSending = false;
   String? _loadError;
-  Timer? _pollTimer;
-  RealtimeSubscription? _realtimeSubscription;
   String? _displayName;
   int? _membersCount;
   _ChatListTab _activeTab = _ChatListTab.all;
@@ -81,18 +79,6 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     );
   }
 
-  Future<void> _markCurrentClubReadNow() async {
-    final clubId = _clubFromRoute(context).id.trim();
-    if (clubId.isEmpty || currentUserId.trim().isEmpty) {
-      return;
-    }
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _chatReadKey(clubId),
-      DateTime.now().toUtc().toIso8601String(),
-    );
-  }
-
   @override
   void initState() {
     super.initState();
@@ -101,41 +87,13 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
       _loadMembersCount();
       _resolvePinPrivileges();
       _resolveSendPermission();
-      _startRealtimeSubscription();
-      _pollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-        _loadMessages(silent: true);
-      });
     });
   }
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
-    _realtimeSubscription?.close();
     _composerCtrl.dispose();
     super.dispose();
-  }
-
-  void _startRealtimeSubscription() {
-    final clubId = _clubFromRoute(context).id.trim();
-    if (clubId.isEmpty ||
-        !AppwriteService.isConfigured ||
-        AppwriteConfig.databaseId.isEmpty ||
-        AppwriteConfig.clubMessagesCollectionId.isEmpty) {
-      return;
-    }
-    _realtimeSubscription?.close();
-    _realtimeSubscription = AppwriteService.realtime.subscribe([
-      'databases.${AppwriteConfig.databaseId}.collections.${AppwriteConfig.clubMessagesCollectionId}.documents',
-    ]);
-    _realtimeSubscription?.stream.listen((event) {
-      final payload = event.payload;
-      final eventClubId = payload['clubId']?.toString() ?? '';
-      if (eventClubId == clubId) {
-        _markCurrentClubReadNow();
-        _loadMessages(silent: true);
-      }
-    });
   }
 
   Club _clubFromRoute(BuildContext context) {
@@ -1109,55 +1067,81 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
             ),
           ),
           Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _loadError != null
-                ? Center(
-                    child: Text(
-                      _loadError!,
-                      style: TextStyle(
-                        color: Colors.red.shade700,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  )
-                : _visibleMessages().isEmpty
-                ? const Center(
-                    child: Text(
-                      'No messages yet. Start the conversation.',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                    itemCount: _visibleMessages().length,
-                    itemBuilder: (context, index) {
-                      final items = _visibleMessages();
-                      final item = items[index];
-                      final itemDate = _messageDateForList(item);
-                      final showDateHeader =
-                          index == 0 ||
-                          !_isSameDate(
-                            _messageDateForList(items[index - 1]),
-                            itemDate,
-                          );
-                      return Padding(
-                        padding: EdgeInsets.only(
-                          bottom: index == items.length - 1 ? 0 : 10,
+            child: RefreshIndicator(
+              onRefresh: () => _loadMessages(),
+              child: _isLoading
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: const [
+                        SizedBox(height: 220),
+                        Center(child: CircularProgressIndicator()),
+                      ],
+                    )
+                  : _loadError != null
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        SizedBox(
+                          height: 220,
+                          child: Center(
+                            child: Text(
+                              _loadError!,
+                              style: TextStyle(
+                                color: Colors.red.shade700,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            if (showDateHeader) ...[
-                              _buildDateSeparator(itemDate),
-                              const SizedBox(height: 10),
+                      ],
+                    )
+                  : _visibleMessages().isEmpty
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: const [
+                        SizedBox(
+                          height: 220,
+                          child: Center(
+                            child: Text(
+                              'No messages yet. Start the conversation.',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.builder(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                      itemCount: _visibleMessages().length,
+                      itemBuilder: (context, index) {
+                        final items = _visibleMessages();
+                        final item = items[index];
+                        final itemDate = _messageDateForList(item);
+                        final showDateHeader =
+                            index == 0 ||
+                            !_isSameDate(
+                              _messageDateForList(items[index - 1]),
+                              itemDate,
+                            );
+                        return Padding(
+                          padding: EdgeInsets.only(
+                            bottom: index == items.length - 1 ? 0 : 10,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (showDateHeader) ...[
+                                _buildDateSeparator(itemDate),
+                                const SizedBox(height: 10),
+                              ],
+                              _buildChatItem(context, item),
                             ],
-                            _buildChatItem(context, item),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
           ),
           if (_canSendMessages)
             SafeArea(
@@ -1328,8 +1312,9 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                     : SizedBox(
                         width: double.infinity,
                         child: FilledButton(
-                          onPressed:
-                              _isJoiningClub ? null : _joinFromChatAppBar,
+                          onPressed: _isJoiningClub
+                              ? null
+                              : _joinFromChatAppBar,
                           style: FilledButton.styleFrom(
                             backgroundColor: _teal,
                             foregroundColor: Colors.white,

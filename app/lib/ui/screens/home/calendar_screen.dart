@@ -2,7 +2,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
 import '../../../data/club_member_repository.dart';
 import '../../../data/club_repository.dart';
@@ -52,12 +51,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
     _payloadFuture = _loadCalendarPayload();
     _membershipFuture = membershipRepository().getStatus();
     _selectedDate = DateTime.now();
-    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
   }
 
   @override
   void dispose() {
-    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
     super.dispose();
   }
 
@@ -77,16 +74,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   void _refreshPayload() {
     setState(() {
-      _payloadFuture = _loadCalendarPayload();
-    });
-  }
-
-  void _handleGlobalDataChange() {
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _membershipFuture = membershipRepository().getStatus();
       _payloadFuture = _loadCalendarPayload();
     });
   }
@@ -422,7 +409,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                 return RefreshIndicator(
                                   onRefresh: onPull,
                                   child: SingleChildScrollView(
-                                    physics: const AlwaysScrollableScrollPhysics(),
+                                    physics:
+                                        const AlwaysScrollableScrollPhysics(),
                                     child: SizedBox(
                                       height: minH,
                                       child: Center(
@@ -442,7 +430,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                               return RefreshIndicator(
                                 onRefresh: onPull,
                                 child: ListView.separated(
-                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
                                   itemCount: eventsOnSelectedDay.length,
                                   separatorBuilder: (_, __) =>
                                       const SizedBox(height: 12),

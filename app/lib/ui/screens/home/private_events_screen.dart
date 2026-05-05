@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
 import '../../../data/event_invite_repository.dart';
 import '../../../data/event_repository.dart';
@@ -31,29 +30,17 @@ class _PrivateEventsScreenState extends State<PrivateEventsScreen> {
   void initState() {
     super.initState();
     _eventsFuture = eventRepository().listEvents();
-    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
   }
 
   @override
   void dispose() {
-    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
     super.dispose();
-  }
-
-  void _handleGlobalDataChange() {
-    if (!mounted) {
-      return;
-    }
-    _refreshEvents();
   }
 
   Future<void> _openEventDetails(Event event) async {
     await Navigator.of(context).pushNamed(
       EventDetailScreen.routeName,
-      arguments: EventDetailArgs(
-        event: event,
-        showRegisterButton: true,
-      ),
+      arguments: EventDetailArgs(event: event, showRegisterButton: true),
     );
     if (!mounted) {
       return;
@@ -149,7 +136,8 @@ class _PrivateEventsScreenState extends State<PrivateEventsScreen> {
                   final rejected = event.rejectedInviteUserIds.contains(
                     currentUserId,
                   );
-                  final isCreator = (event.creatorId ?? '').trim() == currentUserId;
+                  final isCreator =
+                      (event.creatorId ?? '').trim() == currentUserId;
                   final hasPendingRequest = event.pendingJoinRequestUserIds
                       .contains(currentUserId);
                   final statusLabel = isCreator
@@ -189,7 +177,8 @@ class _PrivateEventsScreenState extends State<PrivateEventsScreen> {
                               children: [
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         event.title,

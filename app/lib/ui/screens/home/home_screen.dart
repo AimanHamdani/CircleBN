@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../../appwrite/appwrite_global_realtime_sync.dart';
 import '../../../appwrite/appwrite_service.dart';
-import '../../../appwrite/circle_unread_realtime_sync.dart';
 import '../../../data/achievement_repository.dart';
 import '../../../data/club_chat_repository.dart';
 import '../../../data/club_member_repository.dart';
@@ -58,30 +56,11 @@ class _HomeScreenState extends State<HomeScreen> {
     appPreloadService().warmCircleData();
     _circleUnreadFuture = _loadCircleUnreadCount();
     _createClubMembershipFuture = appPreloadService().membershipStatus();
-    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
-    AppwriteGlobalRealtimeSync.start();
-    CircleUnreadRealtimeSync.start(() {
-      if (!mounted) {
-        return;
-      }
-      _refreshCircleUnread();
-    });
   }
 
   @override
   void dispose() {
-    CircleUnreadRealtimeSync.stop();
-    AppwriteGlobalRealtimeSync.stop();
-    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
     super.dispose();
-  }
-
-  void _handleGlobalDataChange() {
-    if (!mounted) {
-      return;
-    }
-    _refreshCircleUnread();
-    setState(() {});
   }
 
   Future<void> _refreshCircleUnread() async {
@@ -302,7 +281,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             activeColor: navAccent,
                             onTap: () => Navigator.of(context)
                                 .pushNamed(ProfileScreen.routeName)
-                                .then((_) => _refreshCircleUnread()),
+                                .then((_) {
+                                  _refreshCircleUnread();
+                                }),
                           ),
                         ),
                       ],
@@ -713,6 +694,7 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
   late Future<MembershipStatus> _membershipFuture;
   late Future<AchievementSnapshot> _achievementFuture;
   late Future<List<Object?>> _homeEventsPayloadFuture;
+  int _refreshNonce = 0;
 
   @override
   void initState() {
@@ -722,7 +704,6 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
     _membershipFuture = appPreloadService().membershipStatus();
     _achievementFuture = achievementRepository().getMySnapshot();
     _homeEventsPayloadFuture = _loadHomeEventsPayload();
-    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
   }
 
   @override
@@ -736,14 +717,15 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
 
   @override
   void dispose() {
-    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
     appRouteObserver.unsubscribe(this);
     super.dispose();
   }
 
   @override
   void didPopNext() {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _membershipFuture = appPreloadService().membershipStatus(
         forceRefresh: true,
@@ -753,7 +735,7 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
     });
   }
 
-  void _handleGlobalDataChange() {
+  Future<void> _refreshHome() async {
     if (!mounted) {
       return;
     }
@@ -765,7 +747,15 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
       );
       _achievementFuture = achievementRepository().getMySnapshot();
       _homeEventsPayloadFuture = _loadHomeEventsPayload();
+      _refreshNonce++;
     });
+    await Future.wait<void>([
+      _profileFuture.then((_) {}),
+      _unreadNotificationsFuture.then((_) {}),
+      _membershipFuture.then((_) {}),
+      _achievementFuture.then((_) {}),
+      _homeEventsPayloadFuture.then((_) {}),
+    ]);
   }
 
   Future<List<Object?>> _loadHomeEventsPayload() {
@@ -1040,80 +1030,84 @@ class _HomeBodyState extends State<_HomeBody> with RouteAware {
               },
             ),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(18, 14, 18, 120),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            'Your Activity',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
+              child: RefreshIndicator(
+                onRefresh: _refreshHome,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 120),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Your Activity',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(
+                                context,
+                              ).pushNamed(ActivityOverviewScreen.routeName);
+                            },
+                            child: const Text('Show all'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 168,
+                        child: _ActivityList(
+                          payloadFuture: _homeEventsPayloadFuture,
+                          onOpenEvent: (event) => _openHomeEventDetail(
+                            event,
+                            showRegisterButton: false,
+                          ),
                         ),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.of(
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'All Events',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(
                               context,
-                            ).pushNamed(ActivityOverviewScreen.routeName);
-                          },
-                          child: const Text('Show all'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      height: 168,
-                      child: _ActivityList(
+                            ).pushNamed(AllEventsScreen.routeName),
+                            child: const Text('Show all'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(
+                              context,
+                            ).pushNamed(PrivateEventsScreen.routeName),
+                            child: const Text('Private'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      _PrivateInvitesSection(key: ValueKey(_refreshNonce)),
+                      const SizedBox(height: 10),
+                      _HomeEventsSection(
                         payloadFuture: _homeEventsPayloadFuture,
                         onOpenEvent: (event) => _openHomeEventDetail(
                           event,
-                          showRegisterButton: false,
+                          showRegisterButton: true,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 18),
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            'All Events',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () => Navigator.of(
-                            context,
-                          ).pushNamed(AllEventsScreen.routeName),
-                          child: const Text('Show all'),
-                        ),
-                        TextButton(
-                          onPressed: () => Navigator.of(
-                            context,
-                          ).pushNamed(PrivateEventsScreen.routeName),
-                          child: const Text('Private'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    _PrivateInvitesSection(),
-                    const SizedBox(height: 10),
-                    _HomeEventsSection(
-                      payloadFuture: _homeEventsPayloadFuture,
-                      onOpenEvent: (event) => _openHomeEventDetail(
-                        event,
-                        showRegisterButton: true,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -1270,6 +1264,8 @@ class _HomeEventsSection extends StatelessWidget {
 }
 
 class _PrivateInvitesSection extends StatefulWidget {
+  const _PrivateInvitesSection({super.key});
+
   @override
   State<_PrivateInvitesSection> createState() => _PrivateInvitesSectionState();
 }
@@ -1282,7 +1278,6 @@ class _PrivateInvitesSectionState extends State<_PrivateInvitesSection>
   void initState() {
     super.initState();
     _future = _loadInvites();
-    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
   }
 
   @override
@@ -1296,22 +1291,12 @@ class _PrivateInvitesSectionState extends State<_PrivateInvitesSection>
 
   @override
   void dispose() {
-    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
     appRouteObserver.unsubscribe(this);
     super.dispose();
   }
 
   @override
   void didPopNext() {
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _future = _loadInvites();
-    });
-  }
-
-  void _handleGlobalDataChange() {
     if (!mounted) {
       return;
     }

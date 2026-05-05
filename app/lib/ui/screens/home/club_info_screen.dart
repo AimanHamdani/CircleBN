@@ -54,6 +54,8 @@ class ClubInfoScreen extends StatefulWidget {
 }
 
 class _ClubInfoPayload {
+  static const Object _copyUnset = Object();
+
   final Club club;
   final List<Event> upcomingEvents;
   final int allClubEventsCount;
@@ -81,6 +83,40 @@ class _ClubInfoPayload {
     required this.coCreatorId,
     required this.creatorLabel,
   });
+
+  _ClubInfoPayload copyWith({
+    Club? club,
+    List<Event>? upcomingEvents,
+    int? allClubEventsCount,
+    List<_ClubMemberItem>? members,
+    int? membersCount,
+    int? adminsCount,
+    bool? isCurrentUserMember,
+    bool? isCurrentUserAdmin,
+    bool? isCurrentUserCreator,
+    List<String>? pendingJoinRequestUserIds,
+    Object? coCreatorId = _copyUnset,
+    String? creatorLabel,
+  }) {
+    final String? nextCoCreatorId = identical(coCreatorId, _copyUnset)
+        ? this.coCreatorId
+        : coCreatorId as String?;
+    return _ClubInfoPayload(
+      club: club ?? this.club,
+      upcomingEvents: upcomingEvents ?? this.upcomingEvents,
+      allClubEventsCount: allClubEventsCount ?? this.allClubEventsCount,
+      members: members ?? this.members,
+      membersCount: membersCount ?? this.membersCount,
+      adminsCount: adminsCount ?? this.adminsCount,
+      isCurrentUserMember: isCurrentUserMember ?? this.isCurrentUserMember,
+      isCurrentUserAdmin: isCurrentUserAdmin ?? this.isCurrentUserAdmin,
+      isCurrentUserCreator: isCurrentUserCreator ?? this.isCurrentUserCreator,
+      pendingJoinRequestUserIds:
+          pendingJoinRequestUserIds ?? this.pendingJoinRequestUserIds,
+      coCreatorId: nextCoCreatorId,
+      creatorLabel: creatorLabel ?? this.creatorLabel,
+    );
+  }
 }
 
 class _ClubMemberItem {
@@ -101,6 +137,7 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
   Future<_ClubInfoPayload>? _payloadFuture;
   Club? _cachedClub;
   bool _isPromoting = false;
+  bool _isCancellingOwnClubJoinRequest = false;
 
   Club _clubFromRoute(BuildContext context) {
     final args = ModalRoute.of(context)?.settings.arguments;
@@ -205,6 +242,16 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
     );
   }
 
+  void _commitPayload(_ClubInfoPayload next) {
+    if (!mounted) {
+      return;
+    }
+    _cachedClub = next.club;
+    setState(() {
+      _payloadFuture = Future.value(next);
+    });
+  }
+
   String _creatorDisplayLabel(UserProfile profile) {
     final username = profile.username.trim();
     if (username.isNotEmpty && username.toLowerCase() != 'username') {
@@ -215,6 +262,53 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
       return real;
     }
     return profile.userId;
+  }
+
+  Future<void> _cancelOwnPendingClubJoin(String clubId) async {
+    if (_isCancellingOwnClubJoinRequest) {
+      return;
+    }
+    setState(() => _isCancellingOwnClubJoinRequest = true);
+    try {
+      await clubJoinRequestRepository().cancelPendingJoinRequest(
+        clubId: clubId,
+        userId: currentUserId,
+      );
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Join request cancelled.')),
+      );
+      final fut = _payloadFuture;
+      if (fut != null) {
+        final payload = await fut;
+        if (!mounted) {
+          return;
+        }
+        final me = currentUserId.trim();
+        final nextPending = payload.pendingJoinRequestUserIds
+            .where((id) => id.trim() != me)
+            .toList();
+        _commitPayload(
+          payload.copyWith(
+            club: payload.club.withPendingJoinRequests(nextPending),
+            pendingJoinRequestUserIds: nextPending,
+          ),
+        );
+      }
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not cancel join request.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isCancellingOwnClubJoinRequest = false);
+      }
+    }
   }
 
   Future<void> _openJoinRequestsSheet(_ClubInfoPayload payload) async {
@@ -325,13 +419,25 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                           clubId: payload.club.id,
                                           userId: userId,
                                         );
-                                    if (!mounted) {
+                                    if (!mounted || !sheetCtx.mounted) {
                                       return;
                                     }
                                     Navigator.of(sheetCtx).pop();
-                                    setState(() {
-                                      _payloadFuture = _load(refreshClub: true);
-                                    });
+                                    final uid = userId.trim();
+                                    final nextPending = payload
+                                        .pendingJoinRequestUserIds
+                                        .where((id) => id.trim() != uid)
+                                        .toList();
+                                    _commitPayload(
+                                      payload.copyWith(
+                                        club: payload.club
+                                            .withPendingJoinRequests(
+                                              nextPending,
+                                            ),
+                                        pendingJoinRequestUserIds:
+                                            nextPending,
+                                      ),
+                                    );
                                   },
                                   child: const Text('Reject'),
                                 ),
@@ -342,13 +448,70 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                           clubId: payload.club.id,
                                           userId: userId,
                                         );
-                                    if (!mounted) {
+                                    if (!mounted || !sheetCtx.mounted) {
                                       return;
                                     }
                                     Navigator.of(sheetCtx).pop();
-                                    setState(() {
-                                      _payloadFuture = _load(refreshClub: true);
+                                    final uid = userId.trim();
+                                    final nextPending = payload
+                                        .pendingJoinRequestUserIds
+                                        .where((id) => id.trim() != uid)
+                                        .toList();
+                                    final profiles =
+                                        await profileRepository()
+                                            .getProfilesByIds([uid]);
+                                    if (!mounted) {
+                                      return;
+                                    }
+                                    final prof = profiles.isNotEmpty
+                                        ? profiles.first
+                                        : UserProfile.empty(uid);
+                                    final creatorId =
+                                        (payload.club.creatorId ?? '').trim();
+                                    final coId =
+                                        (payload.club.coCreatorId ?? '').trim();
+                                    final newItem = _ClubMemberItem(
+                                      profile: prof,
+                                      isAdmin: false,
+                                      isCreator: creatorId.isNotEmpty &&
+                                          uid == creatorId,
+                                      isCoCreator:
+                                          coId.isNotEmpty && uid == coId,
+                                    );
+                                    final newMembers = [
+                                      ...payload.members,
+                                      newItem,
+                                    ];
+                                    newMembers.sort((a, b) {
+                                      final an = (a.profile.realName
+                                                  .trim()
+                                                  .isNotEmpty
+                                              ? a.profile.realName
+                                              : a.profile.username)
+                                          .toLowerCase();
+                                      final bn = (b.profile.realName
+                                                  .trim()
+                                                  .isNotEmpty
+                                              ? b.profile.realName
+                                              : b.profile.username)
+                                          .toLowerCase();
+                                      return an.compareTo(bn);
                                     });
+                                    _commitPayload(
+                                      payload.copyWith(
+                                        club: payload.club
+                                            .withPendingJoinRequests(
+                                              nextPending,
+                                            ),
+                                        pendingJoinRequestUserIds:
+                                            nextPending,
+                                        members: newMembers,
+                                        membersCount: newMembers.length,
+                                        adminsCount: newMembers
+                                            .where((m) => m.isAdmin)
+                                            .length,
+                                      ),
+                                    );
                                   },
                                   child: const Text('Approve'),
                                 ),
@@ -498,6 +661,7 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
       return;
     }
 
+    String? transferredToCreatorId;
     if ((club.creatorId ?? '').trim() == currentUserId) {
       final nextCreatorId = await _resolveNextCreatorId(club);
       if (nextCreatorId == null) {
@@ -513,8 +677,12 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
         );
         return;
       }
+      transferredToCreatorId = nextCreatorId.trim();
       try {
-        await _transferClubOwnership(club: club, nextCreatorId: nextCreatorId);
+        await _transferClubOwnership(
+          club: club,
+          nextCreatorId: transferredToCreatorId,
+        );
       } catch (_) {
         if (!mounted) {
           return;
@@ -541,12 +709,78 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
       return;
     }
 
+    final fut = _payloadFuture;
+    if (fut == null || !mounted) {
+      return;
+    }
+    final payload = await fut;
     if (!mounted) {
       return;
     }
-    setState(() {
-      _payloadFuture = _load(refreshClub: false);
-    });
+
+    final me = currentUserId.trim();
+    var nextClub = payload.club;
+    if (transferredToCreatorId != null && transferredToCreatorId.isNotEmpty) {
+      final founderResolved = (payload.club.founderId ??
+              payload.club.creatorId ??
+              me)
+          .trim();
+      nextClub = payload.club.withOwnershipTransfer(
+        newCreatorId: transferredToCreatorId,
+        resolvedFounderId: founderResolved.isNotEmpty ? founderResolved : me,
+      );
+    }
+
+    var nextCreatorLabel = payload.creatorLabel;
+    if (transferredToCreatorId != null && transferredToCreatorId.isNotEmpty) {
+      try {
+        final profs = await profileRepository().getProfilesByIds([
+          transferredToCreatorId,
+        ]);
+        if (profs.isNotEmpty && mounted) {
+          nextCreatorLabel = _creatorDisplayLabel(profs.first);
+        }
+      } catch (_) {}
+    }
+
+    final newMembers = payload.members
+        .where((m) => m.profile.userId.trim() != me)
+        .map((m) {
+          final uid = m.profile.userId.trim();
+          final t = transferredToCreatorId ?? '';
+          if (t.isNotEmpty && uid == t) {
+            return _ClubMemberItem(
+              profile: m.profile,
+              isAdmin: m.isAdmin,
+              isCreator: true,
+              isCoCreator: false,
+            );
+          }
+          return m;
+        })
+        .toList();
+
+    final nextCoNorm = (nextClub.coCreatorId ?? '').trim();
+    final nextCoForPayload = nextCoNorm.isEmpty ? null : nextCoNorm;
+
+    _commitPayload(
+      payload.copyWith(
+        club: nextClub,
+        members: newMembers,
+        membersCount: newMembers.length,
+        adminsCount: newMembers.where((m) => m.isAdmin).length,
+        isCurrentUserMember: false,
+        isCurrentUserAdmin: false,
+        isCurrentUserCreator: false,
+        pendingJoinRequestUserIds: nextClub.pendingJoinRequestUserIds,
+        coCreatorId: nextCoForPayload,
+        creatorLabel: nextCreatorLabel,
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Left club.')));
@@ -863,9 +1097,32 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                       if (!mounted) {
                         return;
                       }
-                      setState(() {
-                        _payloadFuture = _load(refreshClub: true);
-                      });
+                      final newCo = member.isCoCreator
+                          ? null
+                          : member.profile.userId.trim();
+                      final normalizedCo =
+                          (newCo == null || newCo.isEmpty) ? null : newCo;
+                      final updatedClub =
+                          payload.club.withCoCreatorId(normalizedCo);
+                      final newMembers = payload.members.map((m) {
+                        final uid = m.profile.userId.trim();
+                        return _ClubMemberItem(
+                          profile: m.profile,
+                          isAdmin: m.isAdmin,
+                          isCreator: m.isCreator,
+                          isCoCreator:
+                              normalizedCo != null &&
+                              normalizedCo.isNotEmpty &&
+                              uid == normalizedCo,
+                        );
+                      }).toList();
+                      _commitPayload(
+                        payload.copyWith(
+                          club: updatedClub,
+                          coCreatorId: normalizedCo,
+                          members: newMembers,
+                        ),
+                      );
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
@@ -940,9 +1197,18 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                     if (!mounted) {
                       return;
                     }
-                    setState(() {
-                      _payloadFuture = _load(refreshClub: false);
-                    });
+                    final uid = member.profile.userId.trim();
+                    final newMembers = payload.members
+                        .where((m) => m.profile.userId.trim() != uid)
+                        .toList();
+                    _commitPayload(
+                      payload.copyWith(
+                        members: newMembers,
+                        membersCount: newMembers.length,
+                        adminsCount:
+                            newMembers.where((m) => m.isAdmin).length,
+                      ),
+                    );
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Member removed from club.'),
@@ -1029,9 +1295,25 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                     if (!mounted) {
                       return;
                     }
-                    setState(() {
-                      _payloadFuture = _load(refreshClub: false);
-                    });
+                    final uid = member.profile.userId.trim();
+                    final newMembers = payload.members.map((m) {
+                      if (m.profile.userId.trim() != uid) {
+                        return m;
+                      }
+                      return _ClubMemberItem(
+                        profile: m.profile,
+                        isAdmin: !isDemote,
+                        isCreator: m.isCreator,
+                        isCoCreator: m.isCoCreator,
+                      );
+                    }).toList();
+                    _commitPayload(
+                      payload.copyWith(
+                        members: newMembers,
+                        adminsCount:
+                            newMembers.where((m) => m.isAdmin).length,
+                      ),
+                    );
                     messenger.showSnackBar(
                       SnackBar(
                         content: Text(
@@ -1286,10 +1568,21 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                     ),
                     const SizedBox(height: 12),
                     FilledButton(
-                      onPressed: () {
-                        setState(() {
-                          _payloadFuture = _load(refreshClub: true);
-                        });
+                      onPressed: () async {
+                        try {
+                          final next = await _load(refreshClub: true);
+                          if (!mounted) {
+                            return;
+                          }
+                          _commitPayload(next);
+                        } catch (e, st) {
+                          if (!mounted) {
+                            return;
+                          }
+                          setState(() {
+                            _payloadFuture = Future.error(e, st);
+                          });
+                        }
                       },
                       child: const Text('Retry'),
                     ),
@@ -1742,6 +2035,91 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                                         ],
                                       ),
                                     ),
+                                  ),
+                                ),
+                              ),
+                            if (!p.isCurrentUserMember &&
+                                p.pendingJoinRequestUserIds
+                                    .map((id) => id.trim())
+                                    .contains(currentUserId.trim()))
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 14),
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    14,
+                                    16,
+                                    14,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: teal.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: teal.withValues(alpha: 0.45),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Text(
+                                        'Your join request is pending',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          color: green,
+                                          fontSize: 15,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'The club admins have not responded yet.',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.black.withValues(
+                                            alpha: 0.54,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      OutlinedButton(
+                                        onPressed: _isCancellingOwnClubJoinRequest
+                                            ? null
+                                            : () => _cancelOwnPendingClubJoin(
+                                                  club.id,
+                                                ),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: green,
+                                          side: BorderSide(
+                                            color: teal.withValues(alpha: 0.55),
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 12,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                          ),
+                                        ),
+                                        child: _isCancellingOwnClubJoinRequest
+                                            ? const SizedBox(
+                                                width: 22,
+                                                height: 22,
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2.5,
+                                                  color: Color(0xFF0F5549),
+                                                ),
+                                              )
+                                            : const Text(
+                                                'Cancel request',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w800,
+                                                  fontSize: 15,
+                                                ),
+                                              ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),

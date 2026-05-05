@@ -49,6 +49,80 @@ class Club {
     this.pendingJoinRequestUserIds = const <String>[],
   });
 
+  /// Same club document with an updated pending-join list (local optimistic UI).
+  Club withPendingJoinRequests(List<String> pendingJoinRequestUserIds) {
+    return Club(
+      id: id,
+      name: name,
+      description: description,
+      sports: sports,
+      privacy: privacy,
+      memberLimit: memberLimit,
+      approvalRequired: approvalRequired,
+      whoCanSendMessages: whoCanSendMessages,
+      location: location,
+      thumbnailFileId: thumbnailFileId,
+      creatorId: creatorId,
+      founderId: founderId,
+      coCreatorId: coCreatorId,
+      membersCount: membersCount,
+      adminsCount: adminsCount,
+      foundedAt: foundedAt,
+      pendingJoinRequestUserIds: pendingJoinRequestUserIds,
+    );
+  }
+
+  /// Same club with a new or cleared co-creator id (local optimistic UI).
+  Club withCoCreatorId(String? coCreatorId) {
+    return Club(
+      id: id,
+      name: name,
+      description: description,
+      sports: sports,
+      privacy: privacy,
+      memberLimit: memberLimit,
+      approvalRequired: approvalRequired,
+      whoCanSendMessages: whoCanSendMessages,
+      location: location,
+      thumbnailFileId: thumbnailFileId,
+      creatorId: creatorId,
+      founderId: founderId,
+      coCreatorId: coCreatorId,
+      membersCount: membersCount,
+      adminsCount: adminsCount,
+      foundedAt: foundedAt,
+      pendingJoinRequestUserIds: pendingJoinRequestUserIds,
+    );
+  }
+
+  /// After creator transfer + leave: new creator, co-creator cleared, founder preserved (local UI).
+  Club withOwnershipTransfer({
+    required String newCreatorId,
+    required String resolvedFounderId,
+  }) {
+    final nextCreator = newCreatorId.trim();
+    final founder = resolvedFounderId.trim();
+    return Club(
+      id: id,
+      name: name,
+      description: description,
+      sports: sports,
+      privacy: privacy,
+      memberLimit: memberLimit,
+      approvalRequired: approvalRequired,
+      whoCanSendMessages: whoCanSendMessages,
+      location: location,
+      thumbnailFileId: thumbnailFileId,
+      creatorId: nextCreator.isEmpty ? creatorId : nextCreator,
+      founderId: founder.isEmpty ? founderId : founder,
+      coCreatorId: null,
+      membersCount: membersCount,
+      adminsCount: adminsCount,
+      foundedAt: foundedAt,
+      pendingJoinRequestUserIds: pendingJoinRequestUserIds,
+    );
+  }
+
   factory Club.fromMap(
     Map<String, dynamic> data, {
     required String id,

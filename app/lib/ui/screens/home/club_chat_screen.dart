@@ -57,6 +57,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
   bool _hasPendingJoinRequest = false;
   bool _joinRequiresApproval = false;
   bool _isJoiningClub = false;
+  bool _isCancellingJoinRequest = false;
   final Set<String> _syncedPinnedEventIds = <String>{};
 
   String _chatReadKey(String clubId) {
@@ -332,6 +333,40 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     );
     await _resolveSendPermission();
     await _loadMembersCount();
+  }
+
+  Future<void> _cancelPendingJoinRequest() async {
+    if (_isCancellingJoinRequest || !_hasPendingJoinRequest) {
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    final routed = _clubFromRoute(context);
+    setState(() => _isCancellingJoinRequest = true);
+    try {
+      await clubJoinRequestRepository().cancelPendingJoinRequest(
+        clubId: routed.id,
+        userId: currentUserId,
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Could not cancel join request.')),
+      );
+      return;
+    } finally {
+      if (mounted) {
+        setState(() => _isCancellingJoinRequest = false);
+      }
+    }
+    if (!mounted) {
+      return;
+    }
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Join request cancelled.')),
+    );
+    await _resolveSendPermission();
   }
 
   Future<String> _resolveDisplayName() async {
@@ -1225,20 +1260,68 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                             color: _teal.withValues(alpha: 0.38),
                           ),
                         ),
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 15,
-                          ),
-                          child: Center(
-                            child: Text(
-                              'Join request pending',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 15.5,
-                                color: Color(0xFF0F5549),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text(
+                                'Join request pending',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 15.5,
+                                  color: Color(0xFF0F5549),
+                                ),
                               ),
-                            ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'You can withdraw your request anytime.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12.5,
+                                  color: Colors.black.withValues(alpha: 0.52),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton(
+                                  onPressed: _isCancellingJoinRequest
+                                      ? null
+                                      : _cancelPendingJoinRequest,
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFF0F5549),
+                                    side: BorderSide(
+                                      color: _teal.withValues(alpha: 0.55),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                  child: _isCancellingJoinRequest
+                                      ? const SizedBox(
+                                          width: 22,
+                                          height: 22,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2.5,
+                                            color: Color(0xFF0F5549),
+                                          ),
+                                        )
+                                      : const Text(
+                                          'Cancel request',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       )

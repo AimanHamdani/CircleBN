@@ -172,6 +172,14 @@ class ClubJoinRequestRepository {
       data: {'pendingJoinRequestUserIds': next},
     );
   }
+
+  /// Withdraws the signed-in user's own pending join request (private clubs).
+  Future<void> cancelPendingJoinRequest({
+    required String clubId,
+    required String userId,
+  }) async {
+    await rejectJoinRequest(clubId: clubId, userId: userId);
+  }
 }
 
 ClubJoinRequestRepository clubJoinRequestRepository() =>

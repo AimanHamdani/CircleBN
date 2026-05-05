@@ -212,22 +212,15 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
                           required bool showRegisterButton,
                           DateTime? chatEnabledUntil,
                         }) {
-                          Navigator.of(context)
-                              .pushNamed(
-                                EventDetailScreen.routeName,
-                                arguments: EventDetailArgs(
-                                  event: event,
-                                  showRegisterButton: showRegisterButton,
-                                  allowCreatorActions: allowCreatorActions,
-                                  chatEnabledUntil: chatEnabledUntil,
-                                ),
-                              )
-                              .then((_) {
-                                if (!mounted) {
-                                  return;
-                                }
-                                _refreshActivityPayload();
-                              });
+                          Navigator.of(context).pushNamed(
+                            EventDetailScreen.routeName,
+                            arguments: EventDetailArgs(
+                              event: event,
+                              showRegisterButton: showRegisterButton,
+                              allowCreatorActions: allowCreatorActions,
+                              chatEnabledUntil: chatEnabledUntil,
+                            ),
+                          );
                         },
                     onCancelTicket: _cancelTicket,
                     isCancellingEvent: (eventId) =>
@@ -293,7 +286,7 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Ticket cancelled.')));
-      _refreshActivityPayload();
+      // [AppwriteService.dataVersion] listener reloads; avoid duplicate list fetch.
     } catch (_) {
       if (!mounted) {
         return;
@@ -543,7 +536,7 @@ class _ActivityTabBody extends StatelessWidget {
       return RefreshIndicator(
         onRefresh: onRefresh,
         child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
+          physics: const AlwaysScrollableScrollPhysics(), 
           children: [
             const SizedBox(height: 140),
             Center(

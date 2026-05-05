@@ -56,6 +56,7 @@ class AppwriteConfig {
     'APPWRITE_PROMOTE_CLUB_ADMIN_FUNCTION_ID',
     defaultValue: 'promote_club_admin',
   );
+  static const removeClubMemberFunctionId = '69f9ffc1002c0d4dcb12';
 
   /// Optional. If set, [CreateEventScreen] calls this before saving when `clubId` is set or changed.
   static const validateEventClubHostFunctionId = String.fromEnvironment(

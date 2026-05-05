@@ -677,10 +677,10 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
     if (!_formKey.currentState!.validate()) return;
     if (!_isEditMode) {
       final status = await membershipRepository().getStatus();
+      if (!mounted) {
+        return;
+      }
       if (!status.isPremium) {
-        if (!mounted) {
-          return;
-        }
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Only premium users can create clubs.')),
         );

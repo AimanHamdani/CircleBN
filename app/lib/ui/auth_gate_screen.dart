@@ -42,6 +42,9 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
 
     if (CurrentUser.isLoggedIn) {
       final deactivated = await isCurrentAccountDeactivated();
+      if (!mounted) {
+        return;
+      }
       if (deactivated) {
         try {
           await AppwriteService.account.deleteSessions();

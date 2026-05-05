@@ -451,6 +451,48 @@ class ClubMemberRepository {
       },
     );
   }
+
+  /// Secure removal via Appwrite Function.
+  /// The function should validate that the caller is an admin of the club.
+  Future<void> removeMemberViaFunction({
+    required String clubId,
+    required String targetUserId,
+  }) async {
+    if (!_isConfigured || clubId.trim().isEmpty || targetUserId.trim().isEmpty) {
+      return;
+    }
+
+    final functionId = AppwriteConfig.removeClubMemberFunctionId.trim();
+    if (functionId.isEmpty) {
+      throw StateError(
+        'Remove member function is not configured. '
+        'Set APPWRITE_REMOVE_CLUB_MEMBER_FUNCTION_ID and deploy the function.',
+      );
+    }
+
+    try {
+      await AppwriteService.executeFunction(
+        functionId: functionId,
+        payload: <String, dynamic>{
+          'clubId': clubId,
+          'targetUserId': targetUserId,
+        },
+      );
+      return;
+    } catch (e) {
+      final message = e.toString().toLowerCase();
+      final functionMissing =
+          message.contains('function') &&
+          (message.contains('not found') || message.contains('404'));
+      if (functionMissing) {
+        throw StateError(
+          'Remove member function "$functionId" was not found. '
+          'Deploy the function or update APPWRITE_REMOVE_CLUB_MEMBER_FUNCTION_ID.',
+        );
+      }
+      rethrow;
+    }
+  }
 }
 
 ClubMemberRepository clubMemberRepository() => ClubMemberRepository();

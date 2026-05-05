@@ -820,12 +820,11 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         context,
       ).showSnackBar(const SnackBar(content: Text('Failed to send message.')));
     } finally {
-      if (!mounted) {
-        return;
+      if (mounted) {
+        setState(() {
+          _isChatSending = false;
+        });
       }
-      setState(() {
-        _isChatSending = false;
-      });
     }
   }
 
@@ -903,12 +902,11 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         context,
       ).showSnackBar(const SnackBar(content: Text('Failed to send image.')));
     } finally {
-      if (!mounted) {
-        return;
+      if (mounted) {
+        setState(() {
+          _isChatSending = false;
+        });
       }
-      setState(() {
-        _isChatSending = false;
-      });
     }
   }
 

@@ -1649,6 +1649,39 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _saveToAppwrite();
   }
 
+  List<String> _eventDocumentPermissions({
+    required String creatorId,
+    required String? privacy,
+    required Iterable<String> invitedUserIds,
+  }) {
+    final creator = creatorId.trim();
+    final permissions = <String>{};
+
+    if (EventPrivacy.hidesFromPublicBrowse(privacy)) {
+      if (creator.isNotEmpty) {
+        permissions.add(Permission.read(Role.user(creator)));
+      }
+      for (final inviteeId in invitedUserIds) {
+        final invitee = inviteeId.trim();
+        if (invitee.isNotEmpty) {
+          permissions.add(Permission.read(Role.user(invitee)));
+        }
+      }
+    } else {
+      permissions.add(Permission.read(Role.users()));
+    }
+
+    if (creator.isNotEmpty) {
+      permissions.add(Permission.update(Role.user(creator)));
+      permissions.add(Permission.delete(Role.user(creator)));
+    } else {
+      permissions.add(Permission.update(Role.users()));
+      permissions.add(Permission.delete(Role.users()));
+    }
+
+    return permissions.toList();
+  }
+
   Future<void> _saveToAppwrite() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -1909,6 +1942,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     if (resolvedClubId != null && resolvedClubId.isNotEmpty) {
       baseData['clubId'] = resolvedClubId;
     }
+    final creatorId = (baseData['creatorId'] ?? '').toString();
+    final eventPermissions = _eventDocumentPermissions(
+      creatorId: creatorId,
+      privacy: _privacy,
+      invitedUserIds: invitedUserIds,
+    );
 
     setState(() => _isSubmitting = true);
     try {
@@ -1931,11 +1970,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           collectionId: AppwriteConfig.eventsCollectionId,
           documentId: eventId,
           data: baseData,
+          permissions: eventPermissions,
         );
       } else {
         final created = await AppwriteService.createDocument(
           collectionId: AppwriteConfig.eventsCollectionId,
           data: baseData,
+          permissions: eventPermissions,
         );
         eventId = created.$id;
         if (resolvedClubId != null && resolvedClubId.isNotEmpty) {

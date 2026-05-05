@@ -1,3 +1,5 @@
+import 'package:appwrite/appwrite.dart';
+
 import '../appwrite/appwrite_config.dart';
 import '../appwrite/appwrite_service.dart';
 import '../auth/current_user.dart';
@@ -45,6 +47,7 @@ class AppwriteEventRepository implements EventRepository {
 
     final docs = await AppwriteService.listDocuments(
       collectionId: AppwriteConfig.eventsCollectionId,
+      queries: [Query.limit(5000)],
     );
 
     final events =

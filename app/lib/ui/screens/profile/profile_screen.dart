@@ -286,6 +286,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
+    if (!mounted) {
+      return;
+    }
     final typedController = TextEditingController();
     final secondConfirm = await showDialog<bool>(
       context: context,
@@ -334,6 +337,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
+    if (!mounted) {
+      return;
+    }
     final finalConfirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -359,6 +365,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
+    if (!mounted) {
+      return;
+    }
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     try {
@@ -1002,18 +1011,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       if (!shouldLogout) {
                                         return;
                                       }
-                                      final navigator = Navigator.of(context);
-                                      final messenger = ScaffoldMessenger.of(
-                                        context,
-                                      );
+                                      if (!context.mounted) return;
                                       try {
                                         // Use deleteSessions() to also remove client-side cookies/session storage.
                                         // This prevents the "log out then can't log back in" issue.
                                         await AppwriteService.account
                                             .deleteSessions();
                                       } on AppwriteException catch (e) {
-                                        if (!mounted) return;
-                                        messenger.showSnackBar(
+                                        if (!context.mounted) return;
+                                        ScaffoldMessenger.of(context).showSnackBar(
                                           SnackBar(
                                             content: Text(
                                               e.message ?? 'Failed to log out.',
@@ -1021,8 +1027,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                           ),
                                         );
                                       } catch (_) {
-                                        if (!mounted) return;
-                                        messenger.showSnackBar(
+                                        if (!context.mounted) return;
+                                        ScaffoldMessenger.of(context).showSnackBar(
                                           const SnackBar(
                                             content: Text('Failed to log out.'),
                                           ),
@@ -1031,8 +1037,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                         await SessionPersistence.clear();
                                         CurrentUser.reset();
                                       }
-                                      if (!mounted) return;
-                                      navigator.pushNamedAndRemoveUntil(
+                                      if (!context.mounted) return;
+                                      Navigator.of(context).pushNamedAndRemoveUntil(
                                         LoginScreen.routeName,
                                         (_) => false,
                                       );

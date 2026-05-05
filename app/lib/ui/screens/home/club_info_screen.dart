@@ -1190,9 +1190,9 @@ class _ClubInfoScreenState extends State<ClubInfoScreen> {
                     return;
                   }
                   try {
-                    await clubMemberRepository().leaveClub(
+                    await clubMemberRepository().removeMemberViaFunction(
                       clubId: payload.club.id,
-                      userId: member.profile.userId,
+                      targetUserId: member.profile.userId,
                     );
                     if (!mounted) {
                       return;

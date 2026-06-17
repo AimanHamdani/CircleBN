@@ -88,9 +88,6 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   List<_ParticipantItem>? _participants;
   final _eventChatRepo = eventChatRepository();
   List<EventChatMessage> _chatMessages = const <EventChatMessage>[];
-  Timer? _chatPollTimer;
-  RealtimeSubscription? _chatRealtimeSubscription;
-  String? _chatSubscribedEventId;
   bool _isChatLoading = false;
   bool _isChatSending = false;
   String? _chatError;
@@ -103,8 +100,6 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
 
   @override
   void dispose() {
-    _chatPollTimer?.cancel();
-    _chatRealtimeSubscription?.close();
     _composerCtrl.dispose();
     super.dispose();
   }
@@ -144,10 +139,6 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       }
     }
 
-    _chatPollTimer ??= Timer.periodic(const Duration(seconds: 20), (_) {
-      _loadChatMessages(silent: true);
-    });
-    _ensureChatRealtimeSubscription();
     _loadChatMessages(silent: _chatMessages.isNotEmpty);
   }
 
@@ -312,6 +303,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                           isLoading: _isChatLoading,
                           errorMessage: _chatError,
                           messages: _chatMessages,
+                          onRefresh: _loadChatMessages,
                         )
                       : _ParticipantsTab(
                           key: const ValueKey('participants'),
@@ -1007,33 +999,6 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     }
   }
 
-  void _ensureChatRealtimeSubscription() {
-    if (!mounted) {
-      return;
-    }
-    final args = _argsFromRoute(context);
-    final eventId = (_eventOverride ?? args.event).id.trim();
-    if (eventId.isEmpty ||
-        eventId == _chatSubscribedEventId ||
-        !AppwriteService.isConfigured ||
-        AppwriteConfig.databaseId.isEmpty ||
-        AppwriteConfig.eventMessagesCollectionId.isEmpty) {
-      return;
-    }
-    _chatSubscribedEventId = eventId;
-    _chatRealtimeSubscription?.close();
-    _chatRealtimeSubscription = AppwriteService.realtime.subscribe([
-      'databases.${AppwriteConfig.databaseId}.collections.${AppwriteConfig.eventMessagesCollectionId}.documents',
-    ]);
-    _chatRealtimeSubscription?.stream.listen((event) {
-      final payload = event.payload;
-      final payloadEventId = payload['eventId']?.toString() ?? '';
-      if (payloadEventId == _chatSubscribedEventId) {
-        _loadChatMessages(silent: true);
-      }
-    });
-  }
-
   Future<void> _confirmDeleteEvent(Event event) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -1177,8 +1142,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           ? events.firstWhere((e) => e.id == eventId)
           : null;
       if (updated != null && mounted) {
-        final baseline = (_eventOverride != null &&
-                _eventOverride!.id == eventId)
+        final baseline =
+            (_eventOverride != null && _eventOverride!.id == eventId)
             ? _eventOverride!
             : _argsFromRoute(context).event;
         final baselineMatches =
@@ -1758,7 +1723,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   // Gender / Age Group have restrictions; Host Role is display-only.
 }
 
-class _JoinRequestsCreatorStrip extends StatelessWidget {
+class _JoinRequestsCreatorStrip extends StatefulWidget {
   const _JoinRequestsCreatorStrip({
     required this.event,
     required this.onChanged,
@@ -1766,6 +1731,49 @@ class _JoinRequestsCreatorStrip extends StatelessWidget {
 
   final Event event;
   final VoidCallback onChanged;
+
+  @override
+  State<_JoinRequestsCreatorStrip> createState() =>
+      _JoinRequestsCreatorStripState();
+}
+
+class _JoinRequestsCreatorStripState extends State<_JoinRequestsCreatorStrip> {
+  late Future<List<UserProfile>> _profilesFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _profilesFuture = _loadProfiles();
+  }
+
+  @override
+  void didUpdateWidget(covariant _JoinRequestsCreatorStrip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_sameIds(
+      oldWidget.event.pendingJoinRequestUserIds,
+      widget.event.pendingJoinRequestUserIds,
+    )) {
+      _profilesFuture = _loadProfiles();
+    }
+  }
+
+  Future<List<UserProfile>> _loadProfiles() {
+    return profileRepository().getProfilesByIds(
+      widget.event.pendingJoinRequestUserIds,
+    );
+  }
+
+  bool _sameIds(List<String> left, List<String> right) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (var index = 0; index < left.length; index++) {
+      if (left[index] != right[index]) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1780,14 +1788,15 @@ class _JoinRequestsCreatorStrip extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Join requests (${event.pendingJoinRequestUserIds.length})',
-                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                'Join requests (${widget.event.pendingJoinRequestUserIds.length})',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14,
+                ),
               ),
               const SizedBox(height: 8),
               FutureBuilder<List<UserProfile>>(
-                future: profileRepository().getProfilesByIds(
-                  event.pendingJoinRequestUserIds,
-                ),
+                future: _profilesFuture,
                 builder: (context, snap) {
                   final profiles = snap.data ?? const <UserProfile>[];
                   if (snap.connectionState != ConnectionState.done &&
@@ -1845,7 +1854,8 @@ class _JoinRequestsCreatorStrip extends StatelessWidget {
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           p.username.trim().isNotEmpty
@@ -1881,7 +1891,7 @@ class _JoinRequestsCreatorStrip extends StatelessWidget {
                                       onPressed: () async {
                                         await eventInviteRepository()
                                             .rejectJoinRequest(
-                                              eventId: event.id,
+                                              eventId: widget.event.id,
                                               userId: p.userId,
                                             );
                                         if (context.mounted) {
@@ -1889,10 +1899,12 @@ class _JoinRequestsCreatorStrip extends StatelessWidget {
                                             context,
                                           ).showSnackBar(
                                             const SnackBar(
-                                              content: Text('Request declined.'),
+                                              content: Text(
+                                                'Request declined.',
+                                              ),
                                             ),
                                           );
-                                          onChanged();
+                                          widget.onChanged();
                                         }
                                       },
                                       child: const Text('Decline'),
@@ -1904,7 +1916,7 @@ class _JoinRequestsCreatorStrip extends StatelessWidget {
                                       onPressed: () async {
                                         await eventInviteRepository()
                                             .approveJoinRequest(
-                                              eventId: event.id,
+                                              eventId: widget.event.id,
                                               userId: p.userId,
                                             );
                                         if (context.mounted) {
@@ -1917,7 +1929,7 @@ class _JoinRequestsCreatorStrip extends StatelessWidget {
                                               ),
                                             ),
                                           );
-                                          onChanged();
+                                          widget.onChanged();
                                         }
                                       },
                                       child: const Text('Approve'),
@@ -2714,85 +2726,120 @@ class _ChatTab extends StatelessWidget {
   final bool isLoading;
   final String? errorMessage;
   final List<EventChatMessage> messages;
+  final Future<void> Function({bool silent}) onRefresh;
   const _ChatTab({
     super.key,
     required this.eventTitle,
     required this.isLoading,
     required this.errorMessage,
     required this.messages,
+    required this.onRefresh,
   });
 
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: const [
+          SizedBox(height: 220),
+          Center(child: CircularProgressIndicator()),
+        ],
+      );
     }
     if (errorMessage != null) {
-      return Center(child: Text(errorMessage!));
+      return RefreshIndicator(
+        onRefresh: () => onRefresh(),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(height: 220, child: Center(child: Text(errorMessage!))),
+          ],
+        ),
+      );
     }
     if (messages.isEmpty) {
-      return const Center(child: Text('No messages yet.'));
+      return RefreshIndicator(
+        onRefresh: () => onRefresh(),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(
+              height: 220,
+              child: Center(child: Text('No messages yet.')),
+            ),
+          ],
+        ),
+      );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
-      itemCount: messages.length,
-      itemBuilder: (context, idx) {
-        final m = messages[idx];
-        final isMe = m.senderId.trim() == currentUserId;
-        final bubble = _MessageBubble(
-          text: m.text,
-          imageFileId: m.imageFileId,
-          sentAt: m.editedAt ?? m.createdAt,
-          isEdited: m.editedAt != null,
-          isMe: isMe,
-        );
+    return RefreshIndicator(
+      onRefresh: () => onRefresh(),
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
+        itemCount: messages.length,
+        itemBuilder: (context, idx) {
+          final m = messages[idx];
+          final isMe = m.senderId.trim() == currentUserId;
+          final bubble = _MessageBubble(
+            text: m.text,
+            imageFileId: m.imageFileId,
+            sentAt: m.editedAt ?? m.createdAt,
+            isEdited: m.editedAt != null,
+            isMe: isMe,
+          );
 
-        final showDateHeader =
-            idx == 0 || !_isSameDate(messages[idx - 1].createdAt, m.createdAt);
+          final showDateHeader =
+              idx == 0 ||
+              !_isSameDate(messages[idx - 1].createdAt, m.createdAt);
 
-        return Padding(
-          padding: EdgeInsets.only(bottom: idx == messages.length - 1 ? 0 : 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (showDateHeader) ...[
-                _DateSeparator(date: m.createdAt),
-                const SizedBox(height: 10),
-              ],
-              Row(
-                mainAxisAlignment: isMe
-                    ? MainAxisAlignment.end
-                    : MainAxisAlignment.start,
-                children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 280),
-                    child: GestureDetector(
-                      onLongPress: isMe
-                          ? (_canEditMessage(m)
-                                ? () => _showEditDialog(
-                                    context: context,
-                                    messageId: m.id,
-                                    currentText: m.text,
-                                    createdAt: m.createdAt,
-                                  )
-                                : () => ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Messages can only be edited within 30 minutes.',
-                                      ),
-                                    ),
-                                  ))
-                          : null,
-                      child: bubble,
-                    ),
-                  ),
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: idx == messages.length - 1 ? 0 : 10,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (showDateHeader) ...[
+                  _DateSeparator(date: m.createdAt),
+                  const SizedBox(height: 10),
                 ],
-              ),
-            ],
-          ),
-        );
-      },
+                Row(
+                  mainAxisAlignment: isMe
+                      ? MainAxisAlignment.end
+                      : MainAxisAlignment.start,
+                  children: [
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 280),
+                      child: GestureDetector(
+                        onLongPress: isMe
+                            ? (_canEditMessage(m)
+                                  ? () => _showEditDialog(
+                                      context: context,
+                                      messageId: m.id,
+                                      currentText: m.text,
+                                      createdAt: m.createdAt,
+                                    )
+                                  : () => ScaffoldMessenger.of(context)
+                                        .showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Messages can only be edited within 30 minutes.',
+                                            ),
+                                          ),
+                                        ))
+                            : null,
+                        child: bubble,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -3024,10 +3071,7 @@ class _CachedEventHeroImage extends StatefulWidget {
   final String bucketId;
   final String fileId;
 
-  const _CachedEventHeroImage({
-    required this.bucketId,
-    required this.fileId,
-  });
+  const _CachedEventHeroImage({required this.bucketId, required this.fileId});
 
   @override
   State<_CachedEventHeroImage> createState() => _CachedEventHeroImageState();

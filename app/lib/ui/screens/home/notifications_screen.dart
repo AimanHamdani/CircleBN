@@ -1,9 +1,6 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../../appwrite/appwrite_service.dart';
 import '../../../auth/current_user.dart';
 import '../../../data/club_repository.dart';
 import '../../../data/event_invite_repository.dart';
@@ -30,33 +27,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   static const _knownEventIdsKeyPrefix = 'notifications_known_event_ids_v2_';
 
   late Future<_NotificationPayload> _notificationsFuture;
-  Timer? _clockTimer;
   _NotificationsFilter _filter = _NotificationsFilter.all;
 
   @override
   void initState() {
     super.initState();
     _notificationsFuture = _loadNotifications();
-    _clockTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (mounted) {
-        setState(() {});
-      }
-    });
-    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
   }
 
   @override
   void dispose() {
-    _clockTimer?.cancel();
-    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
     super.dispose();
-  }
-
-  void _handleGlobalDataChange() {
-    if (!mounted) {
-      return;
-    }
-    _reload();
   }
 
   String _knownKeyForUser(String userId) {
@@ -79,7 +60,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final previousKnownEventIds =
         prefs.getStringList(_knownKeyForUser(myId))?.toSet() ?? <String>{};
     final currentEventIds = eventById.keys.toSet();
-    final disappearedEventIds = previousKnownEventIds.difference(currentEventIds);
+    final disappearedEventIds = previousKnownEventIds.difference(
+      currentEventIds,
+    );
 
     final joinedIds = <String>{
       ...events.where((e) => e.joinedByMe).map((e) => e.id),
@@ -257,7 +240,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             },
             child: const Text(
               'Mark all read',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -335,9 +321,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           if (snap.connectionState != ConnectionState.done &&
                               items.isEmpty) {
                             return scrollableFill(
-                              const Center(
-                                child: CircularProgressIndicator(),
-                              ),
+                              const Center(child: CircularProgressIndicator()),
                             );
                           }
                           if (items.isEmpty) {
@@ -390,10 +374,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                               return _NotificationTile(
                                 item: item,
                                 unread: !item.isRead,
-                                onTap: () => _openNotification(
-                                  item,
-                                  payload.eventById,
-                                ),
+                                onTap: () =>
+                                    _openNotification(item, payload.eventById),
                               );
                             },
                           );
@@ -436,8 +418,7 @@ class _NotificationTile extends StatelessWidget {
     final isUpdated = item.type == AppNotificationType.eventUpdated;
     final isEventJoinRequest =
         item.type == AppNotificationType.eventJoinRequest;
-    final isClubJoinRequest =
-        item.type == AppNotificationType.clubJoinRequest;
+    final isClubJoinRequest = item.type == AppNotificationType.clubJoinRequest;
     final isChat = item.type == AppNotificationType.chatMessage;
     final iconBackground = isSoon
         ? const Color(0xFFDFF0E7)

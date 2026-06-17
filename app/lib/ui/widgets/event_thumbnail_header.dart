@@ -24,6 +24,7 @@ class EventThumbnailHeader extends StatefulWidget {
 class _EventThumbnailHeaderState extends State<EventThumbnailHeader> {
   static final Map<String, Future<Uint8List>> _imageFutureCache =
       <String, Future<Uint8List>>{};
+  static const Duration _imageLoadTimeout = Duration(seconds: 4);
 
   Future<Uint8List>? _imageFuture;
 
@@ -52,7 +53,7 @@ class _EventThumbnailHeaderState extends State<EventThumbnailHeader> {
       return AppwriteService.getFileViewBytes(
         bucketId: AppwriteConfig.eventImagesBucketId,
         fileId: fileId,
-      );
+      ).timeout(_imageLoadTimeout);
     });
   }
 
@@ -82,17 +83,7 @@ class _EventThumbnailHeaderState extends State<EventThumbnailHeader> {
         }
         if (snap.connectionState == ConnectionState.waiting ||
             snap.connectionState == ConnectionState.active) {
-          return Container(
-            width: double.infinity,
-            height: double.infinity,
-            color: cs.primary.withValues(alpha: 0.08),
-            alignment: Alignment.center,
-            child: SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
-            ),
-          );
+          return _placeholder(cs);
         }
         final bytes = snap.data;
         if (bytes != null && bytes.isNotEmpty) {
@@ -117,14 +108,15 @@ class _EventThumbnailHeaderState extends State<EventThumbnailHeader> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            cs.primary.withValues(alpha: 0.20),
-            const Color(0xFFFFFFFF),
-          ],
+          colors: [cs.primary.withValues(alpha: 0.20), const Color(0xFFFFFFFF)],
         ),
       ),
       alignment: Alignment.center,
-      child: Icon(Icons.image_outlined, color: Colors.black.withValues(alpha: 0.35), size: 44),
+      child: Icon(
+        Icons.image_outlined,
+        color: Colors.black.withValues(alpha: 0.35),
+        size: 44,
+      ),
     );
   }
 }

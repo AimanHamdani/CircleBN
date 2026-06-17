@@ -27,14 +27,9 @@ class StreakRepository {
   static const String _remoteBestField = 'bestStreak';
   static const String _remoteLastField = 'lastStreakDate';
   static SyncSource _lastReadSource = SyncSource.unknown;
-  static SyncSource _lastWriteSource = SyncSource.unknown;
 
   SyncSource get lastReadSource {
     return _lastReadSource;
-  }
-
-  SyncSource get lastWriteSource {
-    return _lastWriteSource;
   }
 
   Future<DailyStreakState> refreshForUser({
@@ -74,12 +69,6 @@ class StreakRepository {
             best: best,
             last: last,
           );
-          await _saveRemoteState(
-            userId: normalizedUserId,
-            current: current,
-            best: best,
-            last: last,
-          );
         }
       }
       return DailyStreakState(
@@ -109,12 +98,6 @@ class StreakRepository {
     }
 
     await _saveLocalState(
-      userId: normalizedUserId,
-      current: current,
-      best: best,
-      last: today,
-    );
-    await _saveRemoteState(
       userId: normalizedUserId,
       current: current,
       best: best,
@@ -186,34 +169,6 @@ class StreakRepository {
       return;
     }
     await prefs.setString('$_lastActivePrefix$userId', last.toIso8601String());
-  }
-
-  Future<void> _saveRemoteState({
-    required String userId,
-    required int current,
-    required int best,
-    required DateTime? last,
-  }) async {
-    if (!AppwriteService.isConfigured ||
-        AppwriteConfig.databaseId.isEmpty ||
-        AppwriteConfig.profilesCollectionId.isEmpty) {
-      return;
-    }
-    try {
-      await AppwriteService.updateDocument(
-        collectionId: AppwriteConfig.profilesCollectionId,
-        documentId: userId,
-        data: <String, dynamic>{
-          _remoteCurrentField: current,
-          _remoteBestField: best,
-          _remoteLastField: last?.toIso8601String(),
-        },
-      );
-      _lastWriteSource = SyncSource.remote;
-    } catch (_) {
-      // Keep local fallback when profile schema/permissions are missing.
-      _lastWriteSource = SyncSource.local;
-    }
   }
 
   int _asInt(Object? value) {

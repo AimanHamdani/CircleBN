@@ -34,6 +34,12 @@ class ClubsScreen extends StatefulWidget {
 class _ClubsScreenState extends State<ClubsScreen> {
   final _searchCtrl = TextEditingController();
   final _chatRepository = clubChatRepository();
+  final Map<String, Future<Map<String, _ClubChatMeta>>> _chatMetaFutureCache =
+      <String, Future<Map<String, _ClubChatMeta>>>{};
+  final Map<String, Future<List<UserProfile>>> _profileListFutureCache =
+      <String, Future<List<UserProfile>>>{};
+  final Map<String, Future<Map<String, int>>> _dmUnreadFutureCache =
+      <String, Future<Map<String, int>>>{};
 
   String _selectedSport = 'All';
   _ClubJoinFilterTab _joinFilterTab = _ClubJoinFilterTab.joined;
@@ -52,11 +58,13 @@ class _ClubsScreenState extends State<ClubsScreen> {
     _membershipFuture = appPreloadService().membershipStatus();
     _dmThreadsFuture = appPreloadService().myDmThreads();
     _tabUnreadFuture = _loadTabUnreadCounts();
-    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
   }
 
   void _refreshClubs() {
     setState(() {
+      _chatMetaFutureCache.clear();
+      _profileListFutureCache.clear();
+      _dmUnreadFutureCache.clear();
       _clubsFuture = appPreloadService().clubs(forceRefresh: true);
       _membershipsFuture = appPreloadService().myClubMemberships(
         forceRefresh: true,
@@ -69,16 +77,53 @@ class _ClubsScreenState extends State<ClubsScreen> {
 
   @override
   void dispose() {
-    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
     _searchCtrl.dispose();
     super.dispose();
   }
 
-  void _handleGlobalDataChange() {
-    if (!mounted) {
-      return;
-    }
+  Future<void> _refreshClubsManually() async {
     _refreshClubs();
+    await Future.wait<void>([
+      _clubsFuture.then((_) {}),
+      _membershipsFuture.then((_) {}),
+      _dmThreadsFuture.then((_) {}),
+      _tabUnreadFuture.then((_) {}),
+    ]);
+  }
+
+  String _cacheKeyFromIds(Iterable<String> ids) {
+    final normalized =
+        ids.map((id) => id.trim()).where((id) => id.isNotEmpty).toList()
+          ..sort();
+    return normalized.join('|');
+  }
+
+  Future<Map<String, _ClubChatMeta>> _chatMetaFutureFor(List<Club> clubs) {
+    final cacheKey = _cacheKeyFromIds(clubs.map((club) => club.id));
+    return _chatMetaFutureCache.putIfAbsent(
+      cacheKey,
+      () => _loadChatMeta(clubs),
+    );
+  }
+
+  Future<List<UserProfile>> _profileListFutureFor(List<String> userIds) {
+    final cacheKey = _cacheKeyFromIds(userIds);
+    return _profileListFutureCache.putIfAbsent(
+      cacheKey,
+      () => profileRepository().getProfilesByIds(userIds),
+    );
+  }
+
+  Future<Map<String, int>> _dmUnreadFutureFor(
+    List<DirectMessageThread> threads,
+  ) {
+    final cacheKey = _cacheKeyFromIds(
+      threads.map((thread) => thread.otherUserId),
+    );
+    return _dmUnreadFutureCache.putIfAbsent(
+      cacheKey,
+      () => _loadDmUnreadCounts(threads),
+    );
   }
 
   String _clubSubtitle(Club c) {
@@ -581,323 +626,109 @@ class _ClubsScreenState extends State<ClubsScreen> {
               ),
             ),
             Expanded(
-              child: _joinFilterTab == _ClubJoinFilterTab.dm
-                  ? _buildDmList(searchLower)
-                  : FutureBuilder<List<Club>>(
-                      future: _clubsFuture,
-                      builder: (context, snap) {
-                        if (snap.hasError) {
-                          return Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(24),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    'Could not load clubs.\n${snap.error}',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.65,
+              child: RefreshIndicator(
+                onRefresh: _refreshClubsManually,
+                child: _joinFilterTab == _ClubJoinFilterTab.dm
+                    ? _buildDmList(searchLower)
+                    : FutureBuilder<List<Club>>(
+                        future: _clubsFuture,
+                        builder: (context, snap) {
+                          if (snap.hasError) {
+                            return Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      'Could not load clubs.\n${snap.error}',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.65,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  FilledButton(
-                                    onPressed: _refreshClubs,
-                                    child: const Text('Retry'),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }
-
-                        if (snap.connectionState != ConnectionState.done) {
-                          return const Center(
-                            child: CircularProgressIndicator(),
-                          );
-                        }
-
-                        final clubs = snap.data ?? const <Club>[];
-                        final sportFiltered = clubs.where((c) {
-                          final sportOk =
-                              _selectedSport == 'All' ||
-                              c.sports.contains(_selectedSport);
-                          if (!sportOk) {
-                            return false;
-                          }
-                          return true;
-                        }).toList();
-
-                        return FutureBuilder<List<ClubMember>>(
-                          future: _membershipsFuture,
-                          builder: (context, memberSnap) {
-                            final me = currentUserId.trim();
-                            final joinedClubIds = <String>{
-                              for (final m
-                                  in (memberSnap.data ?? const <ClubMember>[]))
-                                m.clubId.trim(),
-                            }..removeWhere((id) => id.isEmpty);
-                            for (final c in clubs) {
-                              final creatorId = (c.creatorId ?? '').trim();
-                              if (creatorId.isNotEmpty && creatorId == me) {
-                                joinedClubIds.add(c.id);
-                              }
-                            }
-                            final joinFiltered = sportFiltered.where((c) {
-                              final isJoined = joinedClubIds.contains(c.id);
-                              if (_joinFilterTab == _ClubJoinFilterTab.joined) {
-                                return isJoined;
-                              }
-                              return !isJoined;
-                            }).toList();
-                            if (joinFiltered.isEmpty) {
-                              final emptyText = clubs.isEmpty
-                                  ? 'No clubs yet. Create one from Home.'
-                                  : _joinFilterTab == _ClubJoinFilterTab.joined
-                                  ? 'You have not joined any clubs yet.'
-                                  : 'No more clubs available for this filter.';
-                              return Center(
-                                child: Text(
-                                  emptyText,
-                                  textAlign: TextAlign.center,
+                                    const SizedBox(height: 16),
+                                    FilledButton(
+                                      onPressed: _refreshClubs,
+                                      child: const Text('Retry'),
+                                    ),
+                                  ],
                                 ),
-                              );
+                              ),
+                            );
+                          }
+
+                          if (snap.connectionState != ConnectionState.done) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+
+                          final clubs = snap.data ?? const <Club>[];
+                          final sportFiltered = clubs.where((c) {
+                            final sportOk =
+                                _selectedSport == 'All' ||
+                                c.sports.contains(_selectedSport);
+                            if (!sportOk) {
+                              return false;
                             }
-                            if (_joinFilterTab == _ClubJoinFilterTab.discover) {
-                              final filtered =
-                                  joinFiltered
-                                      .where(
-                                        (c) =>
-                                            _clubMatchesSearch(c, searchLower),
-                                      )
-                                      .toList()
-                                    ..sort((a, b) => a.name.compareTo(b.name));
-                              if (filtered.isEmpty) {
-                                return const Center(
+                            return true;
+                          }).toList();
+
+                          return FutureBuilder<List<ClubMember>>(
+                            future: _membershipsFuture,
+                            builder: (context, memberSnap) {
+                              final me = currentUserId.trim();
+                              final joinedClubIds = <String>{
+                                for (final m
+                                    in (memberSnap.data ??
+                                        const <ClubMember>[]))
+                                  m.clubId.trim(),
+                              }..removeWhere((id) => id.isEmpty);
+                              for (final c in clubs) {
+                                final creatorId = (c.creatorId ?? '').trim();
+                                if (creatorId.isNotEmpty && creatorId == me) {
+                                  joinedClubIds.add(c.id);
+                                }
+                              }
+                              final joinFiltered = sportFiltered.where((c) {
+                                final isJoined = joinedClubIds.contains(c.id);
+                                if (_joinFilterTab ==
+                                    _ClubJoinFilterTab.joined) {
+                                  return isJoined;
+                                }
+                                return !isJoined;
+                              }).toList();
+                              if (joinFiltered.isEmpty) {
+                                final emptyText = clubs.isEmpty
+                                    ? 'No clubs yet. Create one from Home.'
+                                    : _joinFilterTab ==
+                                          _ClubJoinFilterTab.joined
+                                    ? 'You have not joined any clubs yet.'
+                                    : 'No more clubs available for this filter.';
+                                return Center(
                                   child: Text(
-                                    'No clubs match your filters.',
+                                    emptyText,
                                     textAlign: TextAlign.center,
                                   ),
                                 );
                               }
-                              return ListView.separated(
-                                padding: const EdgeInsets.fromLTRB(
-                                  16,
-                                  0,
-                                  16,
-                                  18,
-                                ),
-                                itemCount: filtered.length,
-                                separatorBuilder: (_, __) =>
-                                    const SizedBox(height: 10),
-                                itemBuilder: (context, idx) {
-                                  final c = filtered[idx];
-                                  final subtitle = _clubSubtitle(c);
-                                  return InkWell(
-                                    borderRadius: BorderRadius.circular(16),
-                                    onTap: () {
-                                      Navigator.of(context).pushNamed(
-                                        ClubChatScreen.routeName,
-                                        arguments: c,
-                                      );
-                                    },
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFF8FFFC),
-                                        borderRadius: BorderRadius.circular(16),
-                                        border: Border.all(
-                                          color: const Color(0xFFCCE9DF),
-                                        ),
-                                      ),
-                                      child: Padding(
-                                        padding: const EdgeInsets.fromLTRB(
-                                          12,
-                                          12,
-                                          12,
-                                          12,
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            Container(
-                                              width: 44,
-                                              height: 44,
-                                              decoration: BoxDecoration(
-                                                color: const Color(0xFFDDF3F0),
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                              ),
-                                              child: ClipRRect(
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                                clipBehavior: Clip.antiAlias,
-                                                child:
-                                                    c.thumbnailFileId != null &&
-                                                        c
-                                                            .thumbnailFileId!
-                                                            .isNotEmpty
-                                                    ? FutureBuilder(
-                                                        future: AppwriteService.getFileViewBytes(
-                                                          bucketId: AppwriteConfig
-                                                              .storageBucketId,
-                                                          fileId: c
-                                                              .thumbnailFileId!,
-                                                        ),
-                                                        builder: (context, snap) {
-                                                          if (snap.hasData) {
-                                                            return Image.memory(
-                                                              snap.data!,
-                                                              fit: BoxFit.cover,
-                                                            );
-                                                          }
-                                                          return const Icon(
-                                                            Icons.groups,
-                                                            size: 20,
-                                                          );
-                                                        },
-                                                      )
-                                                    : const Icon(
-                                                        Icons.groups,
-                                                        size: 20,
-                                                      ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    c.name,
-                                                    style: const TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.w900,
-                                                      fontSize: 14.5,
-                                                    ),
-                                                  ),
-                                                  if (subtitle.isNotEmpty) ...[
-                                                    const SizedBox(height: 2),
-                                                    Text(
-                                                      subtitle,
-                                                      style: TextStyle(
-                                                        color: Colors.black
-                                                            .withValues(
-                                                              alpha: 0.55,
-                                                            ),
-                                                        fontSize: 12.5,
-                                                      ),
-                                                      maxLines: 2,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                    ),
-                                                  ],
-                                                  const SizedBox(height: 6),
-                                                  Container(
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          horizontal: 8,
-                                                          vertical: 3,
-                                                        ),
-                                                    decoration: BoxDecoration(
-                                                      color: const Color(
-                                                        0xFF12B7AA,
-                                                      ).withValues(alpha: 0.12),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            999,
-                                                          ),
-                                                    ),
-                                                    child: const Text(
-                                                      'Tap to view and join',
-                                                      style: TextStyle(
-                                                        fontSize: 10.5,
-                                                        fontWeight:
-                                                            FontWeight.w800,
-                                                        color: Color(
-                                                          0xFF0F7F73,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              );
-                            }
-                            return FutureBuilder<Map<String, _ClubChatMeta>>(
-                              key: ValueKey(
-                                '${joinFiltered.map((c) => c.id).join("|")}#$_chatMetaRefreshToken#${_joinFilterTab.name}',
-                              ),
-                              future: _loadChatMeta(joinFiltered),
-                              builder: (context, metaSnap) {
-                                final metaByClub =
-                                    metaSnap.data ??
-                                    const <String, _ClubChatMeta>{};
+                              if (_joinFilterTab ==
+                                  _ClubJoinFilterTab.discover) {
                                 final filtered =
-                                    joinFiltered.where((c) {
-                                      final meta =
-                                          metaByClub[c.id] ??
-                                          const _ClubChatMeta.empty();
-                                      return _clubMatchesSearchWithMeta(
-                                        c,
-                                        searchLower,
-                                        meta,
+                                    joinFiltered
+                                        .where(
+                                          (c) => _clubMatchesSearch(
+                                            c,
+                                            searchLower,
+                                          ),
+                                        )
+                                        .toList()
+                                      ..sort(
+                                        (a, b) => a.name.compareTo(b.name),
                                       );
-                                    }).toList()..sort((a, b) {
-                                      final aMeta =
-                                          metaByClub[a.id] ??
-                                          const _ClubChatMeta.empty();
-                                      final bMeta =
-                                          metaByClub[b.id] ??
-                                          const _ClubChatMeta.empty();
-                                      final aHasUnread = aMeta.unreadCount > 0;
-                                      final bHasUnread = bMeta.unreadCount > 0;
-                                      if (aHasUnread != bHasUnread) {
-                                        return bHasUnread ? 1 : -1;
-                                      }
-                                      if (aHasUnread && bHasUnread) {
-                                        final aUnreadAt =
-                                            aMeta.latestUnreadAt ??
-                                            DateTime.fromMillisecondsSinceEpoch(
-                                              0,
-                                            );
-                                        final bUnreadAt =
-                                            bMeta.latestUnreadAt ??
-                                            DateTime.fromMillisecondsSinceEpoch(
-                                              0,
-                                            );
-                                        final unreadTimeCompare = bUnreadAt
-                                            .compareTo(aUnreadAt);
-                                        if (unreadTimeCompare != 0) {
-                                          return unreadTimeCompare;
-                                        }
-                                      }
-                                      final aLatest =
-                                          aMeta.latestAt ??
-                                          DateTime.fromMillisecondsSinceEpoch(
-                                            0,
-                                          );
-                                      final bLatest =
-                                          bMeta.latestAt ??
-                                          DateTime.fromMillisecondsSinceEpoch(
-                                            0,
-                                          );
-                                      final latestCompare = bLatest.compareTo(
-                                        aLatest,
-                                      );
-                                      if (latestCompare != 0) {
-                                        return latestCompare;
-                                      }
-                                      return a.name.compareTo(b.name);
-                                    });
                                 if (filtered.isEmpty) {
                                   return const Center(
                                     child: Text(
@@ -918,64 +749,31 @@ class _ClubsScreenState extends State<ClubsScreen> {
                                       const SizedBox(height: 10),
                                   itemBuilder: (context, idx) {
                                     final c = filtered[idx];
-                                    final fallbackSubtitle = _clubSubtitle(c);
-                                    final meta =
-                                        metaByClub[c.id] ??
-                                        const _ClubChatMeta.empty();
-                                    final sender = meta.latestSender.trim();
-                                    final latestText = meta.latestText.trim();
-                                    final subtitle = latestText.isNotEmpty
-                                        ? (sender.isNotEmpty
-                                              ? '$sender: $latestText'
-                                              : latestText)
-                                        : fallbackSubtitle;
-
+                                    final subtitle = _clubSubtitle(c);
                                     return InkWell(
                                       borderRadius: BorderRadius.circular(16),
                                       onTap: () {
-                                        WidgetsBinding.instance
-                                            .addPostFrameCallback((_) {
-                                              WidgetsBinding.instance
-                                                  .addPostFrameCallback((_) {
-                                                    if (!context.mounted) {
-                                                      return;
-                                                    }
-                                                    () async {
-                                                      await _markClubChatRead(
-                                                        c.id,
-                                                      );
-                                                      if (!context.mounted) {
-                                                        return;
-                                                      }
-                                                      _refreshClubs();
-                                                      Navigator.of(context)
-                                                          .pushNamed(
-                                                            ClubChatScreen
-                                                                .routeName,
-                                                            arguments: c,
-                                                          )
-                                                          .then((_) async {
-                                                            if (!context
-                                                                .mounted) {
-                                                              return;
-                                                            }
-                                                            await _markClubChatRead(
-                                                              c.id,
-                                                            );
-                                                            _refreshClubs();
-                                                          });
-                                                    }();
-                                                  });
+                                        Navigator.of(context)
+                                            .pushNamed(
+                                              ClubChatScreen.routeName,
+                                              arguments: c,
+                                            )
+                                            .then((_) async {
+                                              await _markClubChatRead(c.id);
+                                              if (!mounted) {
+                                                return;
+                                              }
+                                              _refreshClubs();
                                             });
                                       },
                                       child: Container(
                                         decoration: BoxDecoration(
-                                          color: Colors.white,
+                                          color: const Color(0xFFF8FFFC),
                                           borderRadius: BorderRadius.circular(
                                             16,
                                           ),
                                           border: Border.all(
-                                            color: const Color(0xFFDDE8E5),
+                                            color: const Color(0xFFCCE9DF),
                                           ),
                                         ),
                                         child: Padding(
@@ -1065,10 +863,40 @@ class _ClubsScreenState extends State<ClubsScreen> {
                                                             .ellipsis,
                                                       ),
                                                     ],
+                                                    const SizedBox(height: 6),
+                                                    Container(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 8,
+                                                            vertical: 3,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        color:
+                                                            const Color(
+                                                              0xFF12B7AA,
+                                                            ).withValues(
+                                                              alpha: 0.12,
+                                                            ),
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              999,
+                                                            ),
+                                                      ),
+                                                      child: const Text(
+                                                        'Tap to view and join',
+                                                        style: TextStyle(
+                                                          fontSize: 10.5,
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          color: Color(
+                                                            0xFF0F7F73,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
                                                   ],
                                                 ),
                                               ),
-                                              _rightMetaPill(meta),
                                             ],
                                           ),
                                         ),
@@ -1076,12 +904,261 @@ class _ClubsScreenState extends State<ClubsScreen> {
                                     );
                                   },
                                 );
-                              },
-                            );
-                          },
-                        );
-                      },
-                    ),
+                              }
+                              return FutureBuilder<Map<String, _ClubChatMeta>>(
+                                key: ValueKey(
+                                  '${joinFiltered.map((c) => c.id).join("|")}#$_chatMetaRefreshToken#${_joinFilterTab.name}',
+                                ),
+                                future: _chatMetaFutureFor(joinFiltered),
+                                builder: (context, metaSnap) {
+                                  final metaByClub =
+                                      metaSnap.data ??
+                                      const <String, _ClubChatMeta>{};
+                                  final filtered =
+                                      joinFiltered.where((c) {
+                                        final meta =
+                                            metaByClub[c.id] ??
+                                            const _ClubChatMeta.empty();
+                                        return _clubMatchesSearchWithMeta(
+                                          c,
+                                          searchLower,
+                                          meta,
+                                        );
+                                      }).toList()..sort((a, b) {
+                                        final aMeta =
+                                            metaByClub[a.id] ??
+                                            const _ClubChatMeta.empty();
+                                        final bMeta =
+                                            metaByClub[b.id] ??
+                                            const _ClubChatMeta.empty();
+                                        final aHasUnread =
+                                            aMeta.unreadCount > 0;
+                                        final bHasUnread =
+                                            bMeta.unreadCount > 0;
+                                        if (aHasUnread != bHasUnread) {
+                                          return bHasUnread ? 1 : -1;
+                                        }
+                                        if (aHasUnread && bHasUnread) {
+                                          final aUnreadAt =
+                                              aMeta.latestUnreadAt ??
+                                              DateTime.fromMillisecondsSinceEpoch(
+                                                0,
+                                              );
+                                          final bUnreadAt =
+                                              bMeta.latestUnreadAt ??
+                                              DateTime.fromMillisecondsSinceEpoch(
+                                                0,
+                                              );
+                                          final unreadTimeCompare = bUnreadAt
+                                              .compareTo(aUnreadAt);
+                                          if (unreadTimeCompare != 0) {
+                                            return unreadTimeCompare;
+                                          }
+                                        }
+                                        final aLatest =
+                                            aMeta.latestAt ??
+                                            DateTime.fromMillisecondsSinceEpoch(
+                                              0,
+                                            );
+                                        final bLatest =
+                                            bMeta.latestAt ??
+                                            DateTime.fromMillisecondsSinceEpoch(
+                                              0,
+                                            );
+                                        final latestCompare = bLatest.compareTo(
+                                          aLatest,
+                                        );
+                                        if (latestCompare != 0) {
+                                          return latestCompare;
+                                        }
+                                        return a.name.compareTo(b.name);
+                                      });
+                                  if (filtered.isEmpty) {
+                                    return const Center(
+                                      child: Text(
+                                        'No clubs match your filters.',
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    );
+                                  }
+                                  return ListView.separated(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      16,
+                                      0,
+                                      16,
+                                      18,
+                                    ),
+                                    itemCount: filtered.length,
+                                    separatorBuilder: (_, __) =>
+                                        const SizedBox(height: 10),
+                                    itemBuilder: (context, idx) {
+                                      final c = filtered[idx];
+                                      final fallbackSubtitle = _clubSubtitle(c);
+                                      final meta =
+                                          metaByClub[c.id] ??
+                                          const _ClubChatMeta.empty();
+                                      final sender = meta.latestSender.trim();
+                                      final latestText = meta.latestText.trim();
+                                      final subtitle = latestText.isNotEmpty
+                                          ? (sender.isNotEmpty
+                                                ? '$sender: $latestText'
+                                                : latestText)
+                                          : fallbackSubtitle;
+
+                                      return InkWell(
+                                        borderRadius: BorderRadius.circular(16),
+                                        onTap: () {
+                                          WidgetsBinding.instance
+                                              .addPostFrameCallback((_) {
+                                                WidgetsBinding.instance
+                                                    .addPostFrameCallback((_) {
+                                                      if (!context.mounted) {
+                                                        return;
+                                                      }
+                                                      () async {
+                                                        await _markClubChatRead(
+                                                          c.id,
+                                                        );
+                                                        if (!context.mounted) {
+                                                          return;
+                                                        }
+                                                        _refreshClubs();
+                                                        Navigator.of(
+                                                          context,
+                                                        ).pushNamed(
+                                                          ClubChatScreen
+                                                              .routeName,
+                                                          arguments: c,
+                                                        );
+                                                      }();
+                                                    });
+                                              });
+                                        },
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(
+                                              16,
+                                            ),
+                                            border: Border.all(
+                                              color: const Color(0xFFDDE8E5),
+                                            ),
+                                          ),
+                                          child: Padding(
+                                            padding: const EdgeInsets.fromLTRB(
+                                              12,
+                                              12,
+                                              12,
+                                              12,
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                Container(
+                                                  width: 44,
+                                                  height: 44,
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(
+                                                      0xFFDDF3F0,
+                                                    ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          12,
+                                                        ),
+                                                  ),
+                                                  child: ClipRRect(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          12,
+                                                        ),
+                                                    clipBehavior:
+                                                        Clip.antiAlias,
+                                                    child:
+                                                        c.thumbnailFileId !=
+                                                                null &&
+                                                            c
+                                                                .thumbnailFileId!
+                                                                .isNotEmpty
+                                                        ? FutureBuilder(
+                                                            future: AppwriteService.getFileViewBytes(
+                                                              bucketId:
+                                                                  AppwriteConfig
+                                                                      .storageBucketId,
+                                                              fileId: c
+                                                                  .thumbnailFileId!,
+                                                            ),
+                                                            builder: (context, snap) {
+                                                              if (snap
+                                                                  .hasData) {
+                                                                return Image.memory(
+                                                                  snap.data!,
+                                                                  fit: BoxFit
+                                                                      .cover,
+                                                                );
+                                                              }
+                                                              return const Icon(
+                                                                Icons.groups,
+                                                                size: 20,
+                                                              );
+                                                            },
+                                                          )
+                                                        : const Icon(
+                                                            Icons.groups,
+                                                            size: 20,
+                                                          ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(
+                                                        c.name,
+                                                        style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w900,
+                                                          fontSize: 14.5,
+                                                        ),
+                                                      ),
+                                                      if (subtitle
+                                                          .isNotEmpty) ...[
+                                                        const SizedBox(
+                                                          height: 2,
+                                                        ),
+                                                        Text(
+                                                          subtitle,
+                                                          style: TextStyle(
+                                                            color: Colors.black
+                                                                .withValues(
+                                                                  alpha: 0.55,
+                                                                ),
+                                                            fontSize: 12.5,
+                                                          ),
+                                                          maxLines: 2,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                        ),
+                                                      ],
+                                                    ],
+                                                  ),
+                                                ),
+                                                _rightMetaPill(meta),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  );
+                                },
+                              );
+                            },
+                          );
+                        },
+                      ),
+              ),
             ),
           ],
         ),
@@ -1170,7 +1247,7 @@ class _ClubsScreenState extends State<ClubsScreen> {
           );
         }
         return FutureBuilder<List<UserProfile>>(
-          future: profileRepository().getProfilesByIds(
+          future: _profileListFutureFor(
             threads.map((t) => t.otherUserId).toList(),
           ),
           builder: (context, profileSnap) {
@@ -1197,7 +1274,7 @@ class _ClubsScreenState extends State<ClubsScreen> {
               );
             }
             return FutureBuilder<Map<String, int>>(
-              future: _loadDmUnreadCounts(filtered),
+              future: _dmUnreadFutureFor(filtered),
               builder: (context, unreadSnap) {
                 final unreadByUser = unreadSnap.data ?? const <String, int>{};
                 return ListView.separated(
@@ -1223,7 +1300,12 @@ class _ClubsScreenState extends State<ClubsScreen> {
                                 initialName: name,
                               ),
                             )
-                            .then((_) => _refreshClubs());
+                            .then((_) {
+                              if (!mounted) {
+                                return;
+                              }
+                              _refreshClubs();
+                            });
                       },
                       child: Container(
                         decoration: BoxDecoration(

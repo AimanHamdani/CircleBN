@@ -37,8 +37,6 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
   final _textCtrl = TextEditingController();
   final _picker = ImagePicker();
   final _messages = <DirectMessage>[];
-  RealtimeSubscription? _subscription;
-  Timer? _fallbackPollTimer;
   bool _isLoading = true;
   bool _isSending = false;
   String _otherUserId = '';
@@ -56,15 +54,12 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initFromRoute();
       _loadConversation();
-      _startRealtime();
     });
   }
 
   @override
   void dispose() {
     _markConversationRead();
-    _subscription?.close();
-    _fallbackPollTimer?.cancel();
     _textCtrl.dispose();
     super.dispose();
   }
@@ -104,22 +99,6 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
       }
       setState(() => _otherName = display);
     } catch (_) {}
-  }
-
-  void _startRealtime() {
-    if (!AppwriteService.isConfigured ||
-        AppwriteConfig.databaseId.isEmpty ||
-        AppwriteConfig.directMessagesCollectionId.isEmpty) {
-      _fallbackPollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
-        _loadConversation(silent: true);
-      });
-      return;
-    }
-    _subscription?.close();
-    _subscription = AppwriteService.realtime.subscribe([
-      'databases.${AppwriteConfig.databaseId}.collections.${AppwriteConfig.directMessagesCollectionId}.documents',
-    ]);
-    _subscription?.stream.listen((_) => _loadConversation(silent: true));
   }
 
   Future<void> _loadConversation({bool silent = false}) async {
@@ -367,74 +346,106 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
       body: Column(
         children: [
           Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _messages.isEmpty
-                ? const Center(
-                    child: Text(
-                      'No messages yet. Say hi!',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),
-                    itemCount: _messages.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (context, i) {
-                      final msg = _messages[i];
-                      final mine = msg.senderId.trim() == me;
-                      return GestureDetector(
-                        onLongPress: () => _showMessageActions(msg),
-                        child: Align(
-                          alignment: mine
-                              ? Alignment.centerRight
-                              : Alignment.centerLeft,
-                          child: Container(
-                            constraints: BoxConstraints(
-                              maxWidth: MediaQuery.sizeOf(context).width * 0.78,
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: mine
-                                  ? const Color(0xFF0F5549)
-                                  : Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
+            child: RefreshIndicator(
+              onRefresh: () => _loadConversation(),
+              child: _isLoading
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: const [
+                        SizedBox(height: 220),
+                        Center(child: CircularProgressIndicator()),
+                      ],
+                    )
+                  : _messages.isEmpty
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: const [
+                        SizedBox(height: 220),
+                        Center(
+                          child: Text(
+                            'No messages yet. Say hi!',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.separated(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),
+                      itemCount: _messages.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, i) {
+                        final msg = _messages[i];
+                        final mine = msg.senderId.trim() == me;
+                        return GestureDetector(
+                          onLongPress: () => _showMessageActions(msg),
+                          child: Align(
+                            alignment: mine
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: Container(
+                              constraints: BoxConstraints(
+                                maxWidth:
+                                    MediaQuery.sizeOf(context).width * 0.78,
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
                                 color: mine
                                     ? const Color(0xFF0F5549)
-                                    : const Color(0xFFD7E8E2),
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  msg.text,
-                                  style: TextStyle(
-                                    color: mine
-                                        ? Colors.white
-                                        : const Color(0xFF0F5549),
-                                    fontWeight: FontWeight.w600,
-                                    height: 1.3,
-                                  ),
+                                    : Colors.white,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: mine
+                                      ? const Color(0xFF0F5549)
+                                      : const Color(0xFFD7E8E2),
                                 ),
-                                if ((msg.imageFileId ?? '')
-                                    .trim()
-                                    .isNotEmpty) ...[
-                                  if (msg.text.trim().isNotEmpty)
-                                    const SizedBox(height: 8),
-                                  _DmImage(fileId: msg.imageFileId!),
-                                ],
-                                const SizedBox(height: 5),
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (msg.editedAt != null) ...[
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    msg.text,
+                                    style: TextStyle(
+                                      color: mine
+                                          ? Colors.white
+                                          : const Color(0xFF0F5549),
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                  if ((msg.imageFileId ?? '')
+                                      .trim()
+                                      .isNotEmpty) ...[
+                                    if (msg.text.trim().isNotEmpty)
+                                      const SizedBox(height: 8),
+                                    _DmImage(fileId: msg.imageFileId!),
+                                  ],
+                                  const SizedBox(height: 5),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (msg.editedAt != null) ...[
+                                        Text(
+                                          'edited',
+                                          style: TextStyle(
+                                            color: mine
+                                                ? Colors.white.withValues(
+                                                    alpha: 0.7,
+                                                  )
+                                                : Colors.black.withValues(
+                                                    alpha: 0.45,
+                                                  ),
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                      ],
                                       Text(
-                                        'edited',
+                                        _formatTime(msg.createdAt),
                                         style: TextStyle(
                                           color: mine
                                               ? Colors.white.withValues(
@@ -447,31 +458,16 @@ class _DirectMessageScreenState extends State<DirectMessageScreen> {
                                           fontWeight: FontWeight.w700,
                                         ),
                                       ),
-                                      const SizedBox(width: 6),
                                     ],
-                                    Text(
-                                      _formatTime(msg.createdAt),
-                                      style: TextStyle(
-                                        color: mine
-                                            ? Colors.white.withValues(
-                                                alpha: 0.7,
-                                              )
-                                            : Colors.black.withValues(
-                                                alpha: 0.45,
-                                              ),
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
+                        );
+                      },
+                    ),
+            ),
           ),
           SafeArea(
             top: false,

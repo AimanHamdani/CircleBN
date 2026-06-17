@@ -31,44 +31,56 @@ enum _ActivityTab { ticket, created, history }
 class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
   _ActivityTab _tab = _ActivityTab.ticket;
   final Set<String> _cancellingEventIds = <String>{};
+  final Map<String, Future<int>> _ticketIdFutureCache = <String, Future<int>>{};
   late Future<MembershipStatus> _membershipFuture;
-  late Future<List<Object?>> _activityPayloadFuture;
+  List<Event> _events = const <Event>[];
+  UserProfile? _profile;
+  bool _isInitialLoading = true;
 
   @override
   void initState() {
     super.initState();
     _membershipFuture = membershipRepository().getStatus();
-    _activityPayloadFuture = _loadActivityPayload();
-    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
+    _loadActivityPayload(showLoading: true);
   }
 
   @override
   void dispose() {
-    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
     super.dispose();
   }
 
-  void _handleGlobalDataChange() {
-    if (!mounted) {
-      return;
+  Future<void> _loadActivityPayload({required bool showLoading}) async {
+    if (showLoading && mounted) {
+      setState(() {
+        _isInitialLoading = true;
+      });
     }
-    setState(() {
-      _membershipFuture = membershipRepository().getStatus();
-      _activityPayloadFuture = _loadActivityPayload();
-    });
-  }
 
-  Future<List<Object?>> _loadActivityPayload() {
-    return Future.wait<Object?>([
+    final payload = await Future.wait<Object?>([
       eventRepository().listEvents(),
       profileRepository().getMyProfile(),
     ]);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _events = payload[0] as List<Event>;
+      _profile = payload[1] as UserProfile?;
+      _isInitialLoading = false;
+    });
   }
 
-  void _refreshActivityPayload() {
+  Future<void> _refreshActivityPayload() async {
     setState(() {
-      _activityPayloadFuture = _loadActivityPayload();
+      _ticketIdFutureCache.clear();
+      _membershipFuture = membershipRepository().getStatus();
     });
+    await Future.wait<void>([
+      _membershipFuture.then((_) {}),
+      _loadActivityPayload(showLoading: false),
+    ]);
   }
 
   String _headerTitleForTab(_ActivityTab tab) {
@@ -80,6 +92,17 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
       case _ActivityTab.history:
         return 'History';
     }
+  }
+
+  Future<int> _ticketIdFutureFor(String eventId) {
+    final cacheKey = '${eventId.trim()}::${currentUserId.trim()}';
+    return _ticketIdFutureCache.putIfAbsent(
+      cacheKey,
+      () => TicketService.generateTicketId(
+        eventId: eventId,
+        userId: currentUserId,
+      ),
+    );
   }
 
   @override
@@ -128,111 +151,102 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
             ),
           ),
           centerTitle: false,
-          actions: [
-            IconButton(
-              onPressed: _refreshActivityPayload,
-              tooltip: 'Refresh',
-              icon: const Icon(Icons.refresh),
-            ),
-          ],
         ),
-        body: FutureBuilder<List<Object?>>(
-          future: _activityPayloadFuture,
-          builder: (context, snap) {
-            if (snap.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
+
+        body: _buildBody(now),
+      ),
+    );
+  }
+
+  Widget _buildBody(DateTime now) {
+    if (_isInitialLoading && _events.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final fullName = _profile?.realName.trim().isNotEmpty == true
+        ? _profile!.realName.trim()
+        : '?';
+    bool isParticipant(Event event) =>
+        event.joinedByMe ||
+        (event.creatorId != null && event.creatorId == currentUserId);
+
+    final created = _events.where((event) {
+      if (event.creatorId == null || event.creatorId != currentUserId) {
+        return false;
+      }
+      final endAt = event.startAt.add(event.duration);
+      return endAt.isAfter(now);
+    }).toList()..sort((a, b) => a.startAt.compareTo(b.startAt));
+    final ticket = _events.where((event) {
+      if (!isParticipant(event)) {
+        return false;
+      }
+      final endAt = event.startAt.add(event.duration);
+      return endAt.isAfter(now);
+    }).toList()..sort((a, b) => a.startAt.compareTo(b.startAt));
+    final history = _events.where((event) {
+      if (!isParticipant(event)) {
+        return false;
+      }
+      final endAt = event.startAt.add(event.duration);
+      return !endAt.isAfter(now);
+    }).toList()..sort((a, b) => b.startAt.compareTo(a.startAt));
+
+    return Column(
+      children: [
+        _ActivityTabHeader(
+          selected: _tab,
+          onSelect: (tab) => setState(() => _tab = tab),
+        ),
+        FutureBuilder<MembershipStatus>(
+          future: _membershipFuture,
+          builder: (context, membershipSnap) {
+            if (membershipSnap.connectionState != ConnectionState.done &&
+                membershipSnap.data == null) {
+              return const SizedBox.shrink();
             }
-
-            final events = (snap.data != null
-                ? snap.data![0] as List<Event>
-                : const <Event>[]);
-            final profile = (snap.data != null
-                ? snap.data![1] as UserProfile?
-                : null);
-            final fullName = profile?.realName.trim().isNotEmpty == true
-                ? profile!.realName.trim()
-                : '—';
-            bool isParticipant(Event e) =>
-                e.joinedByMe ||
-                (e.creatorId != null && e.creatorId == currentUserId);
-
-            final created = events.where((e) {
-              if (e.creatorId == null || e.creatorId != currentUserId) {
-                return false;
-              }
-              final endAt = e.startAt.add(e.duration);
-              return endAt.isAfter(now);
-            }).toList()..sort((a, b) => a.startAt.compareTo(b.startAt));
-            final ticket = events.where((e) {
-              if (!isParticipant(e)) return false;
-              final endAt = e.startAt.add(e.duration);
-              return endAt.isAfter(now);
-            }).toList()..sort((a, b) => a.startAt.compareTo(b.startAt));
-            final history = events.where((e) {
-              if (!isParticipant(e)) return false;
-              final endAt = e.startAt.add(e.duration);
-              return !endAt.isAfter(now);
-            }).toList()..sort((a, b) => b.startAt.compareTo(a.startAt));
-
-            return Column(
-              children: [
-                _ActivityTabHeader(
-                  selected: _tab,
-                  onSelect: (t) => setState(() => _tab = t),
-                ),
-                FutureBuilder<MembershipStatus>(
-                  future: _membershipFuture,
-                  builder: (context, membershipSnap) {
-                    if (membershipSnap.connectionState !=
-                            ConnectionState.done &&
-                        membershipSnap.data == null) {
-                      return const SizedBox.shrink();
-                    }
-                    if (membershipSnap.data?.isPremium == true) {
-                      return const SizedBox.shrink();
-                    }
-                    return const AppAdBanner(
-                      padding: EdgeInsets.fromLTRB(18, 10, 18, 0),
-                    );
-                  },
-                ),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: _ActivityTabBody(
-                    tab: _tab,
-                    now: now,
-                    fullName: fullName,
-                    created: created,
-                    ticket: ticket,
-                    history: history,
-                    onOpenEvent:
-                        (
-                          event, {
-                          required bool allowCreatorActions,
-                          required bool showRegisterButton,
-                          DateTime? chatEnabledUntil,
-                        }) {
-                          Navigator.of(context).pushNamed(
-                            EventDetailScreen.routeName,
-                            arguments: EventDetailArgs(
-                              event: event,
-                              showRegisterButton: showRegisterButton,
-                              allowCreatorActions: allowCreatorActions,
-                              chatEnabledUntil: chatEnabledUntil,
-                            ),
-                          );
-                        },
-                    onCancelTicket: _cancelTicket,
-                    isCancellingEvent: (eventId) =>
-                        _cancellingEventIds.contains(eventId),
-                    onRefresh: () async => _refreshActivityPayload(),
-                  ),
-                ),
-              ],
+            if (membershipSnap.data?.isPremium == true) {
+              return const SizedBox.shrink();
+            }
+            return const AppAdBanner(
+              padding: EdgeInsets.fromLTRB(18, 10, 18, 0),
             );
           },
         ),
-      ),
+        const SizedBox(height: 12),
+        Expanded(
+          child: _ActivityTabBody(
+            tab: _tab,
+            now: now,
+            fullName: fullName,
+            created: created,
+            ticket: ticket,
+            history: history,
+            onOpenEvent:
+                (
+                  event, {
+                  required bool allowCreatorActions,
+                  required bool showRegisterButton,
+                  DateTime? chatEnabledUntil,
+                }) {
+                  Navigator.of(context).pushNamed(
+                    EventDetailScreen.routeName,
+                    arguments: EventDetailArgs(
+                      event: event,
+                      showRegisterButton: showRegisterButton,
+                      allowCreatorActions: allowCreatorActions,
+                      chatEnabledUntil: chatEnabledUntil,
+                    ),
+                  );
+                },
+            onCancelTicket: _cancelTicket,
+            isCancellingEvent: (eventId) =>
+                _cancellingEventIds.contains(eventId),
+            ticketIdFutureFor: _ticketIdFutureFor,
+            onRefresh: _refreshActivityPayload,
+          ),
+        ),
+      ],
     );
   }
 
@@ -264,6 +278,9 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
     }
     setState(() => _cancellingEventIds.add(event.id));
     try {
+      _ticketIdFutureCache.remove(
+        '${event.id.trim()}::${currentUserId.trim()}',
+      );
       await eventRegistrationRepository().cancel(
         eventId: event.id,
         userId: currentUserId,
@@ -286,7 +303,7 @@ class _ActivityOverviewScreenState extends State<ActivityOverviewScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Ticket cancelled.')));
-      // [AppwriteService.dataVersion] listener reloads; avoid duplicate list fetch.
+      await _refreshActivityPayload();
     } catch (_) {
       if (!mounted) {
         return;
@@ -391,6 +408,7 @@ class _ActivityTabBody extends StatelessWidget {
   onOpenEvent;
   final Future<void> Function(Event event) onCancelTicket;
   final bool Function(String eventId) isCancellingEvent;
+  final Future<int> Function(String eventId) ticketIdFutureFor;
   final Future<void> Function() onRefresh;
 
   const _ActivityTabBody({
@@ -403,6 +421,7 @@ class _ActivityTabBody extends StatelessWidget {
     required this.onOpenEvent,
     required this.onCancelTicket,
     required this.isCancellingEvent,
+    required this.ticketIdFutureFor,
     required this.onRefresh,
   });
 
@@ -536,7 +555,7 @@ class _ActivityTabBody extends StatelessWidget {
       return RefreshIndicator(
         onRefresh: onRefresh,
         child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(), 
+          physics: const AlwaysScrollableScrollPhysics(),
           children: [
             const SizedBox(height: 140),
             Center(
@@ -556,399 +575,401 @@ class _ActivityTabBody extends StatelessWidget {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
         itemBuilder: (context, idx) {
-        final e = list[idx];
-        final endAt = e.startAt.add(e.duration);
-        final dateTimeStr =
-            '${e.startAt.day}/${e.startAt.month}/${e.startAt.year.toString().substring(2)}';
-        final timeStr = _fmtTime(e.startAt);
-        final durationStr = _fmtDuration(e.startAt, e.duration);
-        final freezeHours = _freezeHoursFromLabel(e.cancellationFreeze);
-        final cancellationCutoff = e.startAt.subtract(
-          Duration(hours: freezeHours),
-        );
-        final canCancelNow = now.isBefore(cancellationCutoff);
+          final e = list[idx];
+          final endAt = e.startAt.add(e.duration);
+          final dateTimeStr =
+              '${e.startAt.day}/${e.startAt.month}/${e.startAt.year.toString().substring(2)}';
+          final timeStr = _fmtTime(e.startAt);
+          final durationStr = _fmtDuration(e.startAt, e.duration);
+          final freezeHours = _freezeHoursFromLabel(e.cancellationFreeze);
+          final cancellationCutoff = e.startAt.subtract(
+            Duration(hours: freezeHours),
+          );
+          final canCancelNow = now.isBefore(cancellationCutoff);
 
-        final card = Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFE3E7EE)),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(18),
-            onTap: () {
-              if (tab == _ActivityTab.created) {
-                onOpenEvent(
-                  e,
-                  allowCreatorActions: true,
-                  showRegisterButton: false,
-                );
-                return;
-              }
+          final card = Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFE3E7EE)),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: () {
+                if (tab == _ActivityTab.created) {
+                  onOpenEvent(
+                    e,
+                    allowCreatorActions: true,
+                    showRegisterButton: false,
+                  );
+                  return;
+                }
 
-              if (tab == _ActivityTab.history) {
+                if (tab == _ActivityTab.history) {
+                  onOpenEvent(
+                    e,
+                    allowCreatorActions: false,
+                    showRegisterButton: false,
+                    chatEnabledUntil: endAt.add(const Duration(days: 7)),
+                  );
+                  return;
+                }
+
+                // ticket
                 onOpenEvent(
                   e,
                   allowCreatorActions: false,
                   showRegisterButton: false,
-                  chatEnabledUntil: endAt.add(const Duration(days: 7)),
                 );
-                return;
-              }
+              },
+              child: tab == _ActivityTab.ticket
+                  ? FutureBuilder<int>(
+                      future: ticketIdFutureFor(e.id),
+                      builder: (context, ticketSnap) {
+                        final ticketId = ticketSnap.hasData
+                            ? ticketSnap.data
+                            : null;
+                        final ticketCode = ticketId != null
+                            ? ticketId.toString().padLeft(5, '0')
+                            : '-----';
+                        final qrData = ticketId != null
+                            ? TicketService.buildTicketQrData(
+                                event: e,
+                                userId: currentUserId,
+                                ticketId: ticketId,
+                              )
+                            : TicketService.buildLegacyUserLookupQrData(
+                                eventId: e.id,
+                                userId: currentUserId,
+                              );
+                        final eventDate = _fmtTemplateDate(e.startAt);
+                        final eventTime = _fmtTime(e.startAt);
+                        final validUntil = _fmtTime(e.startAt.add(e.duration));
+                        final location = e.location.trim().isEmpty
+                            ? 'TBA'
+                            : e.location;
 
-              // ticket
-              onOpenEvent(
-                e,
-                allowCreatorActions: false,
-                showRegisterButton: false,
-              );
-            },
-            child: tab == _ActivityTab.ticket
-                ? FutureBuilder<int>(
-                    future: TicketService.generateTicketId(
-                      eventId: e.id,
-                      userId: currentUserId,
-                    ),
-                    builder: (context, ticketSnap) {
-                      final ticketId = ticketSnap.hasData
-                          ? ticketSnap.data
-                          : null;
-                      final ticketCode = ticketId != null
-                          ? ticketId.toString().padLeft(5, '0')
-                          : '-----';
-                      final qrData = ticketId != null
-                          ? TicketService.buildTicketQrData(
-                              event: e,
-                              userId: currentUserId,
-                              ticketId: ticketId,
-                            )
-                          : TicketService.buildLegacyUserLookupQrData(
-                              eventId: e.id,
-                              userId: currentUserId,
-                            );
-                      final eventDate = _fmtTemplateDate(e.startAt);
-                      final eventTime = _fmtTime(e.startAt);
-                      final validUntil = _fmtTime(e.startAt.add(e.duration));
-                      final location = e.location.trim().isEmpty
-                          ? 'TBA'
-                          : e.location;
-
-                      return Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.black,
-                                borderRadius: BorderRadius.circular(24),
-                              ),
-                              padding: const EdgeInsets.all(10),
-                              child: Column(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(18),
-                                    child: Container(
-                                      color: const Color(0xFFF2F2F2),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.stretch,
-                                        children: [
-                                          Container(
-                                            height: 44,
-                                            color: const Color(0xFF00701F),
-                                            alignment: Alignment.center,
-                                            child: const Text(
-                                              'CIRCLE.BN',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 18,
-                                                letterSpacing: 1,
+                        return Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.black,
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                                padding: const EdgeInsets.all(10),
+                                child: Column(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(18),
+                                      child: Container(
+                                        color: const Color(0xFFF2F2F2),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
+                                          children: [
+                                            Container(
+                                              height: 44,
+                                              color: const Color(0xFF00701F),
+                                              alignment: Alignment.center,
+                                              child: const Text(
+                                                'CIRCLE.BN',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 18,
+                                                  letterSpacing: 1,
+                                                ),
                                               ),
                                             ),
-                                          ),
-                                          Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 14,
-                                              vertical: 26,
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 14,
+                                                    vertical: 26,
+                                                  ),
+                                              child: Text(
+                                                e.title.toUpperCase(),
+                                                textAlign: TextAlign.center,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: Colors.black,
+                                                  fontSize: 32,
+                                                  height: 1,
+                                                  letterSpacing: 0.4,
+                                                  fontWeight: FontWeight.w400,
+                                                ),
+                                              ),
                                             ),
-                                            child: Text(
-                                              e.title.toUpperCase(),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 4,
+                                      ),
+                                      child: _buildTemplateTearLine(),
+                                    ),
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(18),
+                                      child: Container(
+                                        width: double.infinity,
+                                        color: const Color(0xFFF2F2F2),
+                                        padding: const EdgeInsets.fromLTRB(
+                                          16,
+                                          18,
+                                          16,
+                                          18,
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
+                                          children: [
+                                            Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Expanded(
+                                                  child: _buildTemplateField(
+                                                    label: 'NAME',
+                                                    value: fullName,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: _buildTemplateField(
+                                                    label: 'DATE',
+                                                    value: eventDate,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 16),
+                                            Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Expanded(
+                                                  child: _buildTemplateField(
+                                                    label: 'TICKET ID',
+                                                    value: ticketCode,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: _buildTemplateField(
+                                                    label: 'TIME',
+                                                    value: eventTime,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 16),
+                                            Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Expanded(
+                                                  child: _buildTemplateField(
+                                                    label: 'SPORT',
+                                                    value: e.sport,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: _buildTemplateField(
+                                                    label: 'VALID UNTIL',
+                                                    value: validUntil,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 16),
+                                            Center(
+                                              child: Container(
+                                                color: Colors.white,
+                                                padding: const EdgeInsets.all(
+                                                  8,
+                                                ),
+                                                child: QrImageView(
+                                                  data: qrData,
+                                                  version: QrVersions.auto,
+                                                  size: 190,
+                                                  backgroundColor: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 10),
+                                            Container(
+                                              height: 2,
+                                              color: Colors.black,
+                                            ),
+                                            const SizedBox(height: 8),
+                                            const Text(
+                                              'Present this QR code at the entrance',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.black,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              'Valid until ${_fmtTime(e.startAt.add(e.duration))}',
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(
+                                                fontSize: 11,
+                                                color: Color(0xFF666666),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 14),
+                                            const Text(
+                                              'LOCATION',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Color(0xFF666666),
+                                                letterSpacing: 0.2,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              location.toUpperCase(),
                                               textAlign: TextAlign.center,
                                               maxLines: 2,
                                               overflow: TextOverflow.ellipsis,
                                               style: const TextStyle(
+                                                fontSize: 20,
                                                 color: Colors.black,
-                                                fontSize: 32,
-                                                height: 1,
-                                                letterSpacing: 0.4,
-                                                fontWeight: FontWeight.w400,
+                                                fontWeight: FontWeight.w800,
                                               ),
                                             ),
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 4,
-                                    ),
-                                    child: _buildTemplateTearLine(),
-                                  ),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(18),
-                                    child: Container(
-                                      width: double.infinity,
-                                      color: const Color(0xFFF2F2F2),
-                                      padding: const EdgeInsets.fromLTRB(
-                                        16,
-                                        18,
-                                        16,
-                                        18,
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                canCancelNow
+                                    ? 'Cancellation allowed until ${_fmtTime(cancellationCutoff)}'
+                                    : 'Cancellation freeze started (${e.cancellationFreeze})',
+                                style: TextStyle(
+                                  color: canCancelNow
+                                      ? Colors.black54
+                                      : Colors.red.shade300,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  if (canCancelNow)
+                                    TextButton(
+                                      onPressed: isCancellingEvent(e.id)
+                                          ? null
+                                          : () => onCancelTicket(e),
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: Colors.red.shade400,
                                       ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.stretch,
-                                        children: [
-                                          Row(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Expanded(
-                                                child: _buildTemplateField(
-                                                  label: 'NAME',
-                                                  value: fullName,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 12),
-                                              Expanded(
-                                                child: _buildTemplateField(
-                                                  label: 'DATE',
-                                                  value: eventDate,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 16),
-                                          Row(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Expanded(
-                                                child: _buildTemplateField(
-                                                  label: 'TICKET ID',
-                                                  value: ticketCode,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 12),
-                                              Expanded(
-                                                child: _buildTemplateField(
-                                                  label: 'TIME',
-                                                  value: eventTime,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 16),
-                                          Row(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Expanded(
-                                                child: _buildTemplateField(
-                                                  label: 'SPORT',
-                                                  value: e.sport,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 12),
-                                              Expanded(
-                                                child: _buildTemplateField(
-                                                  label: 'VALID UNTIL',
-                                                  value: validUntil,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 16),
-                                          Center(
-                                            child: Container(
-                                              color: Colors.white,
-                                              padding: const EdgeInsets.all(8),
-                                              child: QrImageView(
-                                                data: qrData,
-                                                version: QrVersions.auto,
-                                                size: 190,
-                                                backgroundColor: Colors.white,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 10),
-                                          Container(
-                                            height: 2,
-                                            color: Colors.black,
-                                          ),
-                                          const SizedBox(height: 8),
-                                          const Text(
-                                            'Present this QR code at the entrance',
-                                            textAlign: TextAlign.center,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.black,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            'Valid until ${_fmtTime(e.startAt.add(e.duration))}',
-                                            textAlign: TextAlign.center,
-                                            style: const TextStyle(
-                                              fontSize: 11,
-                                              color: Color(0xFF666666),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 14),
-                                          const Text(
-                                            'LOCATION',
-                                            textAlign: TextAlign.center,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Color(0xFF666666),
-                                              letterSpacing: 0.2,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            location.toUpperCase(),
-                                            textAlign: TextAlign.center,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontSize: 20,
-                                              color: Colors.black,
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                        ],
+                                      child: Text(
+                                        isCancellingEvent(e.id)
+                                            ? 'Cancelling...'
+                                            : 'Cancel',
                                       ),
                                     ),
-                                  ),
                                 ],
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              canCancelNow
-                                  ? 'Cancellation allowed until ${_fmtTime(cancellationCutoff)}'
-                                  : 'Cancellation freeze started (${e.cancellationFreeze})',
-                              style: TextStyle(
-                                color: canCancelNow
-                                    ? Colors.black54
-                                    : Colors.red.shade300,
-                                fontSize: 12,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                if (canCancelNow)
-                                  TextButton(
-                                    onPressed: isCancellingEvent(e.id)
-                                        ? null
-                                        : () => onCancelTicket(e),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: Colors.red.shade400,
-                                    ),
+                            ],
+                          ),
+                        );
+                      },
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        EventThumbnailHeader(event: e),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
                                     child: Text(
-                                      isCancellingEvent(e.id)
-                                          ? 'Cancelling...'
-                                          : 'Cancel',
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      EventThumbnailHeader(event: e),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    e.title,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                ),
-                                if (tab == _ActivityTab.created)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .primary
-                                          .withValues(alpha: 0.12),
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: Text(
-                                      'Edit',
-                                      style: TextStyle(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary,
-                                        fontWeight: FontWeight.w800,
+                                      e.title,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
                                       ),
                                     ),
                                   ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Location: ${e.location}',
-                              style: const TextStyle(
-                                color: Colors.black54,
-                                fontSize: 12,
+                                  if (tab == _ActivityTab.created)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary
+                                            .withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        'Edit',
+                                        style: TextStyle(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.primary,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Date: $dateTimeStr  Time: $timeStr',
-                              style: const TextStyle(
-                                color: Colors.black54,
-                                fontSize: 12,
+                              const SizedBox(height: 6),
+                              Text(
+                                'Location: ${e.location}',
+                                style: const TextStyle(
+                                  color: Colors.black54,
+                                  fontSize: 12,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Duration: $durationStr',
-                              style: const TextStyle(
-                                color: Colors.black54,
-                                fontSize: 12,
+                              const SizedBox(height: 4),
+                              Text(
+                                'Date: $dateTimeStr  Time: $timeStr',
+                                style: const TextStyle(
+                                  color: Colors.black54,
+                                  fontSize: 12,
+                                ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 4),
+                              Text(
+                                'Duration: $durationStr',
+                                style: const TextStyle(
+                                  color: Colors.black54,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-          ),
-        );
+                      ],
+                    ),
+            ),
+          );
 
-        return card;
+          return card;
         },
         separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemCount: list.length,

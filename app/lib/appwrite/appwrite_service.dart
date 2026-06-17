@@ -10,6 +10,8 @@ class AppwriteService {
   AppwriteService._();
 
   static final ValueNotifier<int> dataVersion = ValueNotifier<int>(0);
+  static final Map<String, Future<Uint8List>> _fileViewFutureCache =
+      <String, Future<Uint8List>>{};
 
   static final Client _client = Client()
     ..setEndpoint(AppwriteConfig.endpoint)
@@ -140,6 +142,7 @@ class AppwriteService {
         file: inputFile,
         permissions: permissions,
       );
+      _evictFileViewBytes(bucketId: bucketId, fileId: resolvedFileId);
       _bumpDataVersion();
       return created;
     } on AppwriteException catch (e) {
@@ -157,7 +160,15 @@ class AppwriteService {
     required String bucketId,
     required String fileId,
   }) async {
-    return await storage.getFileView(bucketId: bucketId, fileId: fileId);
+    final cacheKey = _fileViewCacheKey(bucketId: bucketId, fileId: fileId);
+    return await _fileViewFutureCache.putIfAbsent(cacheKey, () async {
+      try {
+        return await storage.getFileView(bucketId: bucketId, fileId: fileId);
+      } catch (_) {
+        _fileViewFutureCache.remove(cacheKey);
+        rethrow;
+      }
+    });
   }
 
   static Uri getFileDownloadUri({
@@ -179,6 +190,7 @@ class AppwriteService {
   }) async {
     try {
       await storage.deleteFile(bucketId: bucketId, fileId: fileId);
+      _evictFileViewBytes(bucketId: bucketId, fileId: fileId);
       _bumpDataVersion();
     } on AppwriteException catch (e) {
       // If the file is already deleted or inaccessible, treat as best-effort.
@@ -257,6 +269,22 @@ class AppwriteService {
 
   static void _bumpDataVersion() {
     dataVersion.value = dataVersion.value + 1;
+  }
+
+  static String _fileViewCacheKey({
+    required String bucketId,
+    required String fileId,
+  }) {
+    return '${bucketId.trim()}::${fileId.trim()}';
+  }
+
+  static void _evictFileViewBytes({
+    required String bucketId,
+    required String fileId,
+  }) {
+    _fileViewFutureCache.remove(
+      _fileViewCacheKey(bucketId: bucketId, fileId: fileId),
+    );
   }
 
   /// Notifies [dataVersion] listeners to reload database-backed UI.

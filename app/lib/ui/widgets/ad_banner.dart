@@ -17,6 +17,7 @@ class AppAdBanner extends StatefulWidget {
   final double height;
   final BorderRadius borderRadius;
   final Color backgroundColor;
+  final bool autoRotate;
 
   const AppAdBanner({
     super.key,
@@ -24,6 +25,7 @@ class AppAdBanner extends StatefulWidget {
     this.height = 76,
     this.borderRadius = const BorderRadius.all(Radius.circular(12)),
     this.backgroundColor = const Color(0xFFF1F3F5),
+    this.autoRotate = false,
   });
 
   @override
@@ -50,7 +52,7 @@ class _AppAdBannerState extends State<AppAdBanner> {
   }
 
   void _startAutoSlide() {
-    if (AppAdCreatives.all.length <= 1) {
+    if (!widget.autoRotate || AppAdCreatives.all.length <= 1) {
       return;
     }
     _autoSlideTimer?.cancel();
@@ -116,7 +118,9 @@ class _AppAdBannerState extends State<AppAdBanner> {
                                     decoration: BoxDecoration(
                                       color: i == _currentIndex
                                           ? Colors.white
-                                          : Colors.white.withValues(alpha: 0.55),
+                                          : Colors.white.withValues(
+                                              alpha: 0.55,
+                                            ),
                                       borderRadius: BorderRadius.circular(99),
                                     ),
                                   ),

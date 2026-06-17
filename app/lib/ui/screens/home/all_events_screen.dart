@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../appwrite/appwrite_service.dart';
 import '../../../data/event_repository.dart';
 import '../../../data/profile_repository.dart';
 import '../../../data/sample_clubs.dart';
@@ -21,7 +20,9 @@ class AllEventsScreen extends StatefulWidget {
 }
 
 enum _AllEventsTimeBand { morning, afternoon, night }
+
 enum _AllEventsAvailability { open, full }
+
 enum _AllEventsFeeType { free, paid }
 
 const List<String> _allEventsSkillOptions = <String>[
@@ -51,20 +52,11 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
   void initState() {
     super.initState();
     _refreshData();
-    AppwriteService.dataVersion.addListener(_handleGlobalDataChange);
   }
 
   @override
   void dispose() {
-    AppwriteService.dataVersion.removeListener(_handleGlobalDataChange);
     super.dispose();
-  }
-
-  void _handleGlobalDataChange() {
-    if (!mounted) {
-      return;
-    }
-    setState(_refreshData);
   }
 
   void _refreshData() {
@@ -193,8 +185,7 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
               events = events
                   .where(
                     (e) =>
-                        _normalizeSkillLevelLabel(e.skillLevel)
-                            .toLowerCase() ==
+                        _normalizeSkillLevelLabel(e.skillLevel).toLowerCase() ==
                         level,
                   )
                   .toList();
